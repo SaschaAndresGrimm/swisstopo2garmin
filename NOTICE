@@ -1,0 +1,42 @@
+swisstopo2garmin
+Copyright (C) 2026 Sascha Grimm
+
+This program is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License as published by the Free Software Foundation,
+either version 3 of the License, or (at your option) any later version. See LICENSE.
+
+--------------------------------------------------------------------------------
+Data
+--------------------------------------------------------------------------------
+Map data © swisstopo (Federal Office of Topography).
+Source: https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices
+
+swisstopo open government data is free to use for any purpose and requires the source
+to be indicated. Generated maps carry this attribution in their metadata, and the
+application displays it in the interface.
+
+Datasets used:
+  swissTLM3D          ch.swisstopo.swisstlm3d
+  swissTLM3D Wanderwege  ch.swisstopo.swisstlm3d-wanderwege
+  swissALTI3D         ch.swisstopo.swissalti3d
+  swissALTIRegio      ch.swisstopo.swissaltiregio
+  swissTLMRegio       ch.swisstopo.swisstlmregio
+  National map raster ch.swisstopo.pixelkarte-farbe (palette reference only)
+
+--------------------------------------------------------------------------------
+Bundled third-party tools
+--------------------------------------------------------------------------------
+These are fetched by vendor/fetch_tools.py and invoked as separate processes; they are
+not linked into this program.
+
+  mkgmap    GPL-2.0        https://www.mkgmap.org.uk/
+  splitter  GPL-2.0        https://www.mkgmap.org.uk/
+  Eclipse Temurin JRE/JDK  GPL-2.0 with Classpath Exception
+                           https://adoptium.net/
+
+--------------------------------------------------------------------------------
+Trademarks
+--------------------------------------------------------------------------------
+Garmin, Edge, fenix and epix are trademarks of Garmin Ltd. or its subsidiaries, used
+here only descriptively to identify compatible devices. This project is not affiliated
+with, endorsed by, or sponsored by Garmin.
