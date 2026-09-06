@@ -142,7 +142,10 @@ pub struct BuildOptions {
     pub typ_file: PathBuf,
     /// Directory of `.hgt` tiles for relief shading, if any (FR-CART8).
     pub dem_dir: Option<PathBuf>,
-    /// One distance per entry in the style's `levels`.
+    /// DEM resolution per zoom level. **Must have exactly one entry per level in the
+    /// style's `levels` option**, or mkgmap aborts with "More dem-dist values than
+    /// levels". The handlebar style has 5 levels and the wrist style 4, so this cannot
+    /// be a fixed list — use [`BuildOptions::with_dem`].
     pub dem_dists: Vec<u32>,
     pub max_nodes: u32,
     /// Draw above other enabled maps on the device.
@@ -151,14 +154,46 @@ pub struct BuildOptions {
     pub max_heap_mb: u32,
 }
 
+/// Number of zoom levels declared by a style's `options` file.
+pub fn style_level_count(style_dir: &Path) -> Result<usize> {
+    let path = style_dir.join("options");
+    let text = std::fs::read_to_string(&path).map_err(|e| Error::io(&path, e))?;
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("levels") && l.contains('='))
+        .ok_or_else(|| Error::NotFound(format!("no `levels` in {}", path.display())))?;
+    let rhs = line.split_once('=').map(|(_, r)| r).unwrap_or("");
+    let n = rhs.split(',').filter(|p| p.contains(':')).count();
+    if n == 0 {
+        return Err(Error::Zip(format!(
+            "could not parse levels from {}: {line:?}",
+            path.display()
+        )));
+    }
+    Ok(n)
+}
+
 impl BuildOptions {
+    /// Attach DEM data, deriving one resolution per style level.
+    ///
+    /// Each level is half the resolution of the previous one, starting from the
+    /// 1 arc-second spacing mkgmap documents (3314).
+    pub fn with_dem(mut self, dem_dir: PathBuf) -> Result<Self> {
+        let levels = style_level_count(&self.style_dir)?;
+        self.dem_dists = (0..levels).map(|i| 3314u32 << i).collect();
+        self.dem_dir = Some(dem_dir);
+        Ok(self)
+    }
+
     pub fn new(identity: MapIdentity, style_dir: PathBuf, typ_file: PathBuf) -> Self {
         Self {
             identity,
             style_dir,
             typ_file,
             dem_dir: None,
-            dem_dists: vec![3314, 6628, 13256, 26512, 53024],
+            // Empty until with_dem() derives one value per style level.
+            dem_dists: Vec::new(),
             max_nodes: 700_000,
             draw_priority: 30,
             // 1252 keeps mixed case and Swiss characters; validated on hardware.
@@ -277,11 +312,18 @@ pub fn compile(
         .arg(format!("--overview-mapnumber={}", id.overview_mapnumber()));
 
     if let Some(dem) = &opts.dem_dir {
-        cmd.arg(format!("--dem={}", dem.display()));
-        if !opts.dem_dists.is_empty() {
-            let dists: Vec<String> = opts.dem_dists.iter().map(|d| d.to_string()).collect();
-            cmd.arg(format!("--dem-dists={}", dists.join(",")));
+        let levels = style_level_count(&opts.style_dir)?;
+        if opts.dem_dists.len() != levels {
+            return Err(Error::Zip(format!(
+                "--dem-dists has {} values but the style at {} declares {levels} levels; \
+                 mkgmap requires exactly one per level",
+                opts.dem_dists.len(),
+                opts.style_dir.display()
+            )));
         }
+        cmd.arg(format!("--dem={}", dem.display()));
+        let dists: Vec<String> = opts.dem_dists.iter().map(|d| d.to_string()).collect();
+        cmd.arg(format!("--dem-dists={}", dists.join(",")));
     }
     for t in tiles {
         cmd.arg(t);

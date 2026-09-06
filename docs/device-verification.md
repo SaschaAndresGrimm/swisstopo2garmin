@@ -11,14 +11,32 @@ fēnix 7/8 that ships multi-gigabyte TopoActive maps. Measure, don't inherit.
 
 ## A. Smoke test (this is the Milestone 0 go/no-go gate)
 
-Test map in `out/`:
+Test maps in `out/`. **Install one at a time** — delete the previous
+`gmapsupp.img` first — although they use different family ids (6324 / 6325) and
+different overview map numbers, so they can coexist if you want to compare.
 
-| File | Coverage | Size | Contents |
-|---|---|---|---|
-| `gmapsupp-Grindelwald-REAL.img` | Grindelwald 8 km radius (~256 km²), 46.6234N 8.0382E | 2.17 MB | Landeskarte styling, 20 m contours, mixed-case labels |
+| File | For | Size | Cartography | DEM |
+|---|---|---:|---|:--:|
+| `gmapsupp-Grindelwald-edge840.img` | Edge 840 | 2.63 MB | handlebar | yes |
+| `gmapsupp-Grindelwald-fenix.img` | fenix | 2.14 MB | wrist (reduced) | yes |
 
-Earlier builds were deleted: they were centred on a <20-inhabitant hamlet also named
-Grindelwald, 45 km north (docs/m0-findings.md §4.9).
+Both cover Grindelwald at an 8 km radius (256 km²) with 20 m contours, blue over ice.
+The wrist build carries 20% less geometry and 73% fewer labels, and drops buildings,
+parking and orchards.
+
+### What specifically needs your eyes
+
+| # | Check | Why it matters |
+|---|---|---|
+| 1 | **Shaded relief on the Edge 840** | The single largest step toward the raster Landeskarte look (FR-CART8). The map carries a 230 KB DEM subfile per tile. Unverified — DEM support varies by model, and if it does not work, porting DEM generation to Rust is wasted effort. |
+| 2 | **Shaded relief on the fenix** | Same, and even less certain on a watch. |
+| 3 | **Wrist legibility** | Is the reduced style readable, or still too dense? Line weights are 40% thinner and detail appears one zoom level later. This is a judgement call I cannot make from a desktop preview. |
+| 4 | **Rock and wetland texture** | These are TYP bitmap pattern fills. The desktop preview cannot draw them at all — it approximates them as a flat tint — so hardware is the only way to see whether the hachures read as rock. |
+| 5 | **Trail classes on a wrist screen** | Yellow / red-white / blue-white must stay distinguishable at 1.3 inch. |
+| 6 | **Both maps installed together** | Confirms the family id and overview map number allocation avoids collisions (§4.6). |
+
+Then the limits in section B, which is what promotes `edge-840` from `community` to
+`measured` confidence.
 
 ### If the map lists but nothing draws
 

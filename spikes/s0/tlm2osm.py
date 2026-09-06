@@ -203,6 +203,7 @@ def main() -> None:
     ap.add_argument("--place", help="centre the bbox on a settlement name")
     ap.add_argument("--radius-km", type=float, default=6.0)
     ap.add_argument("-o", "--out", default="out.osm")
+    ap.add_argument("--bbox-out", help="write the resolved LV95 bbox here, for later stages")
     args = ap.parse_args()
 
     root = cache_dir() / "ch.swisstopo.swisstlm3d"
@@ -257,6 +258,12 @@ def main() -> None:
     area = (maxe - mine) * (maxn - minn) / 1e6
     print(f"bbox LV95  : {mine:.0f} {minn:.0f} {maxe:.0f} {maxn:.0f}  ({area:.0f} km2)")
     print(f"bbox WGS84 : {lon0:.5f} {lat0:.5f} {lon1:.5f} {lat1:.5f}")
+
+    if args.bbox_out:
+        # Later stages need the same bbox. Passing it through a file avoids
+        # re-deriving it, which previously duplicated the place-name disambiguation
+        # in a shell heredoc and got it wrong.
+        Path(args.bbox_out).write_text(f"{mine:.0f} {minn:.0f} {maxe:.0f} {maxn:.0f}\n")
 
     nodes: dict[tuple[int, int], int] = {}
     node_lines: list[str] = []

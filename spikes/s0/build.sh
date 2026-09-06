@@ -8,6 +8,18 @@ RADIUS="${2:-6}"
 INTERVAL="${3:-20}"
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# Cartography variant. The wrist build uses the reduced style and thinner linework
+# (FR-CART6); a handlebar-density map is unreadable on a ~1.3 inch screen.
+STYLE_NAME="${S2G_STYLE:-swisstopo}"
+STYLE_DIR="$REPO/style/$STYLE_NAME"
+TYP_FILE="$REPO/typ/${STYLE_NAME}.txt"
+SUFFIX="${S2G_SUFFIX:-}"
+
+# mkgmap needs exactly one --dem-dist per style level, and the wrist style has fewer
+# levels than the handlebar one. Derive the list rather than hardcoding it.
+LEVELS=$(grep -E "^levels" "$REPO/style/$STYLE_NAME/options" | tr ',' '\n' | grep -c ':')
+DEM_DISTS=$(python3 -c "print(','.join(str(3314 << i) for i in range($LEVELS)))")
 source "$REPO/vendor/toolchain.env"
 
 WORK="${S2G_WORK:-$REPO/work}/$PLACE"
@@ -16,30 +28,15 @@ mkdir -p "$WORK" "$OUT"
 
 # The TYP is generated from the measured swisstopo palette; never edit it by hand.
 python3 "$REPO/tools/make_typ.py"
+python3 "$REPO/tools/make_wrist_style.py"
 python3 "$REPO/spikes/s0/checkstyle.py" >/dev/null || {
   echo "style/TYP mismatch -- polygons would be invisible on the device"; exit 1; }
 
 echo "=== 1/6  clip swissTLM3D around $PLACE (${RADIUS} km)"
 python3 "$REPO/spikes/s0/tlm2osm.py" --place "$PLACE" --radius-km "$RADIUS" \
-        -o "$WORK/vector.osm"
+        -o "$WORK/vector.osm" --bbox-out "$WORK/bbox.txt"
 
-# derive the LV95 bbox the converter used, for the contour stage
-BBOX=$(python3 - "$PLACE" "$RADIUS" <<'PY'
-import sys, sqlite3, pathlib
-sys.path.insert(0, str(pathlib.Path(__file__).parent))
-sys.path.insert(0, str(pathlib.Path("REPO_PLACEHOLDER")/"spikes"/"s0"))
-from stac import cache_dir
-from tlm2osm import parse_gpkg_geom
-gpkg = sorted((cache_dir()/"ch.swisstopo.swisstlm3d").glob("*/*.gpkg"))[-1]
-con = sqlite3.connect(f"file:{gpkg}?mode=ro", uri=True)
-row = con.execute("SELECT geom FROM tlm_namen_siedlungsname_zentrum WHERE name=? LIMIT 1",
-                  (sys.argv[1],)).fetchone()
-_, rings = parse_gpkg_geom(row[0]); e, n = rings[0][0]
-r = float(sys.argv[2])*1000
-print(f"{e-r:.0f} {n-r:.0f} {e+r:.0f} {n+r:.0f}")
-PY
-)
-BBOX=${BBOX//REPO_PLACEHOLDER/$REPO}
+BBOX="$(cat "$WORK/bbox.txt")"
 
 echo "=== 2/6  contours at ${INTERVAL} m from swissALTI3D"
 GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR GDAL_HTTP_MULTIPLEX=YES VSI_CACHE=TRUE \
@@ -65,7 +62,7 @@ OVNUM="${FID}0000"
 echo "=== 5/6  mkgmap: tiles + overview map"
 rm -rf "$WORK/img"; mkdir -p "$WORK/img"; cd "$WORK/img"
 "$JAVA_BIN" -Xmx4g -jar "$MKGMAP_JAR" \
-  --style-file="$REPO/style/swisstopo" \
+  --style-file="$STYLE_DIR" \
   --tdbfile --index --code-page=1252 --lower-case \
   --family-id="$FID" --product-id=1 \
   --family-name="swisstopo2garmin" \
@@ -73,15 +70,15 @@ rm -rf "$WORK/img"; mkdir -p "$WORK/img"; cd "$WORK/img"
   --description="swissTLM3D (c) swisstopo" \
   --draw-priority=30 \
   --overview-mapname=ovm --overview-mapnumber="$OVNUM" \
-  --dem="$WORK/dem" --dem-dists=3314,6628,13256,26512,53024 \
-  "$WORK/tiles"/*.osm.pbf "$REPO/typ/swisstopo.txt" | grep -iE "^ *(error|.*Exception:)" || true
+  --dem="$WORK/dem" --dem-dists="$DEM_DISTS" \
+  "$WORK/tiles"/*.osm.pbf "$TYP_FILE" | grep -iE "^ *(error|.*Exception:)" || true
 
 echo "=== 6/6  mkgmap: combine into gmapsupp"
 "$JAVA_BIN" -Xmx4g -jar "$MKGMAP_JAR" --gmapsupp --index \
   --family-id="$FID" --product-id=1 \
   ${FID}*.img ovm.img *.typ | grep -iE "^ *(error|.*Exception:)" || true
 
-cp gmapsupp.img "$OUT/gmapsupp-${PLACE}.img"
+cp gmapsupp.img "$OUT/gmapsupp-${PLACE}${SUFFIX}.img"
 
 # Desktop preview: dump the compiled map with mkgmap's own reader, then render
 # it through the project TYP palette (SPEC.md FR-CART7).
@@ -93,10 +90,10 @@ if [ -f "$REPO/tools/imgdump/ImgDump.class" ]; then
         > "${t%.img}.tsv" 2>/dev/null
   done
   python3 "$REPO/tools/render.py" ${FID}0*.tsv --level 0 \
-      -o "$OUT/preview-${PLACE}.png" --width 13 || true
+      -o "$OUT/preview-${PLACE}${SUFFIX}.png" --width 13 --typ "$TYP_FILE" || true
 fi
 echo
-python3 "$REPO/spikes/s0/imgcheck.py" "$OUT/gmapsupp-${PLACE}.img"
+python3 "$REPO/spikes/s0/imgcheck.py" "$OUT/gmapsupp-${PLACE}${SUFFIX}.img"
 echo
-echo "-> $OUT/gmapsupp-${PLACE}.img"
+echo "-> $OUT/gmapsupp-${PLACE}${SUFFIX}.img"
 echo "   Copy to the device as /Garmin/gmapsupp.img (see docs/device-verification.md)"

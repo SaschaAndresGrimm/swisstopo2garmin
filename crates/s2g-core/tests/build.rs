@@ -259,3 +259,37 @@ fn builds_a_verified_gmapsupp_from_the_fixture() {
         verdict.warnings
     );
 }
+
+#[test]
+fn dem_dists_are_derived_per_style_and_mismatches_are_caught() {
+    use s2g_core::garmin::style_level_count;
+
+    // mkgmap aborts with "More dem-dist values than levels" if these disagree, and the
+    // handlebar and wrist styles deliberately have different level counts.
+    let handlebar = repo_root().join("style/swisstopo");
+    let wrist = repo_root().join("style/swisstopo-wrist");
+    let hl = style_level_count(&handlebar).unwrap();
+    let wl = style_level_count(&wrist).unwrap();
+    assert!(
+        hl >= 4,
+        "handlebar style should have several levels, got {hl}"
+    );
+    assert!(
+        wl < hl,
+        "the wrist style should have fewer levels ({wl} vs {hl})"
+    );
+
+    let id = MapIdentity::for_recipe("k", "n");
+    for (dir, want) in [(handlebar, hl), (wrist, wl)] {
+        let opts = BuildOptions::new(id.clone(), dir, repo_root().join("typ/swisstopo.txt"))
+            .with_dem(PathBuf::from("/tmp/dem"))
+            .unwrap();
+        assert_eq!(opts.dem_dists.len(), want, "one dem-dist per level");
+        // Each level halves the resolution of the previous one.
+        for w in opts.dem_dists.windows(2) {
+            assert_eq!(w[1], w[0] * 2);
+        }
+    }
+
+    assert!(style_level_count(Path::new("/definitely/not/a/style")).is_err());
+}
