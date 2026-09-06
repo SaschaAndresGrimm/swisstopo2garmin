@@ -462,6 +462,12 @@ pub struct Recipe {
     /// recipes saved before winter existed still load.
     #[serde(default)]
     pub palette: Palette,
+    /// Which language to label in (SPEC.md FR-53).
+    ///
+    /// Defaults to the local name, which is the correct default for Switzerland and the
+    /// only option needing no extra dataset.
+    #[serde(default)]
+    pub label_language: crate::names::LabelLanguage,
     /// Draw slope classes over 30° (SPEC.md FR-CART12).
     ///
     /// Off by default: the classes cover whole mountainsides, and on a summer hiking
@@ -485,6 +491,7 @@ impl Recipe {
             relief: ReliefDetail::Gentle,
             palette: Palette::Summer,
             slope_classes: false,
+            label_language: crate::names::LabelLanguage::Local,
             excluded_layers: Vec::new(),
         }
     }
@@ -503,7 +510,7 @@ impl Recipe {
     pub fn cache_key(&self) -> String {
         let b = self.area.bbox();
         format!(
-            "{}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{:?}|{}|{}|{}",
+            "{}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{:?}|{}|{}|{}|{}",
             self.device_id,
             b.min_e,
             b.min_n,
@@ -516,6 +523,7 @@ impl Recipe {
             self.relief,
             self.palette.id(),
             self.slope_classes,
+            self.label_language.id(),
             self.excluded_layers.join(",")
         )
     }

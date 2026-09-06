@@ -16,6 +16,9 @@ pub const TLM3D: &str = "ch.swisstopo.swisstlm3d";
 pub const ALTI3D: &str = "ch.swisstopo.swissalti3d";
 pub const ALTIREGIO: &str = "ch.swisstopo.swissaltiregio";
 pub const WANDERWEGE: &str = "ch.swisstopo.swisstlm3d-wanderwege";
+
+/// Named features with a language code, for label language (SPEC.md FR-53).
+pub const NAMES3D: &str = "ch.swisstopo.swissnames3d";
 pub const TLMREGIO: &str = "ch.swisstopo.swisstlmregio";
 
 /// Administrative boundaries: cantons, districts and communes (SPEC.md FR-33).
@@ -104,6 +107,8 @@ pub enum AssetKind {
     ZippedGeoPackage,
     /// A zip holding shapefile components.
     ZippedShapefiles,
+    /// A zip holding CSV tables.
+    ZippedCsv,
     /// A GeoPackage published directly, with no archive around it.
     PlainGeoPackage,
 }
@@ -131,8 +136,11 @@ impl Item {
         // Order matters: a GeoPackage is preferred over a shapefile because it needs no
         // dBASE decoding, and the zipped form is listed first because most collections
         // publish only that.
-        const PREFERENCE: [(&str, AssetKind); 3] = [
+        // CSV before shapefiles where both exist: swissNAMES3D's CSV is 27 MB against
+        // 233 MB of shapefile for the same records, and only the attributes are wanted.
+        const PREFERENCE: [(&str, AssetKind); 4] = [
             (".gpkg.zip", AssetKind::ZippedGeoPackage),
+            (".csv.zip", AssetKind::ZippedCsv),
             (".shp.zip", AssetKind::ZippedShapefiles),
             (".gpkg", AssetKind::PlainGeoPackage),
         ];
@@ -142,7 +150,7 @@ impl Item {
             }
         }
         Err(Error::NotFound(format!(
-            "item {} publishes no GeoPackage or shapefile asset; available: {:?}",
+            "item {} publishes no GeoPackage, CSV or shapefile asset; available: {:?}",
             self.id,
             self.assets.iter().map(|a| &a.name).collect::<Vec<_>>()
         )))

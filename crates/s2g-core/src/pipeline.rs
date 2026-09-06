@@ -134,6 +134,28 @@ async fn build_region(
     // from it happens here, and the handle is dropped before the first await. `ice` is
     // read now although it is used after the elevation fetch, for the same reason.
     let gpkg = Gpkg::open(gpkg_path)?;
+
+    // Labels in the chosen language, where swissNAMES3D has one (FR-53). Loaded before
+    // the extraction rather than per feature: it is a single pass over the CSVs.
+    if recipe.label_language != crate::names::LabelLanguage::Local {
+        match crate::names::find_names3d(&ctx.cache_root) {
+            Some(dir) => {
+                let index = crate::names::NameIndex::load(&dir, recipe.label_language)?;
+                if index.is_empty() {
+                    warnings.push(format!(
+                        "swissNAMES3D has no names in {}, so labels stay local",
+                        recipe.label_language.id()
+                    ));
+                } else {
+                    builder = builder.with_names(std::sync::Arc::new(index));
+                }
+            }
+            None => warnings.push(
+                "swissNAMES3D is not downloaded, so labels stay in the local language"
+                    .into(),
+            ),
+        }
+    }
     // A corridor or administrative unit is not a rectangle: the bbox is the cheap
     // first cut and the mask decides what actually survives it.
     if let Some(mask) = area_mask {

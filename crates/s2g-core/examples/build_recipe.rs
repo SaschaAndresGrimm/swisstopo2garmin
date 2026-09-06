@@ -159,8 +159,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => s2g_core::recipe::Palette::Summer,
     };
 
+    let label_language = match arg("--labels").unwrap_or_else(|| "local".into()).as_str() {
+        "german" => s2g_core::names::LabelLanguage::German,
+        "french" => s2g_core::names::LabelLanguage::French,
+        "italian" => s2g_core::names::LabelLanguage::Italian,
+        "romansh" => s2g_core::names::LabelLanguage::Romansh,
+        _ => s2g_core::names::LabelLanguage::Local,
+    };
+
     let recipe = Recipe {
         relief,
+        label_language,
         palette,
         slope_classes: arg("--slope").is_some() || std::env::args().any(|a| a == "--slope"),
         excluded_layers: excluded,

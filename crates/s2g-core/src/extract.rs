@@ -172,14 +172,14 @@ pub const DEFAULT_LAYERS: &[LayerSpec] = &[
     },
     LayerSpec {
         layer: "tlm_namen_flurname",
-        attributes: &["objektart", "name"],
+        attributes: &["uuid", "objektart", "name"],
         simplify_m: 0.0,
         prefix: "tlm",
         group: LayerGroup::Names,
     },
     LayerSpec {
         layer: "tlm_namen_siedlungsname_zentrum",
-        attributes: &["objektart", "name", "einwohnerkategorie"],
+        attributes: &["uuid", "objektart", "name", "einwohnerkategorie"],
         simplify_m: 0.0,
         prefix: "tlm",
         group: LayerGroup::Names,
@@ -196,7 +196,7 @@ pub const DEFAULT_LAYERS: &[LayerSpec] = &[
     },
     LayerSpec {
         layer: "tlm_eo_einzelobjekt",
-        attributes: &["objektart", "name"],
+        attributes: &["uuid", "objektart", "name"],
         simplify_m: 0.0,
         prefix: "tlm",
         group: LayerGroup::Built,
@@ -356,6 +356,8 @@ pub struct RegionBuilder {
     /// Shared rather than owned: the elevation fetch uses the same mask to skip tiles,
     /// and building a canton's twice would mean indexing 14,000 vertices twice.
     mask: Option<std::sync::Arc<crate::mask::Mask>>,
+    /// Names in the chosen label language, keyed by feature uuid (SPEC.md FR-53).
+    names: Option<std::sync::Arc<crate::names::NameIndex>>,
     stats: ExtractStats,
 }
 
@@ -365,8 +367,15 @@ impl RegionBuilder {
             writer: PbfWriter::create(dest, bbox.to_wgs84())?,
             bbox: *bbox,
             mask: None,
+            names: None,
             stats: ExtractStats::default(),
         })
+    }
+
+    /// Relabel features that have a name in the chosen language (SPEC.md FR-53).
+    pub fn with_names(mut self, names: std::sync::Arc<crate::names::NameIndex>) -> Self {
+        self.names = Some(names);
+        self
     }
 
     /// Restrict output to features intersecting `mask` as well as the bounding box.
@@ -556,6 +565,7 @@ impl RegionBuilder {
         let available: Vec<String> = gpkg.layers()?.into_iter().map(|l| l.name).collect();
         let bbox = &self.bbox;
         let mask = &self.mask;
+        let names = &self.names;
         let stats = &mut self.stats;
         let writer = &mut self.writer;
 
@@ -581,7 +591,8 @@ impl RegionBuilder {
                 if !Self::passes(mask, &clipped) {
                     return true;
                 }
-                let tags = build_tags(spec, &f);
+                let mut tags = build_tags(spec, &f);
+                apply_language(&mut tags, spec.prefix, &f, names);
                 emit(writer, &clipped, &tags, spec.simplify_m, stats);
                 count += 1;
                 true
@@ -606,6 +617,28 @@ fn resolve_layer(available: &[String], wanted: &str) -> Option<String> {
         .find(|a| a.as_str() == wanted)
         .or_else(|| available.iter().find(|a| a.starts_with(wanted)))
         .cloned()
+}
+
+/// Replace a feature's name with the chosen language's, when it has one.
+///
+/// A feature with no name in that language keeps the local one, which is the right
+/// answer: a Valais hamlet has no German name, and inventing one would be worse than
+/// leaving it alone.
+fn apply_language(
+    tags: &mut [(String, String)],
+    prefix: &str,
+    f: &Feature,
+    names: &Option<std::sync::Arc<crate::names::NameIndex>>,
+) {
+    let Some(index) = names else { return };
+    let Some(uuid) = f.attr("uuid") else { return };
+    let Some(name) = index.get(uuid) else { return };
+    let key = format!("{prefix}:name");
+    for (k, v) in tags.iter_mut() {
+        if *k == key {
+            *v = name.to_string();
+        }
+    }
 }
 
 fn build_tags(spec: &LayerSpec, f: &Feature) -> Vec<(String, String)> {

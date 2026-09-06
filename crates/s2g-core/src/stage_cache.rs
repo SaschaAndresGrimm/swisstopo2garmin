@@ -45,7 +45,7 @@ pub fn region_key(recipe: &Recipe, source_release: &str) -> String {
         e.join(",")
     };
     let material = format!(
-        "v1|{source_release}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{}|{}|{}",
+        "v2|{source_release}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{}|{}|{}|{}",
         b.min_e,
         b.min_n,
         b.max_e,
@@ -56,6 +56,9 @@ pub fn region_key(recipe: &Recipe, source_release: &str) -> String {
         recipe.contours.index_m,
         recipe.contours.simplify_m,
         recipe.slope_classes,
+        // Labels are written into the region PBF, so a language change is a different
+        // region. Leaving this out served a French build from a German clip.
+        recipe.label_language.id(),
         excluded
     );
     // FNV-1a: this only has to separate recipes, not resist an adversary.
@@ -201,6 +204,8 @@ mod tests {
         slope.slope_classes = true;
         let mut excluded = base.clone();
         excluded.excluded_layers = vec!["tlm_bauten_gebaeude_footprint".into()];
+        let mut language = base.clone();
+        language.label_language = crate::names::LabelLanguage::French;
         let mut area = base.clone();
         area.area = AreaSelection::BBox {
             min_e: 2_600_000.0,
@@ -213,6 +218,7 @@ mod tests {
             contours,
             slope,
             excluded,
+            language,
             area,
             base.clone().with_preset(Preset::Skimo),
         ] {

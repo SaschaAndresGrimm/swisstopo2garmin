@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "../state/api";
 import { LayerPanel } from "../components/LayerPanel";
-import type { AreaSelection, Palette, PresetId, PresetInfo, ReliefDetail } from "../state/api";
+import type {
+  AreaSelection,
+  LabelLanguage,
+  Palette,
+  PresetId,
+  PresetInfo,
+  ReliefDetail,
+} from "../state/api";
 import { useAreaInfo } from "../state/useAreaInfo";
 import { SizeEstimate } from "../components/SizeEstimate";
 import type { T } from "../i18n";
@@ -25,6 +32,8 @@ export function ContentStep({
   onPalette,
   slopeClasses,
   onSlopeClasses,
+  labelLanguage,
+  onLabelLanguage,
   supportsDem,
   area,
   deviceId,
@@ -44,6 +53,8 @@ export function ContentStep({
   onPalette: (p: Palette) => void;
   slopeClasses: boolean;
   onSlopeClasses: (on: boolean) => void;
+  labelLanguage: LabelLanguage;
+  onLabelLanguage: (l: LabelLanguage) => void;
   supportsDem: boolean;
   /** The chosen area, so the estimate can update as content changes (FR-54). */
   area: AreaSelection | null;
@@ -119,6 +130,24 @@ export function ContentStep({
           </button>
         </div>
         <p className="muted small">{t("content.contourHint")}</p>
+      </div>
+
+      <div className="field">
+        <label htmlFor="labels">{t("content.labels")}</label>
+        <div className="row tight" id="labels">
+          {(["local", "german", "french", "italian", "romansh"] as LabelLanguage[]).map((l) => (
+            <button
+              key={l}
+              type="button"
+              className={labelLanguage === l ? "current" : ""}
+              aria-pressed={labelLanguage === l}
+              onClick={() => onLabelLanguage(l)}
+            >
+              {t(`content.labels.${l}`)}
+            </button>
+          ))}
+        </div>
+        <p className="muted small">{t("content.labelsHint")}</p>
       </div>
 
       <div className="field">

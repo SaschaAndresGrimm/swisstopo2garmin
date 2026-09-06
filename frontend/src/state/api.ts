@@ -53,6 +53,7 @@ export type AreaSelection =
 export type PresetId = "hiking" | "cycling" | "skimo" | "full";
 export type ReliefDetail = "off" | "gentle" | "detailed";
 export type Palette = "summer" | "winter";
+export type LabelLanguage = "local" | "german" | "french" | "italian" | "romansh";
 export type AdminLevel = "canton" | "district" | "commune";
 
 export interface Recipe {
@@ -65,6 +66,7 @@ export interface Recipe {
   relief: ReliefDetail;
   palette: Palette;
   slopeClasses: boolean;
+  labelLanguage: LabelLanguage;
   excludedLayers: string[];
 }
 
@@ -86,6 +88,8 @@ export const SOURCES = [
   { id: "ch.astra.veloland", key: "source.veloland", group: "cycling" },
   { id: "ch.astra.mountainbikeland", key: "source.mountainbikeland", group: "cycling" },
   { id: "ch.astra.wanderland", key: "source.wanderland", group: "cycling" },
+  { id: "ch.swisstopo.swissnames3d", key: "source.names3d", group: "base" },
+  { id: "ch.swisstopo.swissboundaries3d", key: "source.boundaries", group: "base" },
 ] as const;
 
 export const api = {

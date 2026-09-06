@@ -436,8 +436,20 @@ that are unioned, and modes can be mixed (e.g. two cantons plus a route corridor
   exists and what it needs.
 - **FR-52** Contour settings: interval (5/10/20/50/100 m), whether to label, and which
   intervals count as minor/medium/major.
-- **FR-53** Label language: German, French, Italian, or "local" (whatever the source
-  feature carries — the correct default for Switzerland).
+- **FR-53** Label language: German, French, Italian, Romansh, or "local" (whatever the
+  source feature carries — the correct default for Switzerland).
+
+  **Not implementable from swissTLM3D.** Its `name` holds several spellings separated by
+  pipes, and *their order is not by language*: `Sion | Sitten` is French then German,
+  `Schwyz | Schwytz | Svitto | Sviz` is German, French, Italian, Romansh, and
+  `Stadtkreis 3 | Wiedikon` is not languages at all. The first entry is the locally used
+  name, and that is all the field reliably gives.
+
+  It is implemented from **swissNAMES3D**, which carries the same names with a
+  `SPRACHCODE` and joins to swissTLM3D by `uuid` — 60 of 60 sampled rows matched on the
+  current releases, and 59 of 60 across a five-year release gap. A feature with no name
+  in the chosen language keeps its local one: a Valais hamlet has no German name, and
+  inventing one would be worse than leaving it alone.
 - **FR-54** A live size estimate that updates as content options change.
 - **FR-55** Save the full configuration as a named **recipe** (§11.2) and load it later.
 
