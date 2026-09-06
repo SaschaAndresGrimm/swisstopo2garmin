@@ -50,6 +50,8 @@ pub fn run() {
             ipc::data_location,
             ipc::inspect_data_location,
             ipc::set_data_location,
+            ipc::clear_elevation_cache,
+            ipc::clear_build_files,
             ipc::import_track,
             ipc::lv95_line_to_wgs84,
             ipc::start_build,

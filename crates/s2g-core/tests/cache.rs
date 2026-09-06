@@ -188,3 +188,117 @@ async fn sweeps_orphaned_partials_left_by_a_killed_process() {
     );
     assert_eq!(cache.list().await.unwrap().len(), 1);
 }
+
+/// Every byte under the root must land in exactly one bucket.
+///
+/// The elevation tile cache is loose `.tif` files, so `list()` never saw it and the
+/// reported usage omitted the fastest-growing directory. Eighteen calibration builds
+/// filled a disk that way.
+#[test]
+fn usage_accounts_for_elevation_tiles_and_build_files() {
+    use s2g_core::cache::Cache;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    let write = |rel: &str, bytes: usize| {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, vec![b'x'; bytes]).unwrap();
+    };
+
+    // A dataset, in the app layout.
+    write("ch.swisstopo.swisstlm3d/swisstlm3d_2026-02/x.gpkg", 5_000);
+    // Elevation tiles: loose files, one level down. This is the part that was invisible.
+    write("ch.swisstopo.swissalti3d/swissalti3d_2019_2600-1199.tif", 3_000);
+    write("ch.swisstopo.swissalti3d/swissalti3d_2019_2601-1199.tif", 3_000);
+    write("ch.swisstopo.swissaltiregio/regio.tif", 1_000);
+    // Build intermediates.
+    write("builds/grindelwald/region.osm.pbf", 7_000);
+    write("builds/grindelwald/img/gmapsupp.img", 2_000);
+    // A saved recipe, and a quarantined download.
+    write("recipes/valais.json", 100);
+    write(".quarantine/broken__item__1/x.gpkg", 400);
+    // A stranded partial download at the root.
+    write("stray.part", 50);
+
+    let u = Cache::new(root).usage();
+    assert_eq!(u.datasets, 5_000);
+    assert_eq!(u.elevation, 7_000, "elevation must include both collections");
+    assert_eq!(u.builds, 9_000);
+    assert_eq!(u.recipes, 100);
+    assert_eq!(u.quarantine, 400);
+    assert_eq!(u.other, 50);
+    assert_eq!(u.total(), 21_550);
+
+    // And the total must equal what the filesystem says, or a bucket is missing.
+    let mut walked = 0u64;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            if e.file_type().unwrap().is_dir() {
+                stack.push(e.path());
+            } else {
+                walked += e.metadata().unwrap().len();
+            }
+        }
+    }
+    assert_eq!(u.total(), walked, "usage must account for every byte");
+}
+
+#[test]
+fn the_spike_era_flat_directories_count_as_datasets() {
+    use s2g_core::cache::Cache;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("winter")).unwrap();
+    std::fs::write(root.join("winter/ski_routes_2056.gpkg"), vec![b'x'; 800]).unwrap();
+    std::fs::create_dir_all(root.join("routes/veloland/shp")).unwrap();
+    std::fs::write(root.join("routes/veloland/shp/VeloWeg.shp"), vec![b'x'; 200]).unwrap();
+
+    let u = Cache::new(root).usage();
+    assert_eq!(u.datasets, 1_000);
+    assert_eq!(u.other, 0);
+}
+
+#[test]
+fn clearing_elevation_and_builds_frees_exactly_those_bytes() {
+    use s2g_core::cache::Cache;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let write = |rel: &str, bytes: usize| {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, vec![b'x'; bytes]).unwrap();
+    };
+    write("ch.swisstopo.swisstlm3d/item/x.gpkg", 5_000);
+    write("ch.swisstopo.swissalti3d/a.tif", 3_000);
+    write("builds/x/region.osm.pbf", 7_000);
+    write("recipes/keep.json", 100);
+
+    let cache = Cache::new(root);
+    assert_eq!(cache.clear_elevation().unwrap(), 3_000);
+    assert_eq!(cache.clear_builds().unwrap(), 7_000);
+
+    let u = cache.usage();
+    assert_eq!(u.elevation, 0);
+    assert_eq!(u.builds, 0);
+    // The datasets and the recipe must survive: one is expensive, the other is not
+    // re-derivable at all.
+    assert_eq!(u.datasets, 5_000);
+    assert_eq!(u.recipes, 100);
+
+    // Clearing again is not an error.
+    assert_eq!(cache.clear_elevation().unwrap(), 0);
+    assert_eq!(cache.clear_builds().unwrap(), 0);
+}
+
+#[test]
+fn usage_of_a_missing_root_is_zero_rather_than_an_error() {
+    use s2g_core::cache::Cache;
+    let u = Cache::new("/nonexistent/s2g-data").usage();
+    assert_eq!(u, Default::default());
+    assert_eq!(u.total(), 0);
+}

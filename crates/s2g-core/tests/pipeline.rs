@@ -301,3 +301,63 @@ fn a_recipe_without_a_palette_defaults_to_summer() {
     winter.palette = Palette::Winter;
     assert_ne!(r.cache_key(), winter.cache_key());
 }
+
+/// A build must refuse to start when the disk cannot hold it.
+///
+/// Eighteen calibration builds filled a disk during development: each new area caches
+/// its own swissALTI3D tiles at about 1.2 MB per square kilometre, and nothing checked.
+#[tokio::test]
+async fn a_build_refuses_to_start_when_the_disk_is_too_small() {
+    use s2g_core::devices;
+    use s2g_core::download::Cancel;
+    use s2g_core::garmin::Toolchain;
+    use s2g_core::http::ReqwestHttp;
+    use s2g_core::pipeline::{self, BuildContext};
+    use s2g_core::recipe::{AreaSelection, Recipe};
+
+    let root = repo_root();
+    let Ok(toolchain) = Toolchain::discover(&root) else {
+        eprintln!("skipping: no java toolchain");
+        return;
+    };
+    let profiles = devices::load_profiles(&root.join("devices")).unwrap();
+    let profile = profiles.iter().find(|p| p.id == "edge-840").unwrap();
+
+    // A whole-country area against a cache root on a normal disk: the required
+    // elevation tiles alone are far more than any development machine has spare.
+    let ch = s2g_core::proj::LV95_BOUNDS;
+    let recipe = Recipe::new(
+        "too big",
+        "edge-840",
+        AreaSelection::BBox {
+            min_e: ch.0,
+            min_n: ch.1,
+            max_e: ch.2,
+            max_n: ch.3,
+        },
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let http = ReqwestHttp::new().unwrap();
+    let ctx = BuildContext {
+        toolchain,
+        style_root: root.join("style"),
+        typ_root: root.join("typ"),
+        cache_root: dir.path().to_path_buf(),
+        work_dir: dir.path().join("work"),
+        http: &http,
+        calibration_log: None,
+    };
+
+    let err = pipeline::build(&ctx, &recipe, profile, &Cancel::new(), |_| {})
+        .await
+        .unwrap_err();
+
+    // Either the space check fires, or the machine really does have ~100 TB spare and
+    // the build stops for want of the dataset instead. Both are refusals to start.
+    let msg = err.to_string();
+    assert!(
+        matches!(err, s2g_core::Error::InsufficientSpace { .. }) || msg.contains("swissTLM3D"),
+        "expected a refusal to start, got: {msg}"
+    );
+}

@@ -86,6 +86,9 @@ export const api = {
   /** `null` restores the platform default. */
   setDataLocation: (path: string | null) =>
     invoke<import("./bindings").DataLocation>("set_data_location", { path }),
+  clearElevationCache: () =>
+    invoke<import("./bindings").DataLocation>("clear_elevation_cache"),
+  clearBuildFiles: () => invoke<import("./bindings").DataLocation>("clear_build_files"),
   coverageBbox: () => invoke<[number, number, number, number]>("coverage_bbox"),
   /** Project a polyline for display. Kept in Rust so there is one projection. */
   lv95LineToWgs84: (points: [number, number][]) =>

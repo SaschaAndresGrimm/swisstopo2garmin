@@ -102,6 +102,22 @@ pub struct BuildReport {
     pub stage_seconds: Vec<(Stage, f64)>,
 }
 
+/// Rough disk a build needs, for the precheck.
+///
+/// Dominated by cached elevation tiles: swissALTI3D is a 1 km grid at about 1.2 MB per
+/// tile, and every square kilometre of terrain not already cached fetches one. The
+/// intermediates and the output are small beside that, and a flat allowance covers them.
+/// Deliberately an over-estimate: refusing a build that would just have fitted is a far
+/// better failure than filling the disk.
+fn required_bytes(bbox: &BBox, recipe: &Recipe) -> u64 {
+    const TILE_BYTES: f64 = 1_200_000.0;
+    const OVERHEAD_BYTES: u64 = 512 * 1024 * 1024;
+    let needs_elevation =
+        recipe.contours.interval_m > 0 || recipe.relief.resolution().is_some();
+    let tiles = if needs_elevation { bbox.area_km2() } else { 0.0 };
+    (tiles * TILE_BYTES) as u64 + OVERHEAD_BYTES
+}
+
 /// Style directory for a device: wrist devices get the reduced cartography (FR-CART6).
 fn style_for(profile: &DeviceProfile, root: &Path) -> PathBuf {
     if profile.is_wrist() {
@@ -174,6 +190,21 @@ pub async fn build(
     }
     std::fs::create_dir_all(&ctx.work_dir).map_err(|e| Error::io(&ctx.work_dir, e))?;
     let mut warnings = Vec::new();
+
+    // A build writes far more than its output: a region PBF, split tiles, DEM data, and
+    // the elevation tiles it caches along the way -- roughly 1.2 MB per square kilometre
+    // of new terrain. Running out halfway through wastes the whole build and can leave
+    // the machine with no room to recover, so check before starting rather than during.
+    if let Some(free) = crate::cache::available_bytes(&ctx.cache_root) {
+        let need = required_bytes(&bbox, recipe);
+        if free < need {
+            return Err(Error::InsufficientSpace {
+                path: ctx.cache_root.clone(),
+                need,
+                available: free,
+            });
+        }
+    }
 
     let gpkg_path = find_tlm3d(&ctx.cache_root).ok_or_else(|| {
         Error::NotFound("swissTLM3D is not downloaded; fetch it on the Data screen".into())

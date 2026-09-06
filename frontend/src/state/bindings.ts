@@ -84,7 +84,12 @@ fromEnvironment: boolean,
 /**
  * True when nothing is configured and the platform default is in use.
  */
-isDefault: boolean, freeBytes: number | null, usedBytes: number, exists: boolean, };
+isDefault: boolean, freeBytes: number | null, usedBytes: number, 
+/**
+ * Where that space went. The elevation tile cache is the part that grows without
+ * bound, and it used to be invisible here.
+ */
+datasetBytes: number, elevationBytes: number, buildBytes: number, otherBytes: number, exists: boolean, };
 
 export type DatasetEntry = { collection: string, item: string, file: string, bytes: number, inflated: boolean, fetchedAt: string | null, };
 

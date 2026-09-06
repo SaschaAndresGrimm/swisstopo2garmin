@@ -170,6 +170,26 @@ fn report(samples: &[Sample], out: &Path) -> Result<(), Box<dyn std::error::Erro
         );
     }
 
+    // Stage timings: the seed weights for the build-time estimate (FR-70a). Printed in
+    // the form the constant takes, so it is transcribed rather than retyped.
+    let timed: Vec<&Sample> = samples.iter().filter(|s| !s.stage_seconds.is_empty()).collect();
+    if timed.is_empty() {
+        println!("\nno stage timings in these samples");
+    } else {
+        let owned: Vec<Sample> = timed.iter().map(|s| (*s).clone()).collect();
+        let weights = s2g_core::estimate::stage_weights(&owned);
+        println!("\nstage weights from {} timed builds:", owned.len());
+        for (name, w) in s2g_core::estimate::STAGE_NAMES.iter().zip(weights.iter()) {
+            println!("    {w:.4}, // {name}");
+        }
+        let mean_total: f64 = owned
+            .iter()
+            .map(|s| s.stage_seconds.iter().map(|(_, v)| *v).sum::<f64>())
+            .sum::<f64>()
+            / owned.len() as f64;
+        println!("  mean build {mean_total:.1}s");
+    }
+
     println!("\nworst residuals:");
     let mut rows: Vec<(f64, u64, u64, f64)> = samples
         .iter()

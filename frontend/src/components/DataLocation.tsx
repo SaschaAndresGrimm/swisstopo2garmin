@@ -40,6 +40,18 @@ export function DataLocation({ t, onChanged }: { t: T; onChanged: () => void }) 
     }
   };
 
+  // Both are re-derivable: elevation tiles re-download, build files rebuild. Neither
+  // touches an acquired dataset or a saved recipe.
+  const clear = async (what: "elevation" | "builds") => {
+    setError(null);
+    try {
+      setLoc(what === "elevation" ? await api.clearElevationCache() : await api.clearBuildFiles());
+      onChanged();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const apply = async (path: string | null) => {
     setError(null);
     try {
@@ -72,6 +84,47 @@ export function DataLocation({ t, onChanged }: { t: T; onChanged: () => void }) 
           </dd>
         </div>
       </dl>
+
+      {/* Broken down because the elevation cache grows without bound as areas are
+          built, and a single total hides that until the disk is full. */}
+      {loc.usedBytes > 0 && (
+        <dl className="facts small">
+          <div>
+            <dt>{t("data.usedDatasets")}</dt>
+            <dd>{formatBytes(loc.datasetBytes)}</dd>
+          </div>
+          <div>
+            <dt>{t("data.usedElevation")}</dt>
+            <dd>{formatBytes(loc.elevationBytes)}</dd>
+          </div>
+          <div>
+            <dt>{t("data.usedBuilds")}</dt>
+            <dd>{formatBytes(loc.buildBytes)}</dd>
+          </div>
+          <div>
+            <dt>{t("data.usedOther")}</dt>
+            <dd>{formatBytes(loc.otherBytes)}</dd>
+          </div>
+        </dl>
+      )}
+
+      {(loc.elevationBytes > 0 || loc.buildBytes > 0) && (
+        <div className="row tight">
+          {loc.elevationBytes > 0 && (
+            <button type="button" onClick={() => void clear("elevation")}>
+              {t("data.clearElevation", { size: formatBytes(loc.elevationBytes) })}
+            </button>
+          )}
+          {loc.buildBytes > 0 && (
+            <button type="button" onClick={() => void clear("builds")}>
+              {t("data.clearBuilds", { size: formatBytes(loc.buildBytes) })}
+            </button>
+          )}
+        </div>
+      )}
+      {(loc.elevationBytes > 0 || loc.buildBytes > 0) && (
+        <p className="muted small">{t("data.clearHint")}</p>
+      )}
 
       <p className="muted small">{t("data.spaceHint")}</p>
       {loc.fromEnvironment && <p className="error small">{t("data.envOverride")}</p>}

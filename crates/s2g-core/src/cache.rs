@@ -303,3 +303,123 @@ pub fn precheck_space(path: &Path, need: u64) -> Result<()> {
     }
     Ok(())
 }
+
+/// Where the space in the data directory has gone.
+///
+/// [`Cache::list`] only sees `<collection>/<item>/` directories, which is every acquired
+/// dataset and nothing else. The elevation tile cache is loose `.tif` files one level
+/// down, and build working files are under `builds/`, so both were invisible — and both
+/// grow without bound as areas are built. Eighteen calibration builds filled a disk
+/// this way, with the UI reporting only the datasets.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Usage {
+    /// Acquired datasets: `<collection>/<item>/…`.
+    pub datasets: u64,
+    /// Cached swissALTI3D tiles. Re-downloadable, and the fastest-growing part.
+    pub elevation: u64,
+    /// Build intermediates under `builds/`. Re-derivable.
+    pub builds: u64,
+    /// Saved recipes. Tiny, but not re-derivable, so never offered for deletion.
+    pub recipes: u64,
+    /// Quarantined corrupt downloads, kept for inspection.
+    pub quarantine: u64,
+    /// Anything else, including stranded `.part` files.
+    pub other: u64,
+}
+
+impl Usage {
+    pub fn total(&self) -> u64 {
+        self.datasets + self.elevation + self.builds + self.recipes + self.quarantine + self.other
+    }
+}
+
+/// Total bytes of a directory tree, following no symlinks.
+fn tree_bytes(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            match e.file_type() {
+                Ok(t) if t.is_dir() => stack.push(e.path()),
+                Ok(t) if t.is_file() => {
+                    total += e.metadata().map(|m| m.len()).unwrap_or(0);
+                }
+                _ => {}
+            }
+        }
+    }
+    total
+}
+
+impl Cache {
+    /// Account for every byte under the root, bucketed by what it is.
+    ///
+    /// Synchronous and walking the whole tree: it is called when a screen opens, not in
+    /// a build loop, and being exhaustive is the entire point — a figure that quietly
+    /// omits the largest directory is worse than no figure.
+    pub fn usage(&self) -> Usage {
+        let mut u = Usage::default();
+        let Ok(rd) = std::fs::read_dir(&self.root) else {
+            return u;
+        };
+        for e in rd.flatten() {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+
+            if !is_dir {
+                // Loose files at the root: the calibration log, stranded `.part` files.
+                u.other += e.metadata().map(|m| m.len()).unwrap_or(0);
+                continue;
+            }
+            match name.as_str() {
+                crate::stac::ALTI3D | crate::stac::ALTIREGIO => u.elevation += tree_bytes(&path),
+                "builds" => u.builds += tree_bytes(&path),
+                "recipes" => u.recipes += tree_bytes(&path),
+                ".quarantine" => u.quarantine += tree_bytes(&path),
+                // The spike-era flat directories hold real datasets.
+                "winter" | "routes" => u.datasets += tree_bytes(&path),
+                _ if name.starts_with('.') => u.other += tree_bytes(&path),
+                _ => u.datasets += tree_bytes(&path),
+            }
+        }
+        u
+    }
+
+    /// Delete the cached elevation tiles. Returns the bytes freed.
+    ///
+    /// Safe because they are re-downloadable, and worth offering because they are the
+    /// part that grows: every new area fetches its own 1 km tiles at about 1.2 MB each.
+    pub fn clear_elevation(&self) -> Result<u64> {
+        let mut freed = 0u64;
+        for dir in [
+            self.root.join(crate::stac::ALTI3D),
+            self.root.join(crate::stac::ALTIREGIO),
+        ] {
+            if !dir.exists() {
+                continue;
+            }
+            freed += tree_bytes(&dir);
+            std::fs::remove_dir_all(&dir).map_err(|e| Error::io(&dir, e))?;
+        }
+        Ok(freed)
+    }
+
+    /// Delete build working files. Returns the bytes freed.
+    ///
+    /// Finished maps are copied to the device or exported, so what is under `builds/`
+    /// is intermediates: region PBFs, split tiles, DEM data.
+    pub fn clear_builds(&self) -> Result<u64> {
+        let dir = self.root.join("builds");
+        if !dir.exists() {
+            return Ok(0);
+        }
+        let freed = tree_bytes(&dir);
+        std::fs::remove_dir_all(&dir).map_err(|e| Error::io(&dir, e))?;
+        Ok(freed)
+    }
+}

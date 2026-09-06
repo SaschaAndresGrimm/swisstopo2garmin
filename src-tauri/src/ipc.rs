@@ -1038,22 +1038,63 @@ pub struct DataLocation {
     pub free_bytes: Option<u64>,
     #[ts(type = "number")]
     pub used_bytes: u64,
+    /// Where that space went. The elevation tile cache is the part that grows without
+    /// bound, and it used to be invisible here.
+    #[ts(type = "number")]
+    pub dataset_bytes: u64,
+    #[ts(type = "number")]
+    pub elevation_bytes: u64,
+    #[ts(type = "number")]
+    pub build_bytes: u64,
+    #[ts(type = "number")]
+    pub other_bytes: u64,
     pub exists: bool,
 }
 
 async fn describe_location(path: PathBuf) -> DataLocation {
-    let used = Cache::new(path.clone())
-        .total_bytes()
+    // usage() walks the tree rather than listing datasets, because the largest
+    // directory — cached elevation tiles — is loose files that a dataset listing
+    // cannot see.
+    let dir = path.clone();
+    let usage = tokio::task::spawn_blocking(move || Cache::new(dir).usage())
         .await
-        .unwrap_or(0);
+        .unwrap_or_default();
     DataLocation {
         from_environment: std::env::var("S2G_CACHE").is_ok(),
         is_default: path == s2g_core::settings::Settings::default_data_root(),
         free_bytes: available_bytes(&path),
-        used_bytes: used,
+        used_bytes: usage.total(),
+        dataset_bytes: usage.datasets,
+        elevation_bytes: usage.elevation,
+        build_bytes: usage.builds,
+        other_bytes: usage.recipes + usage.quarantine + usage.other,
         exists: path.is_dir(),
         path: path.display().to_string(),
     }
+}
+
+/// Delete the cached elevation tiles, which are re-downloadable (FR-C4).
+#[tauri::command]
+pub async fn clear_elevation_cache() -> IpcResult<DataLocation> {
+    let root = Cache::default_root();
+    let c = Cache::new(root.clone());
+    tokio::task::spawn_blocking(move || c.clear_elevation())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    Ok(describe_location(root).await)
+}
+
+/// Delete build intermediates, which are re-derivable (FR-C4).
+#[tauri::command]
+pub async fn clear_build_files() -> IpcResult<DataLocation> {
+    let root = Cache::default_root();
+    let c = Cache::new(root.clone());
+    tokio::task::spawn_blocking(move || c.clear_builds())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    Ok(describe_location(root).await)
 }
 
 #[tauri::command]
