@@ -315,6 +315,45 @@ real hardware; the whole-Switzerland path produces multiple device-legal map set
 
 ---
 
+### Milestones 2-4 status — pipeline complete in Rust (2026-09-06)
+
+The whole build now runs from `s2g-core` with no GDAL and no Python. 85 tests pass;
+`tests/build.rs` takes the committed fixture through extraction, contours, splitter and
+mkgmap and verifies the resulting `gmapsupp.img`.
+
+| Module | Purpose | Notes |
+|---|---|---|
+| `proj.rs` | LV95 ↔ WGS84 | measured against PROJ; ~1 m interior, 4.2 m at coverage corners |
+| `gpkg.rs` | GeoPackage reader | SQLite + WKB, R-tree, streaming; id/geometry columns discovered |
+| `geom.rs` | clip, simplify, point-in-polygon | Liang-Barsky, Sutherland-Hodgman, Douglas-Peucker |
+| `pbf.rs` | OSM PBF writer | protobuf by hand; ascending ids asserted; DenseNodes |
+| `extract.rs` | region → PBF | `RegionBuilder` shares one writer across vectors and contours |
+| `elevation.rs` | swissALTI3D tiles | grid derived not probed; per-cell year dedup; concurrent fetch |
+| `contour.rs` | marching squares | validated on analytic surfaces and a real tile |
+| `garmin.rs` | splitter + mkgmap | two-pass build; identity allocation |
+| `img.rs` | IMG verification | catches the missing overview map and empty maps |
+
+**Tilestore skipped**, as Milestone 0 concluded: the source R-trees make it unnecessary.
+
+**Bugs the tests caught, all from assumptions rather than logic:**
+
+- `reqwest::Response::content_length()` is 0 for a HEAD request, so every size-dependent
+  path saw zero. Only the live test found it.
+- The GeoPackage primary key is `id` in swissTLM3D but `fid` in GDAL-written files, so
+  the fixture did not match production until both were discovered from the schema.
+- The R-tree table is named after the geometry column, not literally `_geom`.
+- `splitter` rejects a map id above 99 999 999. Deriving map numbers as
+  `family_id * 10000` overflowed that; family ids and map numbers are independent
+  identifiers with different ranges and are now allocated separately.
+- Milestone 0's contour tiers were configured so the medium tier could never occur
+  (every multiple of 50 that is also a multiple of 20 is a multiple of 100).
+  `medium_is_reachable()` now reports this and the default disables the tier.
+- Cancelling a download left a multi-gigabyte `.part` file, and the test that claimed
+  to check for it asserted on the wrong path.
+
+**Still outstanding in this band:** DEM `.hgt` generation is still the Python spike, since
+it needs windowed reads of the 10 GB swissALTIRegio COG rather than whole 1 km tiles.
+
 ## 7. Milestone 5 — Cartography
 
 **Goal:** it looks like a Landeskarte. This is a **parallel workstream** that can start
