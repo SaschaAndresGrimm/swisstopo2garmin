@@ -38,6 +38,7 @@ pub mod settings;
 pub mod shapefile;
 pub mod slope;
 pub mod stac;
+pub mod stage_cache;
 pub mod zip;
 
 #[cfg(any(test, feature = "testing"))]

@@ -106,6 +106,212 @@ pub struct BuildReport {
     pub stage_seconds: Vec<(Stage, f64)>,
 }
 
+/// Build the region PBF: extract, elevation, contours and slope classes.
+///
+/// Split out so a cache hit can skip the lot. Takes the pieces it needs rather than the
+/// whole build state, which keeps what the cached unit depends on visible in the
+/// signature — and that list is exactly what `region_key` hashes.
+#[allow(clippy::too_many_arguments)]
+async fn build_region(
+    ctx: &BuildContext<'_>,
+    recipe: &Recipe,
+    bbox: &BBox,
+    gpkg_path: &Path,
+    area_mask: Option<&std::sync::Arc<crate::mask::Mask>>,
+    cancel: &Cancel,
+    on_stage: &mut impl FnMut(StageUpdate),
+    warnings: &mut Vec<String>,
+    contour_lines: &mut usize,
+    slope_areas: &mut usize,
+) -> Result<(PathBuf, crate::extract::ExtractStats, Option<crate::elevation::Grid>)> {
+    let pbf = ctx.work_dir.join("region.osm.pbf");
+    let mut builder = RegionBuilder::create(&pbf, bbox)?;
+    if let Some(mask) = area_mask {
+        builder = builder.with_mask((*mask).clone());
+    }
+
+    // The GeoPackage connection is not Send, and this function awaits: everything read
+    // from it happens here, and the handle is dropped before the first await. `ice` is
+    // read now although it is used after the elevation fetch, for the same reason.
+    let gpkg = Gpkg::open(gpkg_path)?;
+    // A corridor or administrative unit is not a rectangle: the bbox is the cheap
+    // first cut and the mask decides what actually survives it.
+    if let Some(mask) = area_mask {
+        builder = builder.with_mask((*mask).clone());
+    }
+    let excluded = &recipe.excluded_layers;
+    let keep = |name: &str| !excluded.iter().any(|x| x == name);
+
+    let layers: Vec<_> = DEFAULT_LAYERS.iter().filter(|l| keep(l.layer)).collect();
+    let total = layers.len().max(1);
+    for (i, spec) in layers.iter().enumerate() {
+        cancel.check_cancelled()?;
+        on_stage(StageUpdate {
+            stage: Stage::Extract,
+            fraction: Some(i as f64 / total as f64),
+            detail: spec.layer.to_string(),
+        });
+        builder.add_vectors(&gpkg, std::slice::from_ref(*spec), cancel, |_, _| {})?;
+    }
+
+    if recipe.preset.needs_winter() {
+        let sources = crate::datasets::winter_geopackages(&ctx.cache_root);
+        for p in &sources {
+            cancel.check_cancelled()?;
+            on_stage(StageUpdate {
+                stage: Stage::Extract,
+                fraction: None,
+                detail: format!(
+                    "winter routes: {}",
+                    p.file_name().unwrap_or_default().to_string_lossy()
+                ),
+            });
+            let src = Gpkg::open(p)?;
+            let specs: Vec<_> = WINTER_LAYERS.iter().filter(|l| keep(l.layer)).collect();
+            for spec in specs {
+                builder.add_vectors(&src, std::slice::from_ref(spec), cancel, |_, _| {})?;
+            }
+        }
+        if sources.is_empty() {
+            warnings.push(
+                "winter route data is not downloaded, so the ski touring layers are missing".into(),
+            );
+        }
+    }
+
+    if recipe.preset.needs_cycle() {
+        let sources = crate::datasets::route_shapefiles(&ctx.cache_root);
+        let mut used = 0usize;
+        for p in &sources {
+            cancel.check_cancelled()?;
+            let stem = p
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let Some(spec) = CYCLE_LAYERS.iter().find(|l| l.layer == stem) else {
+                continue;
+            };
+            if !keep(&stem) {
+                continue;
+            }
+            // All three ASTRA datasets ship a Route.shp, so the layer tag is qualified
+            // by dataset: otherwise a hiking route renders as a cycle route.
+            // wanderland's Route.shp is kept: the style draws it as a signposted
+            // hiking route (0x10101), not as a cycle route.
+            let dataset = crate::datasets::route_dataset_of(p).unwrap_or_default();
+            let tag = if stem == "Route" {
+                format!("{dataset}_{stem}")
+            } else {
+                stem.clone()
+            };
+            on_stage(StageUpdate {
+                stage: Stage::Extract,
+                fraction: None,
+                detail: format!("routes: {tag}"),
+            });
+            let shp = Shapefile::open(p)?;
+            builder.add_shapefile_as(&shp, spec, &tag, cancel)?;
+            used += 1;
+        }
+        if used == 0 {
+            warnings.push(
+                "cycle route data is not downloaded, so the cycling layers are missing".into(),
+            );
+        }
+    }
+
+    // ---- elevation, contours and relief ----------------------------------
+    let mut elevation: Option<crate::elevation::Grid> = None;
+
+    // Glacier and firn outlines, for drawing contours blue over ice as the Landeskarte
+    // does. Read while the connection is open, used later.
+    let ice = if recipe.contours.interval_m > 0 {
+        load_ice(&gpkg, bbox)
+    } else {
+        Vec::new()
+    };
+    drop(gpkg);
+
+    if recipe.contours.interval_m > 0
+        || recipe.relief.resolution().is_some()
+        || recipe.slope_classes
+    {
+        cancel.check_cancelled()?;
+        on_stage(StageUpdate {
+            stage: Stage::Elevation,
+            fraction: None,
+            detail: "listing tiles".into(),
+        });
+        let (paths, fstats) = fetch_tiles(
+            ctx.http,
+            &ctx.cache_root,
+            bbox,
+            area_mask.map(|m| m.as_ref()),
+            12,
+            cancel,
+            |s| {
+                let done = s.already_cached + s.downloaded;
+                on_stage(StageUpdate {
+                    stage: Stage::Elevation,
+                    fraction: (s.requested > 0).then(|| done as f64 / s.requested as f64),
+                    detail: format!("{done} of {} tiles", s.requested),
+                });
+            },
+        )
+        .await?;
+        if !fstats.missing.is_empty() {
+            warnings.push(format!(
+                "{} elevation tile(s) unavailable, so contours have gaps there",
+                fstats.missing.len()
+            ));
+        }
+
+        let grid = load_grid(&paths, bbox)?;
+
+        if recipe.slope_classes {
+            on_stage(StageUpdate {
+                stage: Stage::Contours,
+                fraction: None,
+                detail: "slope classes over 30°".into(),
+            });
+            let (slopes, sstats) = crate::slope::areas(&grid, &Default::default());
+            cancel.check_cancelled()?;
+            *slope_areas = sstats.areas;
+            builder.add_slope_areas(&slopes, cancel)?;
+        }
+
+        if recipe.contours.interval_m > 0 {
+            on_stage(StageUpdate {
+                stage: Stage::Contours,
+                fraction: None,
+                detail: format!("{} m interval", recipe.contours.interval_m),
+            });
+            let cfg = ContourConfig {
+                interval_m: recipe.contours.interval_m,
+                major_m: recipe.contours.index_m,
+                medium_m: 0,
+                simplify_m: recipe.contours.simplify_m,
+            };
+            let (contours, cstats) = generate(&grid, &cfg, || cancel.is_cancelled());
+            cancel.check_cancelled()?;
+            *contour_lines = cstats.lines;
+
+            // Blue over ice, as the Landeskarte does.
+            let ice = ice.clone();
+            builder.add_contours(
+                &contours,
+                |p| ice.iter().any(|rings| point_in_polygon(p, rings)),
+                cancel,
+            )?;
+        }
+
+        elevation = Some(grid);
+    }
+
+    let stats = builder.finish()?;
+    Ok((pbf, stats, elevation))
+}
+
 /// Assemble and write the build manifest.
 #[allow(clippy::too_many_arguments)]
 async fn write_manifest(
@@ -334,179 +540,102 @@ pub async fn build(
     })?;
     let gpkg = Gpkg::open(&gpkg_path)?;
 
-    // ---- extract vectors -------------------------------------------------
-    let pbf = ctx.work_dir.join("region.osm.pbf");
-    let mut builder = RegionBuilder::create(&pbf, &bbox)?;
-    // A corridor or administrative unit is not a rectangle: the bbox is the cheap
-    // first cut and the mask decides what actually survives it.
-    if let Some(mask) = &area_mask {
-        builder = builder.with_mask(mask.clone());
-    }
-    let excluded = &recipe.excluded_layers;
-    let keep = |name: &str| !excluded.iter().any(|x| x == name);
-
-    let layers: Vec<_> = DEFAULT_LAYERS.iter().filter(|l| keep(l.layer)).collect();
-    let total = layers.len().max(1);
-    for (i, spec) in layers.iter().enumerate() {
-        cancel.check_cancelled()?;
-        on_stage(StageUpdate {
-            stage: Stage::Extract,
-            fraction: Some(i as f64 / total as f64),
-            detail: spec.layer.to_string(),
-        });
-        builder.add_vectors(&gpkg, std::slice::from_ref(*spec), cancel, |_, _| {})?;
-    }
-
-    if recipe.preset.needs_winter() {
-        let sources = crate::datasets::winter_geopackages(&ctx.cache_root);
-        for p in &sources {
-            cancel.check_cancelled()?;
-            on_stage(StageUpdate {
-                stage: Stage::Extract,
-                fraction: None,
-                detail: format!(
-                    "winter routes: {}",
-                    p.file_name().unwrap_or_default().to_string_lossy()
-                ),
-            });
-            let src = Gpkg::open(p)?;
-            let specs: Vec<_> = WINTER_LAYERS.iter().filter(|l| keep(l.layer)).collect();
-            for spec in specs {
-                builder.add_vectors(&src, std::slice::from_ref(spec), cancel, |_, _| {})?;
-            }
-        }
-        if sources.is_empty() {
-            warnings.push(
-                "winter route data is not downloaded, so the ski touring layers are missing".into(),
-            );
-        }
-    }
-
-    if recipe.preset.needs_cycle() {
-        let sources = crate::datasets::route_shapefiles(&ctx.cache_root);
-        let mut used = 0usize;
-        for p in &sources {
-            cancel.check_cancelled()?;
-            let stem = p
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let Some(spec) = CYCLE_LAYERS.iter().find(|l| l.layer == stem) else {
-                continue;
-            };
-            if !keep(&stem) {
-                continue;
-            }
-            // All three ASTRA datasets ship a Route.shp, so the layer tag is qualified
-            // by dataset: otherwise a hiking route renders as a cycle route.
-            // wanderland's Route.shp is kept: the style draws it as a signposted
-            // hiking route (0x10101), not as a cycle route.
-            let dataset = crate::datasets::route_dataset_of(p).unwrap_or_default();
-            let tag = if stem == "Route" {
-                format!("{dataset}_{stem}")
-            } else {
-                stem.clone()
-            };
-            on_stage(StageUpdate {
-                stage: Stage::Extract,
-                fraction: None,
-                detail: format!("routes: {tag}"),
-            });
-            let shp = Shapefile::open(p)?;
-            builder.add_shapefile_as(&shp, spec, &tag, cancel)?;
-            used += 1;
-        }
-        if used == 0 {
-            warnings.push(
-                "cycle route data is not downloaded, so the cycling layers are missing".into(),
-            );
-        }
-    }
-
-    // ---- elevation, contours and relief ----------------------------------
     let mut contour_lines = 0usize;
     let mut slope_areas = 0usize;
     let mut dem_dir: Option<PathBuf> = None;
+    let mut elevation: Option<crate::elevation::Grid> = None;
 
-    if recipe.contours.interval_m > 0
-        || recipe.relief.resolution().is_some()
-        || recipe.slope_classes
-    {
-        cancel.check_cancelled()?;
-        on_stage(StageUpdate {
-            stage: Stage::Elevation,
-            fraction: None,
-            detail: "listing tiles".into(),
-        });
-        let (paths, fstats) = fetch_tiles(
-            ctx.http,
-            &ctx.cache_root,
-            &bbox,
-            area_mask.as_deref(),
-            12,
-            cancel,
-            |s| {
-                let done = s.already_cached + s.downloaded;
-                on_stage(StageUpdate {
-                    stage: Stage::Elevation,
-                    fraction: (s.requested > 0).then(|| done as f64 / s.requested as f64),
-                    detail: format!("{done} of {} tiles", s.requested),
-                });
-            },
-        )
-        .await?;
-        if !fstats.missing.is_empty() {
-            warnings.push(format!(
-                "{} elevation tile(s) unavailable, so contours have gaps there",
-                fstats.missing.len()
-            ));
-        }
+    // ---- reuse, if this exact region has been built before (FR-72) --------
+    //
+    // Extract, elevation and contours are about 80% of a build and depend on none of
+    // the device, the colour scheme or the TYP, so a cartography change used to redo
+    // all three for a byte-identical result.
+    let source_release = gpkg_path
+        .parent()
+        .and_then(|d| d.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let region_cache = crate::stage_cache::RegionCache::new(&ctx.cache_root);
+    let region_key = crate::stage_cache::region_key(recipe, &source_release);
 
-        let grid = load_grid(&paths, &bbox)?;
-
-        if recipe.slope_classes {
+    let (pbf, stats, cached) = match region_cache.get(&region_key) {
+        Some((path, cached_stats)) => {
             on_stage(StageUpdate {
-                stage: Stage::Contours,
-                fraction: None,
-                detail: "slope classes over 30°".into(),
+                stage: Stage::Extract,
+                fraction: Some(1.0),
+                detail: "reusing the region from an earlier build".into(),
             });
-            let (slopes, sstats) = crate::slope::areas(&grid, &Default::default());
-            cancel.check_cancelled()?;
-            slope_areas = sstats.areas;
-            builder.add_slope_areas(&slopes, cancel)?;
-        }
-
-        if recipe.contours.interval_m > 0 {
-            on_stage(StageUpdate {
-                stage: Stage::Contours,
-                fraction: None,
-                detail: format!("{} m interval", recipe.contours.interval_m),
-            });
-            let cfg = ContourConfig {
-                interval_m: recipe.contours.interval_m,
-                major_m: recipe.contours.index_m,
-                medium_m: 0,
-                simplify_m: recipe.contours.simplify_m,
+            contour_lines = cached_stats.contour_lines;
+            slope_areas = cached_stats.slope_areas;
+            let stats = crate::extract::ExtractStats {
+                features: cached_stats.features,
+                nodes: cached_stats.nodes,
+                ways: cached_stats.ways,
+                per_layer: cached_stats.per_layer.clone(),
+                ..Default::default()
             };
-            let (contours, cstats) = generate(&grid, &cfg, || cancel.is_cancelled());
-            cancel.check_cancelled()?;
-            contour_lines = cstats.lines;
-
-            // Blue over ice, as the Landeskarte does.
-            let ice = load_ice(&gpkg, &bbox);
-            builder.add_contours(
-                &contours,
-                |p| ice.iter().any(|rings| point_in_polygon(p, rings)),
-                cancel,
-            )?;
+            (path, stats, true)
         }
+        None => {
+            let (pbf, stats, grid) = build_region(
+                ctx,
+                recipe,
+                &bbox,
+                &gpkg_path,
+                area_mask.as_ref(),
+                cancel,
+                &mut on_stage,
+                &mut warnings,
+                &mut contour_lines,
+                &mut slope_areas,
+            )
+            .await?;
+            elevation = grid;
+            let stored = region_cache.put(
+                &region_key,
+                &pbf,
+                &crate::stage_cache::RegionStats {
+                    features: stats.features,
+                    nodes: stats.nodes,
+                    ways: stats.ways,
+                    contour_lines,
+                    slope_areas,
+                    per_layer: stats.per_layer.clone(),
+                    source_release: source_release.clone(),
+                },
+            )?;
+            (stored, stats, false)
+        }
+    };
+    cancel.check_cancelled()?;
 
-        if let Some(res) = recipe.relief.resolution() {
-            on_stage(StageUpdate {
-                stage: Stage::Relief,
-                fraction: None,
-                detail: "resampling elevation".into(),
-            });
+    // ---- relief ----------------------------------------------------------
+    //
+    // Outside the cached region on purpose: the relief setting does not change the
+    // region, so it must not be decided by whether the region was reused. On a cache
+    // hit the grid is loaded here instead, from elevation tiles that are already on
+    // disk.
+    if let Some(res) = recipe.relief.resolution() {
+        on_stage(StageUpdate {
+            stage: Stage::Relief,
+            fraction: None,
+            detail: if cached {
+                "resampling elevation (region reused)"
+            } else {
+                "resampling elevation"
+            }
+            .into(),
+        });
+        let grid = match elevation.take() {
+            Some(g) => Some(g),
+            None => {
+                let (paths, _) =
+                    fetch_tiles(ctx.http, &ctx.cache_root, &bbox, area_mask.as_deref(), 12, cancel, |_| {})
+                        .await?;
+                Some(load_grid(&paths, &bbox)?)
+            }
+        };
+        if let Some(grid) = grid {
             let dir = ctx.work_dir.join("dem");
             let (_, dstats) = dem::write_hgt(&grid, &bbox, res, &dir, |_| {})?;
             if dstats.samples_filled == 0 {
@@ -516,9 +645,6 @@ pub async fn build(
             }
         }
     }
-
-    let stats = builder.finish()?;
-    cancel.check_cancelled()?;
 
     // ---- split -----------------------------------------------------------
     on_stage(StageUpdate {
