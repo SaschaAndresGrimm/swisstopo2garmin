@@ -125,54 +125,144 @@ impl ExtractStats {
 }
 
 /// Extract `bbox` from `gpkg` into an OSM PBF at `dest`.
+///
+/// Convenience wrapper for vectors only; use [`RegionBuilder`] to add contours to the
+/// same file.
 pub fn extract_to_pbf(
     gpkg: &Gpkg,
     bbox: &BBox,
     layers: &[LayerSpec],
     dest: &Path,
     cancel: &Cancel,
-    mut on_layer: impl FnMut(&str, u64),
+    on_layer: impl FnMut(&str, u64),
 ) -> Result<ExtractStats> {
-    let available: Vec<String> = gpkg.layers()?.into_iter().map(|l| l.name).collect();
-    let mut stats = ExtractStats::default();
-    let mut writer = PbfWriter::create(dest, bbox.to_wgs84())?;
+    let mut b = RegionBuilder::create(dest, bbox)?;
+    b.add_vectors(gpkg, layers, cancel, on_layer)?;
+    b.finish()
+}
 
-    for spec in layers {
+/// Builds one OSM PBF for a region from several sources.
+///
+/// Vectors and contours must share a single writer: element ids have to form one
+/// ascending sequence or `splitter` rejects the file, and two writers would each
+/// start from 1.
+pub struct RegionBuilder {
+    writer: PbfWriter<std::io::BufWriter<std::fs::File>>,
+    bbox: BBox,
+    stats: ExtractStats,
+}
+
+impl RegionBuilder {
+    pub fn create(dest: &Path, bbox: &BBox) -> Result<Self> {
+        Ok(Self {
+            writer: PbfWriter::create(dest, bbox.to_wgs84())?,
+            bbox: *bbox,
+            stats: ExtractStats::default(),
+        })
+    }
+
+    pub fn stats(&self) -> &ExtractStats {
+        &self.stats
+    }
+
+    pub fn finish(self) -> Result<ExtractStats> {
+        let mut stats = self.stats;
+        let (nodes, ways) = self.writer.finish()?;
+        stats.nodes = nodes;
+        stats.ways = ways;
+        Ok(stats)
+    }
+
+    /// Add contour lines, tagged the way mkgmap styles expect (FR-P6).
+    ///
+    /// `on_ice` decides whether a contour is drawn in the ice palette; the Landeskarte
+    /// draws contours blue over glacier and firn rather than bistre.
+    pub fn add_contours(
+        &mut self,
+        contours: &[crate::contour::Contour],
+        mut on_ice: impl FnMut(crate::geom::Coord) -> bool,
+        cancel: &Cancel,
+    ) -> Result<u64> {
+        let mut n = 0u64;
+        for c in contours {
+            if cancel.is_cancelled() {
+                return Err(crate::Error::Cancelled);
+            }
+            let mut tags = vec![
+                ("contour".to_string(), "elevation".to_string()),
+                ("ele".to_string(), c.elevation.to_string()),
+                ("contour_ext".to_string(), c.tier.contour_ext().to_string()),
+            ];
+            // Classified by the midpoint. A contour that only partly crosses ice takes
+            // one colour throughout, which is acceptable at Garmin resolution and far
+            // cheaper than splitting the line.
+            let mid = c.points[c.points.len() / 2];
+            if on_ice(mid) {
+                tags.push(("contour_surface".to_string(), "ice".to_string()));
+            }
+
+            let refs: Vec<i64> = c
+                .points
+                .iter()
+                .map(|p| {
+                    let (lon, lat) = lv95_to_wgs84(p.e, p.n);
+                    self.writer.node_at(lon, lat)
+                })
+                .collect();
+            if self.writer.way(refs, tags).is_some() {
+                n += 1;
+            }
+        }
+        self.stats.features += n;
+        self.stats.per_layer.push(("contours".to_string(), n));
+        Ok(n)
+    }
+
+    pub fn add_vectors(
+        &mut self,
+        gpkg: &Gpkg,
+        layers: &[LayerSpec],
+        cancel: &Cancel,
+        mut on_layer: impl FnMut(&str, u64),
+    ) -> Result<()> {
+        let available: Vec<String> = gpkg.layers()?.into_iter().map(|l| l.name).collect();
+        let bbox = &self.bbox;
+        let stats = &mut self.stats;
+        let writer = &mut self.writer;
+
+        for spec in layers {
+            if cancel.is_cancelled() {
+                return Err(crate::Error::Cancelled);
+            }
+            if !available.iter().any(|a| a == spec.layer) {
+                stats.missing_layers.push(spec.layer.to_string());
+                continue;
+            }
+
+            let mut count = 0u64;
+            gpkg.for_each_in_bbox(spec.layer, bbox, spec.attributes, |f| {
+                if cancel.is_cancelled() {
+                    return false;
+                }
+                let Some(clipped) = clip(&f.geometry, bbox) else {
+                    return true;
+                };
+                let tags = build_tags(spec, &f);
+                emit(writer, &clipped, &tags, spec.simplify_m, stats);
+                count += 1;
+                true
+            })?;
+
+            stats.features += count;
+            stats.per_layer.push((spec.layer.to_string(), count));
+            on_layer(spec.layer, count);
+        }
+
         if cancel.is_cancelled() {
             return Err(crate::Error::Cancelled);
         }
-        if !available.iter().any(|a| a == spec.layer) {
-            stats.missing_layers.push(spec.layer.to_string());
-            continue;
-        }
-
-        let mut count = 0u64;
-        gpkg.for_each_in_bbox(spec.layer, bbox, spec.attributes, |f| {
-            if cancel.is_cancelled() {
-                return false;
-            }
-            let Some(clipped) = clip(&f.geometry, bbox) else {
-                return true;
-            };
-            let tags = build_tags(spec, &f);
-            emit(&mut writer, &clipped, &tags, spec.simplify_m, &mut stats);
-            count += 1;
-            true
-        })?;
-
-        stats.features += count;
-        stats.per_layer.push((spec.layer.to_string(), count));
-        on_layer(spec.layer, count);
+        Ok(())
     }
-
-    if cancel.is_cancelled() {
-        return Err(crate::Error::Cancelled);
-    }
-
-    let (nodes, ways) = writer.finish()?;
-    stats.nodes = nodes;
-    stats.ways = ways;
-    Ok(stats)
 }
 
 fn build_tags(spec: &LayerSpec, f: &Feature) -> Vec<(String, String)> {

@@ -29,6 +29,10 @@ tracing = "0.1"
 # GeoPackage is plain SQLite; `bundled` compiles SQLite in so there is no system
 # dependency and no version skew across the platforms we ship (SPEC.md NFR-7).
 rusqlite = { version = "0.32", features = ["bundled"] }
+# swissALTI3D tiles are tiled LZW Float32 GeoTIFFs. Decoding TIFF containers, LZW and
+# predictors is a solved problem with real edge cases; std has nothing and reimplementing
+# it would be a liability. GDAL is deliberately avoided so the app stays a single binary.
+tiff = "0.9"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

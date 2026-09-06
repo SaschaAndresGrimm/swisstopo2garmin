@@ -10,7 +10,9 @@
 //!   only become visible in the cache after an atomic rename (FR-D1..D4).
 
 pub mod cache;
+pub mod contour;
 pub mod download;
+pub mod elevation;
 pub mod error;
 pub mod extract;
 pub mod geom;
