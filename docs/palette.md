@@ -49,3 +49,79 @@ rather than flat tints, and buildings became solid black.
 Roads by class, railways, contour bistre, wetland, vineyard/orchard, scree, spot heights,
 and the night palette. Sampling should move to a scripted, committed dataset so palette
 changes are reviewable (FR-CART7).
+
+---
+
+# The winter scheme
+
+swisstopo publishes a **Winter national map** (`ch.swisstopo.pixelkarte-farbe-winter`)
+alongside the summer one, so the winter colours are measured from swisstopo's own
+cartography like every other value here rather than being invented (SPEC.md FR-CART11).
+
+Regenerate with:
+
+```
+python3 tools/winter_palette.py            # dry run, prints the shifts
+python3 tools/winter_palette.py --write    # updates cartography/palette.json
+python3 tools/make_typ.py                  # regenerates all four TYP variants
+python3 spikes/s0/checkstyle.py            # guards every variant's [_drawOrder]
+```
+
+## What is measured is the shift, not the colour
+
+Both sheets are sampled with one estimator over the *same tiles*, and the per-channel
+difference is applied to the palette's summer value.
+
+The winter readings cannot be used directly: those tiles are JPEG, while the summer
+palette was measured from the lossless swissTLM3D raster. The two absolute numbers are
+not comparable — substituting the winter reading would darken the whole map — but their
+difference is.
+
+Sampling uses the channel-wise **median** of fill pixels, not the mode: JPEG smears every
+flat area into a cloud of near-identical values, so the most common single value is noise
+while the middle of the cloud is stable. Neutral greys are excluded as linework, labels
+and hachure, matching `sample_palette.py`; without that, an urban or farmland tile's
+median is dragged dark by its roads and place names.
+
+## Measured shifts (z15, three tiles per fill)
+
+| Fill | Summer | Winter | Shift (R, G, B) | Palette day → winter |
+|---|---|---|---|---|
+| forest | `#BCD0A9` | `#B5D7D6` | (−7, +7, +45) | `#CAECC1` → `#C3F3EE` |
+| glacier | `#C5CCD2` | `#BEDBEF` | (−7, +15, +29) | `#CCD3D3` → `#C5E2F0` |
+| water | `#D3EEFF` | `#D3EDFC` | (0, −1, −3) | `#D3EEFF` → `#D3EDFC` |
+| open land | `#BFC7B0` | `#B8D1D4` | (−7, +10, +36) | `#CEE3CE` → `#C7EDF2` |
+| built-up | `#C3C6B3` | `#BCCDD3` | (−7, +7, +32) | `#EFECE6` → `#E8F3FF` |
+| rock ink | `#9E9B9C` | `#8E969A` | (−16, −5, −2) | `#706E6C` → `#60696A` |
+
+The pattern is consistent: green goes to teal, blue rises, red falls slightly. Water is
+already blue and barely moves.
+
+## What is not shifted, and why
+
+Pale variants (`forest_open`, `copse`, `scrub`, `firn`, `green_mid`, `leisure_area`,
+`transport_area`, `scree_ink`, `water_line`, `wetland_ink`, `contour_ice`) cannot be
+isolated by sampling, so they keep the relationship they have to their measured parent in
+summer.
+
+Overlay colours are printed on the sheet at full strength and are left alone: routes
+(ski, snowshoe, winter hiking, cycle, MTB, hiking), ink, buildings, rail, the road
+hierarchy and the contours. The point of a winter sheet is that the base map steps back
+so the routes on it read; washing out the routes too would defeat it.
+
+Line **casings** also keep their summer colour. Their job is separation, not tint.
+
+## A rejected approach
+
+A single per-channel linear fit of the whole winter sheet against the summer one, over
+59,292 paired pixels:
+
+| Channel | Fit | R² |
+|---|---|---:|
+| R | `0.9614 × summer + 4.58` | 0.857 |
+| G | `0.8975 × summer + 27.40` | 0.853 |
+| B | `0.7331 × summer + 73.05` | 0.710 |
+
+Rejected. R² of 0.71 on blue says a global recolour does not explain the winter sheet,
+and applying it turned the bistre contours (`#C9A277`) pink (`#C6ADA0`) and the roads
+salmon. The winter sheet recolours *selectively*, so it has to be measured selectively.

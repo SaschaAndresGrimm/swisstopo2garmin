@@ -39,8 +39,15 @@ export default function App() {
 
   const recipe: Recipe | null = useMemo(() => {
     if (!deviceId || !area) return null;
-    const name =
-      area.kind === "place" ? `${area.name} ${area.radiusKm} km` : t("recipe.customArea");
+    // The name becomes the file name on devices that hold several map sets, so it has
+    // to distinguish maps that differ: two schemes of one area are two maps.
+    const base =
+      area.kind === "place"
+        ? `${area.name} ${area.radiusKm} km`
+        : area.kind === "corridor"
+          ? `${area.name} ±${area.bufferKm} km`
+          : t("recipe.customArea");
+    const name = palette === "winter" ? `${base} ${t("content.palette.winter")}` : base;
     return {
       schemaVersion: 1,
       name,

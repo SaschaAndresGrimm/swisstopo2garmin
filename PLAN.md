@@ -428,6 +428,9 @@ and leaves a clean state.
 | 5. Build step | **done** | Seven stages with progress and detail, bounded live log, working cancellation. ETA is not shown. |
 | 6. Install step | **done** | Device identity, free space, plan shown before writing, overwrite confirmation with backup, eject reminder. |
 | 7. Accessibility and theming | **partial** | Light/dark from the OS, focus rings, selected state carried by border as well as colour, progress bars carry ARIA. No screen-reader pass and no keyboard-only walkthrough yet. |
+| Cartography — winter scheme (FR-CART11) | **done** | Measured from swisstopo's Winter national map, TYP-only, independent of the preset. |
+| Data location (FR-C4, FR-C5) | **done** | Chosen before the first download, with free space, a writability check, and space accounted by bucket. |
+| Build progress and cancellation (FR-70a…c) | **done** | Weighted progress, remaining time, and cancellation that kills the java children. |
 
 Data acquisition covers every dataset the presets need (base, winter, cycling), not
 just swissTLM3D. Three bugs on that path were found by using it and are recorded in

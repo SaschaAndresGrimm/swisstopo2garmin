@@ -11,9 +11,29 @@ Map data © swisstopo. Licensed GPL-3.0-or-later.
 
 ## Status
 
-Milestone 1 (foundation) complete. The map pipeline currently runs as Milestone 0 spike
-scripts (`spikes/s0/`), which have produced maps verified on a Garmin Edge 840. Porting
-them into `crates/s2g-core` is Milestones 2–4.
+The whole path works, end to end and from the GUI: choose a device, choose an area,
+choose content, build, install. Maps have been verified on a Garmin Edge 840 (firmware
+3133) and a fēnix 5 Plus (firmware 1930).
+
+The pipeline is pure Rust — no GDAL, no Python at build time. `spikes/s0/` is kept for
+schema discovery and the cartography guards, not for building.
+
+What works:
+
+- **Data**: swissTLM3D, hiking trails, SAC ski routes, snowshoe and winter hiking trails,
+  and the three ASTRA route networks, each acquired by its own packaging (zipped
+  GeoPackage, bare GeoPackage, or zipped shapefiles).
+- **Areas**: a rectangle drawn on the swisstopo basemap, a radius around a searched
+  place, a corridor around an imported GPX track or FIT course, or all of Switzerland.
+- **Content**: four presets (hiking, cycling, ski touring, full topo), a per-layer panel,
+  contour interval, shaded relief, and a summer or winter colour scheme measured from
+  swisstopo's own sheets.
+- **Estimation**: output size from a model fitted on real builds, and remaining build
+  time weighted by measured stage durations.
+- **Recipes**: save a configuration and rebuild it later.
+
+Not yet: administrative-unit selection, composite areas, GeoJSON import/export, label
+language, and an accessibility pass. See [PLAN.md](PLAN.md) for the milestone status.
 
 ## Prerequisites
 
@@ -28,10 +48,18 @@ python3 vendor/fetch_tools.py        # mkgmap, splitter, JRE -> vendor/
 cd frontend && npm ci && cd ..
 ```
 
+### Disk space
+
+swissTLM3D inflates to **10.0 GB**, and every area built caches its own swissALTI3D
+tiles at roughly 1.2 MB per square kilometre. Allow 20 GB. The app's Data screen shows
+where the space went, broken down, and offers to delete the two re-derivable parts
+(elevation tiles and build intermediates); the data directory itself can be pointed at
+another volume before the first download.
+
 ## Develop
 
 ```bash
-cargo test --workspace                       # 24 tests, offline
+cargo test --workspace                       # 230 tests, offline
 cargo test -p s2g-core --test live -- --ignored   # hits data.geo.admin.ch
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
