@@ -225,6 +225,26 @@ inspection, though on-screen rendering still needs VAL-2.
 generate it -- but the TYP must still list `0x4a`/`0x4b` in `[_drawOrder]` and define
 their colour, or the map has no base sheet.
 
+**Finding 4.12 — multilingual place names are pipe-separated in one field.**
+`tlm_namen_siedlungsname_zentrum.name` holds every language variant joined by ` | `:
+`Bern | Berna | Berna | Berne`, `Genève | Genevra | Genf | Ginevra`,
+`Zermatt | Praborgne`. Two consequences, both invisible while testing on monolingual
+Grindelwald:
+
+* A label emitted verbatim renders on the device as `Bern | Berna | Berna | Berne`.
+* An exact-match place search finds neither `Bern` nor `Berne`, so major cities are
+  simply unfindable.
+
+The first variant is the local name — German-speaking Bern leads with `Bern`,
+French-speaking Genève with `Genève` — so that is what gets rendered; the remainder are
+kept under `alt_name` for search. Also affects `tlm_strassen_strasse.strassenname`.
+
+**Finding 4.13 — mkgmap rewrites the TYP's FID to `--family-id`.** The `FID=` line in
+a TYP source is therefore not a landmine: a build with a different family id still gets
+its styling, and the compiled TYP carries the build's family id at offset 0x2f. Verified
+by compiling a TYP declaring 6324 into a `--family-id=6399` build and finding 6399, not
+6324, in the output.
+
 **Finding 4.4 — IMG header offsets** (for the Stage 6 verifier): `DSKIMG` at **0x10**,
 `GARMIN` at 0x41, description at 0x49, block-size exponents E1/E2 at 0x61/0x62, FAT at
 0x600. Several online references place `DSKIMG` elsewhere; the above is measured.

@@ -13,8 +13,16 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PALETTE = json.loads((REPO / "cartography" / "palette.json").read_text())
-OUT = REPO / "typ" / "swisstopo.txt"
+
+# mkgmap rewrites this to whatever --family-id the build uses (verified: the compiled
+# TYP carries the build's family id at offset 0x2f, not this one). It is kept only so
+# the file is valid standalone.
 FID = 6324
+
+# A wrist screen is ~1.3 inch. The same line weights that read well on an Edge turn
+# into a solid mass, so the wrist variant thins everything (SPEC.md FR-CART6).
+WRIST_LINE_SCALE = 0.6
+WRIST_MIN_WIDTH = 1
 
 
 def c(name: str, key: str = "day") -> str:
@@ -113,11 +121,13 @@ LINES = [
 ]
 
 
-def main() -> None:
+def build(wrist: bool) -> str:
     L: list[str] = []
     w = L.append
     w(";-----------------------------------------------------------------------------")
     w("; swisstopo2garmin TYP -- GENERATED FILE, DO NOT EDIT.")
+    if wrist:
+        w("; WRIST VARIANT: thinner linework for a ~1.3 inch screen (FR-CART6).")
     w(";   source: cartography/palette.json + tools/make_typ.py")
     w(";   regenerate: python3 tools/make_typ.py")
     w(";")
@@ -162,6 +172,9 @@ def main() -> None:
 
     for t, lab, key, width, border in LINES:
         entry = PALETTE[key]
+        if wrist:
+            width = max(WRIST_MIN_WIDTH, round(width * WRIST_LINE_SCALE))
+            border = min(border, 1)
         w("[_line]")
         w(f"Type={t}")
         w(f"String1=0x04,{lab}")
@@ -178,10 +191,18 @@ def main() -> None:
         w("[end]")
         w("")
 
-    OUT.write_text("\n".join(L))
-    print(f"wrote {OUT}")
-    print(f"  {len(SOLID_POLYGONS)} solid polygons, {len(PATTERN_POLYGONS)} pattern fills, "
-          f"{len(LINES)} lines")
+    return "\n".join(L)
+
+
+def main() -> None:
+    for wrist, name in ((False, "swisstopo.txt"), (True, "swisstopo-wrist.txt")):
+        out = REPO / "typ" / name
+        out.write_text(build(wrist))
+        print(f"wrote {out}")
+    print(
+        f"  {len(SOLID_POLYGONS)} solid polygons, {len(PATTERN_POLYGONS)} pattern fills, "
+        f"{len(LINES)} lines"
+    )
 
 
 if __name__ == "__main__":

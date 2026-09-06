@@ -272,7 +272,21 @@ fn build_tags(spec: &LayerSpec, f: &Feature) -> Vec<(String, String)> {
         // `attr` filters NULL and the k_W / "Keine Angabe" sentinels, so a style rule
         // can never match a no-data value.
         if let Some(v) = f.attr(a) {
-            tags.push((format!("tlm:{a}"), v.to_string()));
+            if *a == "name" || *a == "strassenname" {
+                // Multilingual names arrive pipe-separated. Rendered verbatim the
+                // device would show "Bern | Berna | Berna | Berne", so only the
+                // primary variant becomes the label; the rest are kept searchable
+                // under alt_name (FR-P5).
+                let variants = crate::gpkg::split_names(v);
+                if let Some(primary) = variants.first() {
+                    tags.push((format!("tlm:{a}"), (*primary).to_string()));
+                }
+                if variants.len() > 1 {
+                    tags.push(("alt_name".to_string(), variants[1..].join(";")));
+                }
+            } else {
+                tags.push((format!("tlm:{a}"), v.to_string()));
+            }
         }
     }
     tags

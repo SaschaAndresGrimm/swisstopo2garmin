@@ -26,6 +26,27 @@ use crate::proj::BBox;
 /// Values that mean "no data" in swissTLM3D and must never reach a style rule.
 pub const NO_DATA: &[&str] = &["", "k_W", "Keine Angabe"];
 
+/// swissTLM3D stores multilingual names as a single pipe-separated field, e.g.
+/// `Bern | Berna | Berna | Berne`, `Genève | Genevra | Genf | Ginevra`.
+///
+/// Two consequences, both easy to miss because monolingual names look fine:
+/// a label rendered verbatim reads `Bern | Berna | Berna | Berne` on the device, and an
+/// exact-match place search finds neither `Bern` nor `Berne`.
+///
+/// The first variant is the local/primary name — German-speaking Bern leads with
+/// `Bern`, French-speaking Genève with `Genève` — so it is what gets displayed.
+pub fn split_names(raw: &str) -> Vec<&str> {
+    raw.split('|')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// The name to render on the map: the local/primary variant.
+pub fn primary_name(raw: &str) -> &str {
+    split_names(raw).first().copied().unwrap_or(raw)
+}
+
 #[derive(Debug, Clone)]
 pub struct LayerInfo {
     pub name: String,
@@ -472,4 +493,110 @@ fn read_f64(buf: &[u8], off: usize, little: bool) -> Result<f64> {
     } else {
         f64::from_be_bytes(b)
     })
+}
+
+// ---------------------------------------------------------------------------
+// Place lookup
+// ---------------------------------------------------------------------------
+
+/// A settlement from `tlm_namen_siedlungsname_zentrum`.
+#[derive(Debug, Clone)]
+pub struct Place {
+    /// The local/primary name, as rendered on the map.
+    pub name: String,
+    /// Other language variants, useful for search.
+    pub alternatives: Vec<String>,
+    /// Population band, e.g. `2'000 bis 9'999`. `None` when absent.
+    pub population_category: Option<String>,
+    pub easting: f64,
+    pub northing: f64,
+}
+
+impl Place {
+    /// Rank of the population band, for ordering ambiguous matches.
+    ///
+    /// Values verified against docs/tlm3d-schema.md.
+    pub fn population_rank(&self) -> i32 {
+        match self.population_category.as_deref() {
+            Some("> 100'000") => 8,
+            Some("50'000 bis 100'000") => 7,
+            Some("10'000 bis 49'999") => 6,
+            Some("2'000 bis 9'999") => 5,
+            Some("1'000 bis 1'999") => 4,
+            Some("100 bis 999") => 3,
+            Some("50 bis 99") => 2,
+            Some("20 bis 49") => 1,
+            Some("< 20") => 0,
+            _ => -1,
+        }
+    }
+}
+
+impl Gpkg {
+    /// Every settlement with this exact name, most significant first.
+    ///
+    /// **Place names are not unique** and this must never be collapsed to a single
+    /// answer silently. `Grindelwald` matches both the 2,000-9,999 inhabitant village
+    /// and a <20 inhabitant hamlet 45 km north; an unordered `LIMIT 1` picked the
+    /// hamlet, and every map built before that was found covered the wrong valley
+    /// (docs/m0-findings.md §4.9). The GUI must present the choice (FR-33).
+    pub fn find_places(&self, name: &str) -> Result<Vec<Place>> {
+        const LAYER: &str = "tlm_namen_siedlungsname_zentrum";
+        let has_layer = self.layers()?.iter().any(|l| l.name == LAYER);
+        if !has_layer {
+            return Ok(Vec::new());
+        }
+
+        // A name may be one variant inside a pipe-separated field, so the SQL narrows
+        // with LIKE and the exact variant match is done in Rust.
+        let mut st = self
+            .conn
+            .prepare(&format!(
+                "SELECT name, einwohnerkategorie, geom FROM \"{LAYER}\" \
+                 WHERE name = ?1 OR name LIKE ?2 OR name LIKE ?3 OR name LIKE ?4"
+            ))
+            .map_err(|e| sql_err(&self.path, e))?;
+        let mut rows = st
+            .query(rusqlite::params![
+                name,
+                format!("{name} |%"),
+                format!("%| {name}"),
+                format!("%| {name} |%"),
+            ])
+            .map_err(|e| sql_err(&self.path, e))?;
+
+        let mut out = Vec::new();
+        let want = name.trim();
+        while let Some(row) = rows.next().map_err(|e| sql_err(&self.path, e))? {
+            let raw: String = row.get(0).map_err(|e| sql_err(&self.path, e))?;
+            let variants = split_names(&raw);
+            if !variants.contains(&want) {
+                continue; // LIKE can over-match, e.g. "Bernau" for "Bern"
+            }
+            let name = primary_name(&raw).to_string();
+            let alternatives: Vec<String> = variants
+                .iter()
+                .filter(|v| **v != name)
+                .map(|v| v.to_string())
+                .collect();
+            let pop: Option<String> = row.get(1).ok();
+            let blob: Option<Vec<u8>> = row.get(2).map_err(|e| sql_err(&self.path, e))?;
+            let Some(blob) = blob else { continue };
+            let Some(geom) = parse_gpkg_geometry(&blob)? else {
+                continue;
+            };
+            let Some(c) = geom.coords().next() else {
+                continue;
+            };
+            out.push(Place {
+                name,
+                alternatives,
+                population_category: pop.filter(|p| !NO_DATA.contains(&p.as_str())),
+                easting: c.e,
+                northing: c.n,
+            });
+        }
+        out.sort_by_key(|p| std::cmp::Reverse(p.population_rank()));
+        Ok(out)
+    }
 }

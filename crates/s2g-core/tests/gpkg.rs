@@ -287,3 +287,62 @@ fn reads_an_empty_geometry_as_none() {
     let blob = [b'G', b'P', 0, 0x10, 0, 0, 0, 0];
     assert!(parse_gpkg_geometry(&blob).unwrap().is_none());
 }
+
+#[test]
+fn place_lookup_returns_every_match_most_significant_first() {
+    // Names are not unique, and collapsing them silently is what made every early
+    // build cover the wrong valley (docs/m0-findings.md §4.9). The fixture is a 2x2 km
+    // extract so it has few settlements, but the ordering contract must hold.
+    let g = open();
+    let places = g.find_places("Grindelwald").unwrap();
+    for w in places.windows(2) {
+        assert!(
+            w[0].population_rank() >= w[1].population_rank(),
+            "results must be ordered by significance"
+        );
+    }
+    // An unknown name is empty, not an error.
+    assert!(g.find_places("Nowhere At All").unwrap().is_empty());
+}
+
+#[test]
+fn population_rank_orders_the_swisstopo_bands() {
+    use s2g_core::gpkg::Place;
+    let mk = |cat: Option<&str>| Place {
+        name: "x".into(),
+        alternatives: Vec::new(),
+        population_category: cat.map(str::to_string),
+        easting: 0.0,
+        northing: 0.0,
+    };
+    assert!(mk(Some("2'000 bis 9'999")).population_rank() > mk(Some("< 20")).population_rank());
+    assert!(
+        mk(Some("> 100'000")).population_rank() > mk(Some("10'000 bis 49'999")).population_rank()
+    );
+    assert!(mk(None).population_rank() < mk(Some("< 20")).population_rank());
+}
+
+#[test]
+fn splits_multilingual_names_and_picks_the_local_one() {
+    use s2g_core::gpkg::{primary_name, split_names};
+
+    // swissTLM3D packs every language variant into one field. Rendered verbatim the
+    // device shows "Bern | Berna | Berna | Berne".
+    assert_eq!(
+        split_names("Bern | Berna | Berna | Berne"),
+        vec!["Bern", "Berna", "Berna", "Berne"]
+    );
+    assert_eq!(primary_name("Bern | Berna | Berna | Berne"), "Bern");
+    // The first variant is the local name: French-speaking Genève leads in French.
+    assert_eq!(primary_name("Genève | Genevra | Genf | Ginevra"), "Genève");
+    assert_eq!(primary_name("Zermatt | Praborgne"), "Zermatt");
+
+    // Monolingual names pass through untouched, which is why this was easy to miss.
+    assert_eq!(primary_name("Grindelwald"), "Grindelwald");
+    assert_eq!(split_names("Grindelwald"), vec!["Grindelwald"]);
+
+    // Degenerate input must not panic or produce empty labels.
+    assert_eq!(primary_name(""), "");
+    assert_eq!(split_names("  |  "), Vec::<&str>::new());
+    assert_eq!(primary_name("| Solo |"), "Solo");
+}

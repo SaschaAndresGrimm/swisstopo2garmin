@@ -1,0 +1,94 @@
+# GENERATED from style/swisstopo/lines by tools/make_wrist_style.py.
+# Do not edit; edit the main style or the generator.
+
+# ---------------------------------------------------------------------------
+# Label assignment. mkgmap takes labels from the `name` tag, and --name-tag-list
+# does NOT populate it from arbitrary source tags -- an explicit action is required
+# (verified in Milestone 0; see docs/m0-findings.md). A rule with actions but no
+# [type] performs the action and falls through to the rules below.
+# ---------------------------------------------------------------------------
+tlm:strassenname=* { name '${tlm:strassenname}' }
+tlm:name=*         { name '${tlm:name}' }
+
+# swissTLM3D -> Garmin line types.
+# Layer and attribute names verified against docs/tlm3d-schema.md (CLAUDE.md rule 2).
+# v1 is NOT routable (SPEC.md §1.4), so no road_class/road_speed are set.
+
+# ---------------------------------------------------------------------------
+# Hiking network -- the flagship feature (SPEC.md FR-CART3).
+# Swiss trail classification, rendered with extended types defined in the TYP file:
+#   Wanderweg       yellow        0x10101
+#   Bergwanderweg   red/white     0x10102
+#   Alpinwanderweg  blue/white    0x10103
+# Matched before the generic road rules so trails win over their base geometry.
+# ---------------------------------------------------------------------------
+tlm:wanderwege=Alpinwanderweg  [0x10103 resolution 23 continue with_actions]
+tlm:wanderwege=Bergwanderweg   [0x10102 resolution 22 continue with_actions]
+tlm:wanderwege=Wanderweg       [0x10101 resolution 21 continue with_actions]
+
+# Via ferrata
+tlm:objektart=Klettersteig     [0x10104 resolution 23]
+
+# ---------------------------------------------------------------------------
+# Road network, by TLM objektart
+# ---------------------------------------------------------------------------
+tlm:objektart=Autobahn                          [0x01 resolution 18]
+tlm:objektart=Autostrasse                       [0x02 resolution 19]
+tlm:objektart='10m Strasse'                     [0x03 resolution 19]
+tlm:objektart='8m Strasse'                      [0x04 resolution 20]
+tlm:objektart='6m Strasse'                      [0x05 resolution 20]
+tlm:objektart='4m Strasse'                      [0x06 resolution 21]
+tlm:objektart='3m Strasse'                      [0x06 resolution 22]
+tlm:objektart='2m Weg'                          [0x0a resolution 23]
+tlm:objektart='1m Weg'                          [0x16 resolution 24]
+tlm:objektart='1m Wegfragment'                  [0x16 resolution 24]
+tlm:objektart='2m Wegfragment'                  [0x16 resolution 24]
+tlm:objektart='Markierte Spur'                  [0x16 resolution 24]
+tlm:objektart=Verbindung                        [0x07 resolution 23]
+tlm:objektart=Zufahrt                           [0x07 resolution 23]
+tlm:objektart=Dienstzufahrt                     [0x07 resolution 23]
+tlm:objektart=Einfahrt                          [0x08 resolution 22]
+tlm:objektart=Ausfahrt                          [0x08 resolution 22]
+tlm:objektart=Platz                             [0x07 resolution 22]
+tlm:objektart=Faehre                            [0x1a resolution 19]
+
+# ---------------------------------------------------------------------------
+# Rail
+# ---------------------------------------------------------------------------
+tlm:layer=tlm_oev_eisenbahn                     [0x14 resolution 19]
+
+# ---------------------------------------------------------------------------
+# Hydrography
+# ---------------------------------------------------------------------------
+# swissTLM3D's watercourse layer carries topological constructs and buried
+# watercourses that the Landeskarte does not draw. Excluding them removes the long
+# straight blue lines that otherwise cut across lakes and glaciers:
+#   Seeachse              lake axis -- a connectivity line through a water body
+#   Druckstollen/-leitung pressure tunnels and penstocks (underground)
+#   verlauf=Unterirdisch* piped or subterranean sections
+# `deletealltags` is the mkgmap idiom for dropping an element: with no tags left,
+# no later rule can match it. There is no "type 0x00 means discard".
+tlm:layer=tlm_gewaesser_fliessgewaesser & tlm:objektart=Seeachse         { deletealltags }
+tlm:layer=tlm_gewaesser_fliessgewaesser & tlm:objektart=Druckstollen     { deletealltags }
+tlm:layer=tlm_gewaesser_fliessgewaesser & tlm:objektart~'Druckleitung.*' { deletealltags }
+tlm:layer=tlm_gewaesser_fliessgewaesser & tlm:verlauf~'Unterirdisch.*'   { deletealltags }
+tlm:layer=tlm_gewaesser_fliessgewaesser & tlm:objektart=Trockenrinne      [0x18 resolution 24]
+tlm:layer=tlm_gewaesser_fliessgewaesser & tlm:name=*                      [0x1f resolution 20]
+tlm:layer=tlm_gewaesser_fliessgewaesser                                   [0x18 resolution 22]
+tlm:layer=tlm_gewaesser_stehendes_gewaesser                               [0x1f resolution 20]
+
+# ---------------------------------------------------------------------------
+# Contour lines from swissALTI3D (SPEC.md FR-CART5).
+# Tagging convention emitted by the contour stage (FR-P6), chosen to match the
+# wider mkgmap style ecosystem so third-party styles stay compatible.
+# Garmin native contour types: 0x20 minor, 0x21 intermediate, 0x22 major.
+# Only index (major) contours are labelled, to keep the map legible.
+# ---------------------------------------------------------------------------
+# Blue contours over glacier and firn, as the Landeskarte does (FR-CART9).
+# Must precede the generic contour rules.
+contour=elevation & contour_surface=ice       [0x23 resolution 22]
+
+contour=elevation & contour_ext=elevation_major
+    { name '${ele}' }                 [0x22 resolution 19]
+contour=elevation & contour_ext=elevation_medium [0x21 resolution 22]
+contour=elevation & contour_ext=elevation_minor  [0x20 resolution 24]

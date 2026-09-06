@@ -1,0 +1,19 @@
+# GENERATED from style/swisstopo/points by tools/make_wrist_style.py.
+# Do not edit; edit the main style or the generator.
+
+# ---------------------------------------------------------------------------
+# Label assignment. mkgmap takes labels from the `name` tag, and --name-tag-list
+# does NOT populate it from arbitrary source tags -- an explicit action is required
+# (verified in Milestone 0; see docs/m0-findings.md). A rule with actions but no
+# [type] performs the action and falls through to the rules below.
+# ---------------------------------------------------------------------------
+tlm:strassenname=* { name '${tlm:strassenname}' }
+tlm:name=*         { name '${tlm:name}' }
+
+# Named points from swissTLM3D.
+tlm:layer=tlm_namen_siedlungsname_zentrum & tlm:einwohnerkategorie=* [0x0400 resolution 18]
+tlm:layer=tlm_namen_siedlungsname_zentrum                            [0x0600 resolution 20]
+# [wrist] dropped: too dense at wrist size
+#tlm:layer=tlm_namen_flurname                                         [0x6400 resolution 22]
+# [wrist] dropped: too dense at wrist size
+#tlm:layer=tlm_eo_einzelobjekt                                        [0x6400 resolution 22]
