@@ -600,8 +600,12 @@ custom fonts, or free-form relief shading — those are fixed by the device firm
 swisstopo's signature rock drawing (*Felszeichnung*) is a hand-crafted raster product that
 has no vector equivalent.
 
-Using the raster maps directly is also not an option: Edge and fēnix devices do not support
-BirdsEye `.jnx` or Custom Map `.kmz` (§1.4).
+Using the raster maps directly was assumed not to be an option, on the basis that Edge
+and fēnix devices support neither BirdsEye `.jnx` nor Custom Map `.kmz` (§1.4).
+**That assumption is now in doubt:** the Edge 840's `GarminDevice.xml` advertises both
+`Garmin/CustomMaps` and `Garmin/BirdsEye` directories (docs/m0-findings.md §4.16). The
+directory existing does not prove KMZ overlays render or are usable at the required
+zoom levels, but it should be tested rather than assumed away.
 
 So the requirement is operationalised as: **match swisstopo's palette exactly, match its
 symbol language as closely as the TYP model allows, and use every device capability that

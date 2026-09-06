@@ -18,8 +18,13 @@ SUFFIX="${S2G_SUFFIX:-}"
 
 # mkgmap needs exactly one --dem-dist per style level, and the wrist style has fewer
 # levels than the handlebar one. Derive the list rather than hardcoding it.
+# 1 arc-second (~30 m) gives very strong gradients in alpine terrain and the device
+# renders the relief almost black; 3 arc-second (~90 m) is smoother.
+ARCSEC="${S2G_ARCSEC:-1}"
 LEVELS=$(grep -E "^levels" "$REPO/style/$STYLE_NAME/options" | tr ',' '\n' | grep -c ':')
-DEM_DISTS=$(python3 -c "print(','.join(str(3314 << i) for i in range($LEVELS)))")
+# mkgmap documents 3314 for 1 arc-second and 9942 for 3 arc-second spacing.
+DEM_BASE=$([ "$ARCSEC" = "3" ] && echo 9942 || echo 3314)
+DEM_DISTS=$(python3 -c "print(','.join(str($DEM_BASE << i) for i in range($LEVELS)))")
 source "$REPO/vendor/toolchain.env"
 
 WORK="${S2G_WORK:-$REPO/work}/$PLACE"
@@ -45,8 +50,8 @@ python3 "$REPO/spikes/s0/contours.py" --bbox-lv95 $BBOX --interval "$INTERVAL" \
 
 echo "=== 3/6  DEM tiles for relief shading"
 GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR VSI_CACHE=TRUE \
-python3 "$REPO/spikes/s0/make_dem.py" --bbox-lv95 $BBOX --arcsec 1 \
-        --out "$WORK/dem"
+python3 "$REPO/spikes/s0/make_dem.py" --bbox-lv95 $BBOX --arcsec "$ARCSEC" \
+        --out "$WORK/dem-${ARCSEC}"
 
 echo "=== 4/6  splitter"
 rm -rf "$WORK/tiles"; mkdir -p "$WORK/tiles"
@@ -70,7 +75,7 @@ rm -rf "$WORK/img"; mkdir -p "$WORK/img"; cd "$WORK/img"
   --description="swissTLM3D (c) swisstopo" \
   --draw-priority=30 \
   --overview-mapname=ovm --overview-mapnumber="$OVNUM" \
-  --dem="$WORK/dem" --dem-dists="$DEM_DISTS" \
+  --dem="$WORK/dem-${ARCSEC}" --dem-dists="$DEM_DISTS" \
   "$WORK/tiles"/*.osm.pbf "$TYP_FILE" | grep -iE "^ *(error|.*Exception:)" || true
 
 echo "=== 6/6  mkgmap: combine into gmapsupp"

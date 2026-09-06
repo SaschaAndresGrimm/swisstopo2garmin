@@ -94,6 +94,17 @@ PATTERN_POLYGONS = [
     ("0x1020a", 5, "Reben",         "vineyard"),
 ]
 
+# (type, label, icon) where icon None means "label only, no symbol".
+#
+# swissTLM3D contributes thousands of Flurnamen and single objects. Left with Garmin's
+# default POI icon they render as a field of circles, which the Landeskarte does not do
+# -- it sets those names as text alone.
+POINTS = [
+    ("0x6400", "Flurname", None),
+    ("0x0400", "Ort", "dot"),
+    ("0x0600", "Weiler", "dot"),
+]
+
 # (type, label, colour key, width, border width)
 LINES = [
     ("0x10101", "Wanderweg",      "hike_yellow", 4, 1),
@@ -167,6 +178,27 @@ def build(wrist: bool) -> str:
         w(f'"# c {c(ink)}"')
         for r in rows:
             w(f'"{r}"')
+        w("[end]")
+        w("")
+
+    for t, lab, icon in POINTS:
+        w("[_point]")
+        w(f"Type={t}")
+        w(f"String1=0x04,{lab}")
+        if icon is None:
+            # A fully transparent 1x1 icon: the label still draws, the symbol does not.
+            w('DayXpm="1 1 1 1"')
+            w('"  c none"')
+            w('" "')
+        else:
+            size = 5 if wrist else 7
+            w(f'DayXpm="{size} {size} 2 1"')
+            w('"  c none"')
+            w(f'"# c {c("building")}"')
+            for row in range(size):
+                edge = row == 0 or row == size - 1
+                w('"' + ("".join(" " if edge else "#" for _ in range(size))) + '"')
+        w("FontStyle=SmallFont" if wrist else "FontStyle=NormalFont")
         w("[end]")
         w("")
 

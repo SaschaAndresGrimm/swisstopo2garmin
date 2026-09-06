@@ -299,6 +299,47 @@ Xpm="32 32 2 1"
 "................#..............."
 [end]
 
+[_point]
+Type=0x6400
+String1=0x04,Flurname
+DayXpm="1 1 1 1"
+"  c none"
+" "
+FontStyle=NormalFont
+[end]
+
+[_point]
+Type=0x0400
+String1=0x04,Ort
+DayXpm="7 7 2 1"
+"  c none"
+"# c #000000"
+"       "
+"#######"
+"#######"
+"#######"
+"#######"
+"#######"
+"       "
+FontStyle=NormalFont
+[end]
+
+[_point]
+Type=0x0600
+String1=0x04,Weiler
+DayXpm="7 7 2 1"
+"  c none"
+"# c #000000"
+"       "
+"#######"
+"#######"
+"#######"
+"#######"
+"#######"
+"       "
+FontStyle=NormalFont
+[end]
+
 [_line]
 Type=0x10101
 String1=0x04,Wanderweg

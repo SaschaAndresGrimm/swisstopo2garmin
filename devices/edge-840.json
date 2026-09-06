@@ -3,7 +3,10 @@
   "displayName": "Garmin Edge 840 / 840 Solar",
   "family": "edge",
   "generation": 2023,
-  "matchModels": ["Edge 840", "Edge 840 Solar"],
+  "matchModels": [
+    "Edge 840",
+    "Edge 840 Solar"
+  ],
   "storage": {
     "internalBytes": 32000000000,
     "recommendedMapBudgetBytes": 4000000000,
@@ -12,7 +15,10 @@
   "mapFile": {
     "maxImgBytes": 4294967295,
     "maxTilesPerMapset": 4096,
-    "installPaths": ["/Garmin/", "/Garmin/Maps/"],
+    "installPaths": [
+      "/Garmin/",
+      "/Garmin/Maps/"
+    ],
     "requiresExactFilename": false,
     "supportsMultipleMapsets": true
   },
@@ -22,7 +28,9 @@
     "supportsDem": true,
     "displaysStreetNames": true,
     "screenClass": "handlebar",
-    "recommendedMaxDetailLevel": "full"
+    "recommendedMaxDetailLevel": "full",
+    "supportsCustomMapsDir": true,
+    "supportsBirdsEyeDir": true
   },
   "confidence": {
     "level": "community",
@@ -31,6 +39,9 @@
       "https://community.openstreetmap.org/t/splitting-img-files-into-multiple-smaller-files/95508"
     ],
     "lastVerified": "2026-09-06",
-    "notes": "A map built by this project renders on this device (Milestone 0 gate). Rendering, mixed-case labels and Swiss characters are confirmed. maxImgBytes, maxTilesPerMapset and supportsDem are NOT measured: the size and tile ceilings are inferred from Edge 530 reports, and DEM shading is unverified. See docs/device-verification.md section B."
-  }
+    "notes": "Verified on hardware (firmware 3133, part 006-B4062-00): the map renders, mixed-case Swiss labels are correct, and DEM shaded relief DOES render -- though it is too dark/contrasty at 1 arc-second in alpine terrain. GarminDevice.xml advertises Garmin/CustomMaps and Garmin/BirdsEye directories, which contradicts the common claim that Edge devices cannot take raster maps; unproven, but worth investigating for raster fidelity. NOT measured: maxImgBytes, maxTilesPerMapset. See docs/device-verification.md B."
+  },
+  "partNumbers": [
+    "006-B4062-00"
+  ]
 }

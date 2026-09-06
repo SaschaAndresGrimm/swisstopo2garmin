@@ -84,8 +84,17 @@ pub struct Rendering {
     #[serde(default)]
     pub supports_routable_maps: bool,
     /// Device-side shaded relief from an embedded DEM (FR-CART8).
+    /// Confirmed on hardware for the Edge 840.
     #[serde(default)]
     pub supports_dem: bool,
+    /// The device advertises a `Garmin/CustomMaps` directory. Its presence does not
+    /// prove KMZ raster overlays work, but it contradicts the common claim that Edge
+    /// devices have no raster support at all.
+    #[serde(default)]
+    pub supports_custom_maps_dir: bool,
+    /// The device advertises a `Garmin/BirdsEye` directory.
+    #[serde(default)]
+    pub supports_birds_eye_dir: bool,
     #[serde(default)]
     pub displays_street_names: bool,
     pub screen_class: ScreenClass,
@@ -116,6 +125,10 @@ pub struct DeviceProfile {
     /// Model strings from `GarminDevice.xml` that select this profile.
     #[serde(default)]
     pub match_models: Vec<String>,
+    /// Garmin part numbers seen in `GarminDevice.xml`, which identify a model more
+    /// reliably than its description string.
+    #[serde(default)]
+    pub part_numbers: Vec<String>,
     pub storage: Storage,
     pub map_file: MapFile,
     pub rendering: Rendering,

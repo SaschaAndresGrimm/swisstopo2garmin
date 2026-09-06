@@ -245,6 +245,27 @@ its styling, and the compiled TYP carries the build's family id at offset 0x2f. 
 by compiling a TYP declaring 6324 into a `--family-id=6399` build and finding 6399, not
 6324, in the output.
 
+**Finding 4.14 — DEM shaded relief works on the Edge 840, but 1 arc-second is too
+dark.** Verified on hardware (firmware 3133): the device renders shaded relief from the
+embedded DEM, which confirms FR-CART8 was worth building. At 1 arc-second (~30 m) over
+alpine terrain the shading is heavy enough to darken the whole map and mute the
+Landeskarte palette. mkgmap exposes no shading-intensity control — the device computes
+it — so the only lever is DEM resolution. A 3 arc-second (~90 m) build is 445 KB → 71 KB
+of DEM and should shade far more gently.
+
+**Finding 4.15 — default POI icons clutter the map.** swissTLM3D contributes thousands
+of Flurnamen; with Garmin's default icon for the point type they render as a field of
+circles, which the Landeskarte does not do — it sets those names as text alone. Fixed by
+defining the point types in the TYP with a fully transparent 1x1 icon, which keeps the
+label and drops the symbol.
+
+**Finding 4.16 — the Edge 840 advertises CustomMaps and BirdsEye directories.**
+`GarminDevice.xml` lists `Garmin/CustomMaps` and `Garmin/BirdsEye` among its supported
+paths. This contradicts the common claim, repeated in SPEC §1.4, that Edge devices have
+no raster map support at all. The directory existing does not prove KMZ overlays render,
+but given that visual fidelity to the swisstopo raster is a headline requirement, it is
+worth testing before accepting the vector-only conclusion.
+
 **Finding 4.4 — IMG header offsets** (for the Stage 6 verifier): `DSKIMG` at **0x10**,
 `GARMIN` at 0x41, description at 0x49, block-size exponents E1/E2 at 0x61/0x62, FAT at
 0x600. Several online references place `DSKIMG` elsewhere; the above is measured.
