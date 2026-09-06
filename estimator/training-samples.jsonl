@@ -1,0 +1,16 @@
+{"predictors":{"groupCounts":{"built":6507,"landCover":3315,"names":1354,"transport":3918,"water":2453},"areaKm2":144.0,"contourIntervalM":20,"relief":"gentle"},"actualBytes":1095680,"at":1788710850}
+{"predictors":{"groupCounts":{"built":21593,"landCover":11926,"names":3879,"transport":11607,"water":7842},"areaKm2":576.0,"contourIntervalM":50,"relief":"off"},"actualBytes":3000320,"at":1788710935}
+{"predictors":{"groupCounts":{"built":4599,"landCover":5335,"names":633,"transport":3496,"water":2805,"winter":264},"areaKm2":256.0,"contourIntervalM":20,"relief":"detailed"},"actualBytes":2002944,"at":1788711020}
+{"predictors":{"groupCounts":{"built":3541,"landCover":2370,"names":378,"transport":2296,"water":860},"areaKm2":64.0,"contourIntervalM":10,"relief":"gentle"},"actualBytes":692736,"at":1788711045}
+{"predictors":{"groupCounts":{"built":53975,"cycling":1743,"landCover":1975,"names":1455,"transport":29947,"water":1296},"areaKm2":144.0,"contourIntervalM":20,"relief":"off"},"actualBytes":1688576,"at":1788711067}
+{"predictors":{"groupCounts":{"built":94339,"landCover":4541,"names":4711,"transport":53378,"water":4456},"areaKm2":400.0,"contourIntervalM":100,"relief":"gentle"},"actualBytes":3123200,"at":1788711099}
+{"predictors":{"groupCounts":{"built":131662,"cycling":1705,"landCover":4791,"names":3698,"transport":71841,"water":4306},"areaKm2":256.0,"contourIntervalM":50,"relief":"gentle"},"actualBytes":3719168,"at":1788711132}
+{"predictors":{"groupCounts":{"built":74638,"landCover":2022,"names":1081,"transport":36662,"water":1991},"areaKm2":100.0,"contourIntervalM":20,"relief":"detailed"},"actualBytes":1952768,"at":1788711142}
+{"predictors":{"groupCounts":{"built":61208,"landCover":2144,"names":3377,"transport":21431,"water":3780},"areaKm2":196.0,"contourIntervalM":20,"relief":"gentle"},"actualBytes":2104320,"at":1788711177}
+{"predictors":{"groupCounts":{"built":65055,"cycling":1474,"landCover":10347,"names":2717,"transport":28646,"water":7771},"areaKm2":324.0,"contourIntervalM":100,"relief":"detailed"},"actualBytes":3378176,"at":1788711221}
+{"predictors":{"groupCounts":{"built":18167,"cycling":983,"landCover":2238,"names":1383,"transport":7193,"water":1921,"winter":25},"areaKm2":100.0,"contourIntervalM":20,"relief":"gentle"},"actualBytes":964096,"at":1788711243}
+{"predictors":{"groupCounts":{"built":21210,"landCover":6767,"names":2379,"transport":11456,"water":3803},"areaKm2":256.0,"contourIntervalM":10,"relief":"off"},"actualBytes":2434048,"at":1788711319}
+{"predictors":{"groupCounts":{"built":37323,"landCover":2212,"names":1640,"transport":12328,"water":3221,"winter":33},"areaKm2":144.0,"contourIntervalM":50,"relief":"gentle"},"actualBytes":1289728,"at":1788711348}
+{"predictors":{"groupCounts":{"built":94184,"landCover":7005,"names":6701,"transport":44273,"water":6485},"areaKm2":576.0,"contourIntervalM":20,"relief":"off"},"actualBytes":3591168,"at":1788711436}
+{"predictors":{"groupCounts":{"built":2578,"landCover":6983,"names":829,"transport":3201,"water":4728,"winter":288},"areaKm2":196.0,"contourIntervalM":10,"relief":"detailed"},"actualBytes":2126848,"at":1788711510}
+{"predictors":{"groupCounts":{"built":42521,"cycling":2169,"landCover":3142,"names":2509,"transport":23096,"water":1792},"areaKm2":324.0,"contourIntervalM":20,"relief":"gentle"},"actualBytes":1648640,"at":1788711550}

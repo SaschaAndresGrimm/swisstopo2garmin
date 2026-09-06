@@ -326,6 +326,9 @@ pub fn extract_to_pbf(
 pub struct RegionBuilder {
     writer: PbfWriter<std::io::BufWriter<std::fs::File>>,
     bbox: BBox,
+    /// Optional shape a feature must also intersect (SPEC.md FR-34, FR-39). The bbox
+    /// stays the cheap first cut; the mask does the rest.
+    mask: Option<crate::mask::Mask>,
     stats: ExtractStats,
 }
 
@@ -334,8 +337,23 @@ impl RegionBuilder {
         Ok(Self {
             writer: PbfWriter::create(dest, bbox.to_wgs84())?,
             bbox: *bbox,
+            mask: None,
             stats: ExtractStats::default(),
         })
+    }
+
+    /// Restrict output to features intersecting `mask` as well as the bounding box.
+    pub fn with_mask(mut self, mask: crate::mask::Mask) -> Self {
+        self.mask = Some(mask);
+        self
+    }
+
+    /// Whether a clipped geometry survives the mask. Always true without one.
+    fn passes(mask: &Option<crate::mask::Mask>, geom: &Geometry) -> bool {
+        match mask {
+            Some(m) => m.intersects(geom),
+            None => true,
+        }
     }
 
     pub fn stats(&self) -> &ExtractStats {
@@ -374,6 +392,13 @@ impl RegionBuilder {
             // one colour throughout, which is acceptable at Garmin resolution and far
             // cheaper than splitting the line.
             let mid = c.points[c.points.len() / 2];
+            // Contours dominate output size, so masking them is what makes a corridor
+            // build small rather than merely correctly shaped.
+            if let Some(m) = &self.mask {
+                if !c.points.iter().any(|p| m.contains(*p)) {
+                    continue;
+                }
+            }
             if on_ice(mid) {
                 tags.push(("contour_surface".to_string(), "ice".to_string()));
             }
@@ -421,6 +446,7 @@ impl RegionBuilder {
         cancel: &Cancel,
     ) -> Result<u64> {
         let bbox = &self.bbox;
+        let mask = &self.mask;
         let stats = &mut self.stats;
         let writer = &mut self.writer;
         let mut count = 0u64;
@@ -432,6 +458,9 @@ impl RegionBuilder {
             let Some(clipped) = clip(&f.geometry, bbox) else {
                 return true;
             };
+            if !Self::passes(mask, &clipped) {
+                return true;
+            }
             let mut tags = build_tags(spec, &f);
             // Replace the layer tag with the qualified name.
             if let Some(slot) = tags.iter_mut().find(|(k, _)| k.ends_with(":layer")) {
@@ -459,6 +488,7 @@ impl RegionBuilder {
     ) -> Result<()> {
         let available: Vec<String> = gpkg.layers()?.into_iter().map(|l| l.name).collect();
         let bbox = &self.bbox;
+        let mask = &self.mask;
         let stats = &mut self.stats;
         let writer = &mut self.writer;
 
@@ -481,6 +511,9 @@ impl RegionBuilder {
                 let Some(clipped) = clip(&f.geometry, bbox) else {
                     return true;
                 };
+                if !Self::passes(mask, &clipped) {
+                    return true;
+                }
                 let tags = build_tags(spec, &f);
                 emit(writer, &clipped, &tags, spec.simplify_m, stats);
                 count += 1;

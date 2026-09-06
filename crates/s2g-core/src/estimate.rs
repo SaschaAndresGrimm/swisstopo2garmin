@@ -185,6 +185,50 @@ impl SizeModel {
         sum / samples.len() as f64
     }
 
+    /// Leave-one-out cross-validated error for a given ridge strength.
+    ///
+    /// In-sample error always improves as the ridge weakens, so it cannot choose one:
+    /// the 11-term model has enough freedom to fit 16 builds closely while predicting
+    /// an unseen area badly. This refits without each sample and scores it on the one
+    /// left out, which is what "±25 % on an area you have not built" actually means.
+    pub fn loocv_mape(samples: &[Sample], prior: &SizeModel, lambda: f64) -> f64 {
+        if samples.len() < 3 {
+            return f64::INFINITY;
+        }
+        let mut sum = 0.0;
+        for i in 0..samples.len() {
+            let rest: Vec<Sample> = samples
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, s)| s.clone())
+                .collect();
+            let m = SizeModel::fit(&rest, prior, lambda);
+            let actual = samples[i].actual_bytes as f64;
+            if actual > 0.0 {
+                sum += (m.predict(&samples[i].predictors) as f64 - actual).abs() / actual;
+            }
+        }
+        sum / samples.len() as f64
+    }
+
+    /// Fit with the ridge strength that cross-validates best.
+    ///
+    /// Returns the model and the chosen lambda. The grid spans "essentially free" to
+    /// "essentially the prior", so the data decides how much it is trusted.
+    pub fn fit_cv(samples: &[Sample], prior: &SizeModel) -> (SizeModel, f64) {
+        const GRID: [f64; 11] = [
+            0.0, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11,
+        ];
+        let best = GRID
+            .iter()
+            .map(|l| (*l, SizeModel::loocv_mape(samples, prior, *l)))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(l, _)| l)
+            .unwrap_or(1e6);
+        (SizeModel::fit(samples, prior, best), best)
+    }
+
     pub fn load(path: &Path) -> Result<SizeModel> {
         let bytes = std::fs::read(path).map_err(|e| Error::io(path, e))?;
         let m: SizeModel = serde_json::from_slice(&bytes)?;
@@ -283,10 +327,13 @@ pub fn calibration_log_path() -> std::path::PathBuf {
 pub fn current_model(shipped: &Path, log: &Path) -> SizeModel {
     let prior = SizeModel::load(shipped).unwrap_or_default();
     let samples = CalibrationLog::read(log);
-    // λ is in the units of XᵀX, whose entries are squared feature counts — tens of
-    // millions for a real area. 1e6 leaves a single build able to move the fit a
-    // little and a dozen able to move it a lot.
-    SizeModel::fit(&samples, &prior, 1e6)
+    // Below three samples there is nothing to cross-validate against, and a fixed
+    // strong ridge is the right answer: barely move the shipped model. λ is in the
+    // units of XᵀX, whose entries are squared feature counts.
+    if samples.len() < 3 {
+        return SizeModel::fit(&samples, &prior, 1e9);
+    }
+    SizeModel::fit_cv(&samples, &prior).0
 }
 
 /// Count features per layer group for an area.
@@ -581,6 +628,106 @@ mod tests {
         assert_eq!(back.len(), 2);
         assert_eq!(back[0].actual_bytes, 123_456);
         assert_eq!(back[0].predictors, s.predictors);
+    }
+
+    #[test]
+    fn cross_validation_prefers_a_weak_ridge_when_the_data_is_clean() {
+        // Noiseless samples from a known model: the data deserves to be trusted, so
+        // the chosen lambda must be at the weak end and the fit near-exact.
+        let truth = SizeModel {
+            coefficients: vec![
+                50_000.0, 10.0, 5.0, 20.0, 8.0, 30.0, 12.0, 15.0, 2_000.0, 800.0, 200.0,
+            ],
+            samples: 0,
+        };
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut rng = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let samples: Vec<Sample> = (0..30)
+            .map(|i| {
+                let p = predictors(
+                    &[
+                        ("landCover", rng() % 40_000),
+                        ("water", rng() % 6_000),
+                        ("transport", rng() % 30_000),
+                        ("built", rng() % 90_000),
+                        ("names", rng() % 4_000),
+                        ("winter", rng() % 3_000),
+                        ("cycling", rng() % 2_000),
+                    ],
+                    20.0 + (rng() % 4_000) as f64 / 4.0,
+                    [0, 10, 20, 50, 100][(rng() % 5) as usize],
+                    match i % 3 {
+                        0 => ReliefDetail::Off,
+                        1 => ReliefDetail::Gentle,
+                        _ => ReliefDetail::Detailed,
+                    },
+                );
+                Sample {
+                    actual_bytes: truth.predict(&p),
+                    predictors: p,
+                    at: 0,
+                }
+            })
+            .collect();
+
+        let (fitted, lambda) = SizeModel::fit_cv(&samples, &SizeModel::default());
+        assert!(lambda <= 1e3, "clean data should not be regularised hard: {lambda}");
+        assert!(fitted.mape(&samples) < 1e-3);
+    }
+
+    #[test]
+    fn fit_cv_picks_the_grid_minimum_and_stays_sane_on_noise() {
+        // Sizes unrelated to the predictors. There is no "right" lambda here, so the
+        // contract is only that the chosen one really is the cross-validated best and
+        // that the resulting model is still usable.
+        let prior = SizeModel::default();
+        let mut seed = 12345u64;
+        let mut rng = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let samples: Vec<Sample> = (0..12)
+            .map(|_| Sample {
+                predictors: predictors(
+                    &[("landCover", rng() % 30_000), ("built", rng() % 50_000)],
+                    50.0 + (rng() % 200) as f64,
+                    20,
+                    ReliefDetail::Gentle,
+                ),
+                actual_bytes: 500_000 + rng() % 3_000_000,
+                at: 0,
+            })
+            .collect();
+
+        let (fitted, lambda) = SizeModel::fit_cv(&samples, &prior);
+        let chosen = SizeModel::loocv_mape(&samples, &prior, lambda);
+        for other in [0.0, 1e3, 1e6, 1e9, 1e11] {
+            let score = SizeModel::loocv_mape(&samples, &prior, other);
+            assert!(
+                chosen <= score + 1e-12,
+                "lambda {lambda} scored {chosen} but {other} scored {score}"
+            );
+        }
+        assert!(fitted.coefficients.iter().all(|c| c.is_finite() && *c >= 0.0));
+        assert_eq!(fitted.coefficients.len(), TERMS);
+    }
+
+    #[test]
+    fn loocv_needs_at_least_three_samples() {
+        let prior = SizeModel::default();
+        let s = Sample {
+            predictors: predictors(&[("water", 10)], 1.0, 20, ReliefDetail::Off),
+            actual_bytes: 1_000,
+            at: 0,
+        };
+        assert!(SizeModel::loocv_mape(&[s.clone(), s], &prior, 1e6).is_infinite());
     }
 
     #[test]

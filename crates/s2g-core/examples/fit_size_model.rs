@@ -139,13 +139,24 @@ fn report(samples: &[Sample], out: &Path) -> Result<(), Box<dyn std::error::Erro
         return Err("no samples to fit".into());
     }
     let prior = SizeModel::default();
-    // A small ridge keeps a term the training set happens not to exercise at its prior
-    // rather than at an arbitrary value.
-    let fitted = SizeModel::fit(samples, &prior, 1e4);
+    // The ridge strength is chosen by leave-one-out cross-validation, not by in-sample
+    // error: with 11 terms and this many builds, in-sample error always prefers no
+    // regularisation and then predicts an unseen area badly.
+    println!("\nlambda sweep (leave-one-out error):");
+    for l in [0.0, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11] {
+        println!(
+            "  lambda {l:>9.0e}  LOOCV {:>5.1}%",
+            SizeModel::loocv_mape(samples, &prior, l) * 100.0
+        );
+    }
+    let (fitted, lambda) = SizeModel::fit_cv(samples, &prior);
 
     println!("\nsamples      : {}", samples.len());
+    println!("chosen lambda: {lambda:.0e}");
     println!("prior MAPE   : {:.1}%", prior.mape(samples) * 100.0);
-    println!("fitted MAPE  : {:.1}%", fitted.mape(samples) * 100.0);
+    println!("fitted MAPE  : {:.1}%  (LOOCV {:.1}%)",
+        fitted.mape(samples) * 100.0,
+        SizeModel::loocv_mape(samples, &prior, lambda) * 100.0);
 
     let names = [
         "intercept", "landCover", "water", "transport", "built", "names", "winter", "cycling",
