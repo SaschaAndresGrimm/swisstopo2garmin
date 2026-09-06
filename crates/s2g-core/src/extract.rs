@@ -71,6 +71,13 @@ pub const DEFAULT_LAYERS: &[LayerSpec] = &[
         attributes: &["objektart", "name"],
         simplify_m: 1.0,
     },
+    // Lifts and cableways: 2,903 features nationally, and essential context on a
+    // Swiss hiking or ski map. Present in swissTLM3D all along but never extracted.
+    LayerSpec {
+        layer: "tlm_oev_uebrige_bahn",
+        attributes: &["objektart", "name"],
+        simplify_m: 1.0,
+    },
     LayerSpec {
         layer: "tlm_areale_nutzungsareal",
         attributes: &["objektart", "name"],

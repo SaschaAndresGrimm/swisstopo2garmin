@@ -122,6 +122,12 @@ LINES = [
     ("0x0a",    "Fahrweg",        "track",          3, 1),
     ("0x16",    "Fussweg",        "path",           2, 0),
     ("0x14",    "Eisenbahn",      "rail",           4, 1),
+    # Aerial and surface lifts. Already present in swissTLM3D as
+    # tlm_oev_uebrige_bahn (2,903 features: 821 ski lifts, 366 chairlifts,
+    # 322 cable cars, 144 gondolas) but previously not extracted at all -- a real
+    # omission for a Swiss hiking or ski map.
+    ("0x10105", "Luftseilbahn",   "lift_aerial",    2, 0),
+    ("0x10106", "Skilift",        "lift_surface",   2, 0),
     ("0x1a",    "Faehre",         "water_line",     2, 0),
     ("0x18",    "Bach",           "water_line",     2, 0),
     ("0x1f",    "Fluss",          "water_line",     4, 0),

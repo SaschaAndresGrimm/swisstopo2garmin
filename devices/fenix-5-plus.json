@@ -1,0 +1,38 @@
+{
+  "id": "fenix-5-plus",
+  "displayName": "Garmin fenix 5 Plus",
+  "family": "wrist",
+  "generation": 2018,
+  "matchModels": ["fenix 5 Plus", "fenix 5X Plus", "fenix 5S Plus"],
+  "partNumbers": ["006-B3110-00"],
+  "storage": {
+    "internalBytes": 16000000000,
+    "recommendedMapBudgetBytes": 1500000000,
+    "hasRemovableStorage": false
+  },
+  "mapFile": {
+    "maxImgBytes": 2147483647,
+    "maxTilesPerMapset": 2048,
+    "installPaths": ["/Garmin/"],
+    "requiresExactFilename": true,
+    "supportsMultipleMapsets": false
+  },
+  "rendering": {
+    "supportsTypFile": true,
+    "supportsRoutableMaps": true,
+    "supportsDem": true,
+    "supportsCustomMapsDir": true,
+    "supportsBirdsEyeDir": true,
+    "displaysStreetNames": false,
+    "screenClass": "wrist",
+    "recommendedMaxDetailLevel": "reduced"
+  },
+  "confidence": {
+    "level": "community",
+    "sources": [
+      "https://www.dcrainmaker.com/2019/08/installing-garmin-forerunner.html"
+    ],
+    "lastVerified": "2026-09-06",
+    "notes": "Verified on hardware (firmware 1930, part 006-B3110-00): the wrist cartography renders correctly and legibly, and coexists with the factory map. GarminDevice.xml advertises Garmin/CustomMaps and Garmin/BirdsEye. NOT measured: maxImgBytes, maxTilesPerMapset, and whether DEM shaded relief actually renders on this generation. The 20 MB limit often quoted for fenix devices is fenix 3-era and does not apply here."
+  }
+}

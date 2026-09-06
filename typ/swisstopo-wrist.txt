@@ -486,6 +486,22 @@ BorderWidth=1
 [end]
 
 [_line]
+Type=0x10105
+String1=0x04,Luftseilbahn
+Xpm="0 0 1 0"
+"1 c #1A1A1A"
+LineWidth=1
+[end]
+
+[_line]
+Type=0x10106
+String1=0x04,Skilift
+Xpm="0 0 1 0"
+"1 c #3D3D3D"
+LineWidth=1
+[end]
+
+[_line]
 Type=0x1a
 String1=0x04,Faehre
 Xpm="0 0 1 0"

@@ -55,6 +55,19 @@ tlm:objektart=Faehre                            [0x1a resolution 18]
 tlm:layer=tlm_oev_eisenbahn                     [0x14 resolution 18]
 
 # ---------------------------------------------------------------------------
+# Lifts and cableways (tlm_oev_uebrige_bahn)
+# Mountain transport is essential context on a Swiss hiking or ski map, and the
+# Landeskarte draws it prominently.
+# ---------------------------------------------------------------------------
+tlm:objektart=Luftseilbahn                      [0x10105 resolution 19]
+tlm:objektart=Gondelbahn                        [0x10105 resolution 19]
+tlm:objektart=Sesselbahn                        [0x10105 resolution 20]
+tlm:objektart=Skilift                           [0x10106 resolution 21]
+tlm:objektart=Foerderband                       [0x10106 resolution 22]
+tlm:objektart=Transportseil                     [0x10106 resolution 22]
+tlm:objektart=Lift                              [0x10106 resolution 22]
+
+# ---------------------------------------------------------------------------
 # Hydrography
 # ---------------------------------------------------------------------------
 # swissTLM3D's watercourse layer carries topological constructs and buried
