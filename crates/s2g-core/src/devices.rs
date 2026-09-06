@@ -333,3 +333,223 @@ pub fn is_double_extension(name: &str) -> bool {
     let lower = name.to_lowercase();
     lower.ends_with(".img.img") || lower.matches(".img").count() > 1
 }
+
+/// Garmin's USB vendor id, `0x091E`.
+const GARMIN_VENDOR_ID: u32 = 0x091E;
+
+/// A Garmin device attached over USB but **not** mounted as a filesystem.
+///
+/// Recent Edge and fēnix models default to MTP rather than USB mass storage. macOS has
+/// no MTP filesystem at all, so such a device never appears under `/Volumes` and a
+/// filesystem scan cannot see it — the app looked like it was failing to detect a device
+/// that was plainly plugged in.
+///
+/// Nothing can be written to one of these directly. Reporting it is still worth doing:
+/// "your Edge 840 is connected in MTP mode, switch USB mode to mass storage" is a
+/// fixable problem, and silence is not.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsbDevice {
+    pub model: String,
+    pub serial: Option<String>,
+}
+
+/// Garmin devices visible on the USB bus, mounted or not.
+pub fn usb_devices() -> Vec<UsbDevice> {
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("ioreg")
+            .args(["-r", "-c", "IOUSBHostDevice", "-l"])
+            .output()
+            .ok();
+        let text = out
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default();
+        parse_ioreg(&text)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut out = Vec::new();
+        let Ok(rd) = std::fs::read_dir("/sys/bus/usb/devices") else {
+            return out;
+        };
+        for e in rd.flatten() {
+            let dir = e.path();
+            let vendor = std::fs::read_to_string(dir.join("idVendor")).unwrap_or_default();
+            if u32::from_str_radix(vendor.trim(), 16) != Ok(GARMIN_VENDOR_ID) {
+                continue;
+            }
+            let model = std::fs::read_to_string(dir.join("product"))
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+            if model.is_empty() {
+                continue;
+            }
+            out.push(UsbDevice {
+                serial: std::fs::read_to_string(dir.join("serial"))
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
+                model,
+            });
+        }
+        out.sort_by(|a, b| a.model.cmp(&b.model));
+        out.dedup();
+        out
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        // Windows browses MTP devices through Explorer and mounts mass storage as a
+        // drive letter, which the volume scan already covers.
+        Vec::new()
+    }
+}
+
+/// Pull Garmin devices out of `ioreg -r -c IOUSBHostDevice -l` output.
+///
+/// Kept separate from the command so it can be tested against captured output rather
+/// than against whatever happens to be plugged in.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn parse_ioreg(text: &str) -> Vec<UsbDevice> {
+    // ioreg prints one property per line and nests children, so a device's properties
+    // are not delimited. Collect per indent-independent run: a new "idVendor" starts a
+    // new device record.
+    let mut out: Vec<UsbDevice> = Vec::new();
+    let mut vendor: Option<u32> = None;
+    let mut model: Option<String> = None;
+    let mut serial: Option<String> = None;
+
+    let value = |line: &str| -> Option<String> {
+        let (_, rhs) = line.split_once('=')?;
+        let rhs = rhs.trim();
+        Some(rhs.trim_matches('"').to_string())
+    };
+
+    let mut flush = |vendor: &mut Option<u32>, model: &mut Option<String>, serial: &mut Option<String>| {
+        if *vendor == Some(GARMIN_VENDOR_ID) {
+            if let Some(m) = model.clone() {
+                let d = UsbDevice {
+                    model: m,
+                    serial: serial.clone(),
+                };
+                // ioreg lists a device once per interface; one entry each is enough.
+                if !out.contains(&d) {
+                    out.push(d);
+                }
+            }
+        }
+        *vendor = None;
+        *model = None;
+        *serial = None;
+    };
+
+    for line in text.lines() {
+        // ioreg draws a tree, so every property line carries "| " and "+-o" prefixes
+        // that survive trimming: match the quoted key anywhere in the line.
+        //
+        // Record boundaries are "+-o" nodes. Properties within a node print in
+        // dictionary order, which is not a guaranteed order, so a key arriving when it
+        // already has a value also ends the record — otherwise a device whose product
+        // name precedes its vendor id is attributed to the previous one.
+        if line.contains("+-o") {
+            flush(&mut vendor, &mut model, &mut serial);
+            continue;
+        }
+        if line.contains("\"idVendor\"") {
+            if vendor.is_some() {
+                flush(&mut vendor, &mut model, &mut serial);
+            }
+            vendor = value(line).and_then(|v| v.trim().parse::<u32>().ok());
+        } else if line.contains("\"USB Product Name\"") {
+            if model.is_some() {
+                flush(&mut vendor, &mut model, &mut serial);
+            }
+            model = value(line).filter(|s| !s.is_empty());
+        } else if line.contains("\"USB Serial Number\"") {
+            if serial.is_some() {
+                flush(&mut vendor, &mut model, &mut serial);
+            }
+            serial = value(line).filter(|s| !s.is_empty());
+        }
+    }
+    flush(&mut vendor, &mut model, &mut serial);
+    out
+}
+
+#[cfg(test)]
+mod usb_tests {
+    use super::*;
+
+    /// Captured from a real Edge 840 attached in MTP mode, which is the case that made
+    /// the app look broken: plainly plugged in, and invisible to a volume scan.
+    const IOREG_EDGE_840: &str = r#"
++-o AppleUSB20HubPort@01100000  <class AppleUSB20HubPort, id 0x100000abc>
+  |   "sessionID" = 12345
+  |   "USB Serial Number" = "0000d0b4a4f6"
+  |   "USB Vendor Name" = "Garmin"
+  |   "USB Product Name" = "Edge 840"
+  |   "idVendor" = 2334
+  |   "idProduct" = 20446
+  |   "UsbExclusiveOwner" = "pid 32153, OpenMTP Helper ("
+  | +-o IOUSBHostInterface@0  <class IOUSBHostInterface>
+  | |   "idProduct" = 20446
+  | |   "USB Product Name" = "Edge 840"
+  | |   "USB Vendor Name" = "Garmin"
+  | |   "idVendor" = 2334
+  | |   "USB Serial Number" = "0000d0b4a4f6"
+"#;
+
+    #[test]
+    fn a_garmin_device_in_mtp_mode_is_recognised() {
+        let found = parse_ioreg(IOREG_EDGE_840);
+        assert_eq!(found.len(), 1, "listed once per interface, reported once: {found:?}");
+        assert_eq!(found[0].model, "Edge 840");
+        assert_eq!(found[0].serial.as_deref(), Some("0000d0b4a4f6"));
+    }
+
+    #[test]
+    fn devices_from_other_vendors_are_ignored() {
+        let text = r#"
+  |   "USB Vendor Name" = "Logitech"
+  |   "USB Product Name" = "USB Receiver"
+  |   "idVendor" = 1133
+  |   "USB Vendor Name" = "Garmin"
+  |   "USB Product Name" = "fenix 5 Plus"
+  |   "idVendor" = 2334
+"#;
+        let found = parse_ioreg(text);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].model, "fenix 5 Plus");
+        assert_eq!(found[0].serial, None);
+    }
+
+    #[test]
+    fn two_garmin_devices_are_both_reported() {
+        let text = r#"
+  |   "USB Serial Number" = "AAA"
+  |   "USB Product Name" = "Edge 840"
+  |   "idVendor" = 2334
+  |   "USB Serial Number" = "BBB"
+  |   "USB Product Name" = "fenix 5 Plus"
+  |   "idVendor" = 2334
+"#;
+        let found = parse_ioreg(text);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0].model, "Edge 840");
+        assert_eq!(found[1].model, "fenix 5 Plus");
+    }
+
+    #[test]
+    fn nothing_plugged_in_is_an_empty_list_not_a_failure() {
+        assert!(parse_ioreg("").is_empty());
+        assert!(parse_ioreg("no properties here at all").is_empty());
+        // A Garmin entry without a product name cannot be reported usefully.
+        assert!(parse_ioreg("\"idVendor\" = 2334\n").is_empty());
+    }
+
+    #[test]
+    fn the_vendor_id_is_garmins() {
+        // 0x091E, so a decimal 2334 in ioreg output is Garmin.
+        assert_eq!(GARMIN_VENDOR_ID, 2334);
+    }
+}

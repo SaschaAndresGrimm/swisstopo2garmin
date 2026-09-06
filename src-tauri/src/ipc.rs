@@ -560,6 +560,66 @@ pub struct ConnectedDevice {
     pub existing_maps: Vec<String>,
 }
 
+/// A Garmin device on the USB bus that is not mounted as a filesystem.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct UsbDeviceInfo {
+    pub model: String,
+    pub serial: Option<String>,
+    /// Profile matched by model, so the right size budget can still be offered.
+    pub profile_id: Option<String>,
+    /// True when the same model is also mounted, in which case there is nothing to fix.
+    pub mounted: bool,
+}
+
+/// Garmin devices attached over USB, mounted or not (FR-DEV5).
+///
+/// Recent Edge and fēnix models default to MTP, and macOS has no MTP filesystem at all,
+/// so such a device never appears under `/Volumes`. Without this the app simply reported
+/// no device while one was plainly plugged in, and there was nothing to act on.
+#[tauri::command]
+pub fn usb_devices() -> IpcResult<Vec<UsbDeviceInfo>> {
+    let profiles =
+        devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
+    let mounted = devices::detect();
+    Ok(devices::usb_devices()
+        .into_iter()
+        .map(|d| {
+            let is_mounted = mounted.iter().any(|m| {
+                m.model
+                    .as_deref()
+                    .map(|x| x.eq_ignore_ascii_case(&d.model))
+                    .unwrap_or(false)
+            });
+            UsbDeviceInfo {
+                profile_id: devices::match_profile(&profiles, &d.model, looks_wrist(&d.model))
+                    .map(|p| p.id.clone()),
+                mounted: is_mounted,
+                model: d.model,
+                serial: d.serial,
+            }
+        })
+        .collect())
+}
+
+/// A watch reports itself as fenix/epix/Forerunner and friends; anything else is
+/// handlebar-shaped as far as the cartography is concerned.
+fn looks_wrist(model: &str) -> bool {
+    let m = model.to_lowercase();
+    [
+        "fenix",
+        "epix",
+        "forerunner",
+        "marq",
+        "tactix",
+        "instinct",
+        "enduro",
+    ]
+    .iter()
+    .any(|k| m.contains(k))
+}
+
 #[tauri::command]
 pub fn detect_devices() -> IpcResult<Vec<ConnectedDevice>> {
     let profiles =
@@ -567,26 +627,7 @@ pub fn detect_devices() -> IpcResult<Vec<ConnectedDevice>> {
     Ok(devices::detect()
         .into_iter()
         .map(|d| {
-            // A watch reports itself as fenix/epix/Forerunner; anything else falls back
-            // to the generic Edge profile.
-            let looks_wrist = d
-                .model
-                .as_deref()
-                .map(|m| {
-                    let m = m.to_lowercase();
-                    [
-                        "fenix",
-                        "epix",
-                        "forerunner",
-                        "marq",
-                        "tactix",
-                        "instinct",
-                        "enduro",
-                    ]
-                    .iter()
-                    .any(|k| m.contains(k))
-                })
-                .unwrap_or(false);
+            let looks_wrist = d.model.as_deref().map(looks_wrist).unwrap_or(false);
             ConnectedDevice {
                 profile_id: d
                     .model

@@ -188,3 +188,16 @@ originalPoints: number,
  * False when part of the track falls outside the swisstopo coverage area.
  */
 fullyWithinSwitzerland: boolean, };
+
+/**
+ * A Garmin device on the USB bus that is not mounted as a filesystem.
+ */
+export type UsbDeviceInfo = { model: string, serial: string | null, 
+/**
+ * Profile matched by model, so the right size budget can still be offered.
+ */
+profileId: string | null, 
+/**
+ * True when the same model is also mounted, in which case there is nothing to fix.
+ */
+mounted: boolean, };

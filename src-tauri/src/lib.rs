@@ -37,6 +37,7 @@ pub fn run() {
             ipc::remove_dataset,
             ipc::list_devices,
             ipc::detect_devices,
+            ipc::usb_devices,
             ipc::list_presets,
             ipc::list_layers,
             ipc::list_recipes,

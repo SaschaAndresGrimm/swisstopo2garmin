@@ -342,6 +342,86 @@ DayXpm="7 7 2 1"
 FontStyle=NormalFont
 [end]
 
+[_point]
+Type=0x2f08
+String1=0x04,Berghuette
+DayXpm="7 7 2 1"
+"  c none"
+"# c #E2001A"
+"   #   "
+"  ###  "
+" ##### "
+"#######"
+"#######"
+"#######"
+"#######"
+FontStyle=NormalFont
+[end]
+
+[_point]
+Type=0x2a01
+String1=0x04,Bergrestaurant
+DayXpm="7 7 2 1"
+"  c none"
+"# c #E2001A"
+"   #   "
+"  ###  "
+" ##### "
+"#######"
+"#######"
+"#######"
+"#######"
+FontStyle=NormalFont
+[end]
+
+[_point]
+Type=0x2f15
+String1=0x04,Bushaltestelle
+DayXpm="7 7 2 1"
+"  c none"
+"# c #2B2B2B"
+"#######"
+"#     #"
+"#     #"
+"#     #"
+"#     #"
+"#     #"
+"#######"
+FontStyle=NormalFont
+[end]
+
+[_point]
+Type=0x2f17
+String1=0x04,Bahnhof
+DayXpm="7 7 2 1"
+"  c none"
+"# c #2B2B2B"
+"#######"
+"#     #"
+"#     #"
+"#     #"
+"#     #"
+"#     #"
+"#######"
+FontStyle=NormalFont
+[end]
+
+[_point]
+Type=0x2f16
+String1=0x04,Schiffstation
+DayXpm="7 7 2 1"
+"  c none"
+"# c #2B2B2B"
+"#######"
+"#     #"
+"#     #"
+"#     #"
+"#     #"
+"#     #"
+"#######"
+FontStyle=NormalFont
+[end]
+
 [_line]
 Type=0x10101
 String1=0x04,Wanderweg

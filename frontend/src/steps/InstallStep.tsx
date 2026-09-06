@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, formatBytes } from "../state/api";
-import type { BuildFinished, ConnectedDevice, InstallPlan } from "../state/api";
+import type { BuildFinished, ConnectedDevice, InstallPlan, UsbDeviceInfo } from "../state/api";
+import { UnmountedDevices } from "../components/UnmountedDevices";
 import type { T } from "../i18n";
 
 /**
@@ -23,6 +24,7 @@ export function InstallStep({
   onBack: () => void;
 }) {
   const [devices, setDevices] = useState<ConnectedDevice[]>([]);
+  const [usb, setUsb] = useState<UsbDeviceInfo[]>([]);
   const [plan, setPlan] = useState<InstallPlan | null>(null);
   const [backup, setBackup] = useState(true);
   const [installed, setInstalled] = useState<string | null>(null);
@@ -32,8 +34,9 @@ export function InstallStep({
   const scan = useCallback(async () => {
     setError(null);
     try {
-      const found = await api.detectDevices();
+      const [found, onBus] = await Promise.all([api.detectDevices(), api.usbDevices()]);
       setDevices(found);
+      setUsb(onBus);
       setPlan(null);
     } catch (e) {
       setError(String(e));
@@ -84,6 +87,8 @@ export function InstallStep({
       <div className="row">
         <button type="button" onClick={() => void scan()}>{t("device.rescan")}</button>
       </div>
+
+      <UnmountedDevices t={t} devices={usb} />
 
       {devices.length === 0 && (
         <div className="notice">

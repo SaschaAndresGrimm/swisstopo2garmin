@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type React from "react";
 import { api, formatBytes } from "../state/api";
-import type { ConnectedDevice, DeviceSummary } from "../state/api";
+import type { ConnectedDevice, DeviceSummary, UsbDeviceInfo } from "../state/api";
+import { UnmountedDevices } from "../components/UnmountedDevices";
 import type { T } from "../i18n";
 
 /**
@@ -27,13 +28,19 @@ export function DeviceStep({
 }) {
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [connected, setConnected] = useState<ConnectedDevice[]>([]);
+  const [usb, setUsb] = useState<UsbDeviceInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [d, c] = await Promise.all([api.listDevices(), api.detectDevices()]);
+      const [d, c, u] = await Promise.all([
+        api.listDevices(),
+        api.detectDevices(),
+        api.usbDevices(),
+      ]);
       setDevices(d);
       setConnected(c);
+      setUsb(u);
       // Preselect a connected device, but never override an explicit choice.
       if (!selected) {
         const auto = c.find((x) => x.profileId)?.profileId ?? d[0]?.id;
@@ -57,6 +64,8 @@ export function DeviceStep({
       <p className="muted">{t("device.intro")}</p>
 
       {before}
+
+      <UnmountedDevices t={t} devices={usb} onSelectProfile={onSelect} />
 
       {connected.length > 0 && (
         <div className="notice">

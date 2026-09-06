@@ -103,6 +103,12 @@ POINTS = [
     ("0x6400", "Flurname", None),
     ("0x0400", "Ort", "dot"),
     ("0x0600", "Weiler", "dot"),
+    # Destinations and access, which a paper Landeskarte also marks.
+    ("0x2f08", "Berghuette", "hut"),
+    ("0x2a01", "Bergrestaurant", "hut"),
+    ("0x2f15", "Bushaltestelle", "stop"),
+    ("0x2f17", "Bahnhof", "stop"),
+    ("0x2f16", "Schiffstation", "stop"),
 ]
 
 # (type, label, colour key, width, border width)
@@ -218,12 +224,23 @@ def build(wrist: bool, winter: bool = False) -> str:
             w('" "')
         else:
             size = 5 if wrist else 7
+            ink = {"dot": "building", "hut": "hike_red", "stop": "rail"}[icon]
             w(f'DayXpm="{size} {size} 2 1"')
             w('"  c none"')
-            w(f'"# c {c("building", key)}"')
+            w(f'"# c {c(ink, key)}"')
             for row in range(size):
-                edge = row == 0 or row == size - 1
-                w('"' + ("".join(" " if edge else "#" for _ in range(size))) + '"')
+                if icon == "hut":
+                    # A gable: wide at the base, narrowing to a peak.
+                    half = size // 2
+                    span = row  # widens downwards from the apex
+                    on = [abs(col - half) <= span for col in range(size)]
+                elif icon == "stop":
+                    # A filled square with a gap, so it reads as a marker not a building.
+                    on = [row in (0, size - 1) or col in (0, size - 1) for col in range(size)]
+                else:
+                    edge = row == 0 or row == size - 1
+                    on = [not edge for _ in range(size)]
+                w('"' + "".join("#" if v else " " for v in on) + '"')
         w("FontStyle=SmallFont" if wrist else "FontStyle=NormalFont")
         w("[end]")
         w("")

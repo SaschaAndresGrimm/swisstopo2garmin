@@ -123,9 +123,12 @@ pub const DEFAULT_LAYERS: &[LayerSpec] = &[
         prefix: "tlm",
         group: LayerGroup::Water,
     },
+    // `nutzung` is what separates a mountain refuge (Schutzhuette, 135) and a remote
+    // inn (Gasthof abgelegen, 5,492) from the other 4.1 M buildings. Without it every
+    // hut on the map is an anonymous rectangle.
     LayerSpec {
         layer: "tlm_bauten_gebaeude_footprint",
-        attributes: &["objektart"],
+        attributes: &["objektart", "nutzung"],
         simplify_m: 0.5,
         prefix: "tlm",
         group: LayerGroup::Built,
@@ -180,6 +183,16 @@ pub const DEFAULT_LAYERS: &[LayerSpec] = &[
         simplify_m: 0.0,
         prefix: "tlm",
         group: LayerGroup::Names,
+    },
+    // Public transport stops: 28,042 nationally, and the piece of context that makes a
+    // hiking map usable without a car. objektart separates bus, rail, boat and the
+    // funicular/cableway stops (docs/tlm3d-schema.md).
+    LayerSpec {
+        layer: "tlm_oev_haltestelle",
+        attributes: &["objektart", "name"],
+        simplify_m: 0.0,
+        prefix: "tlm",
+        group: LayerGroup::Transport,
     },
     LayerSpec {
         layer: "tlm_eo_einzelobjekt",

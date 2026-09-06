@@ -12,3 +12,15 @@ tlm:layer=tlm_namen_siedlungsname_zentrum & tlm:einwohnerkategorie=* [0x0400 res
 tlm:layer=tlm_namen_siedlungsname_zentrum                            [0x0600 resolution 18]
 tlm:layer=tlm_namen_flurname                                         [0x6400 resolution 22]
 tlm:layer=tlm_eo_einzelobjekt                                        [0x6400 resolution 22]
+
+# Mountain refuges and remote inns, from the building layer's `nutzung`. These are the
+# points a hiker actually navigates between, and until now they were anonymous
+# rectangles among 4.1 M buildings.
+tlm:nutzung=Schutzhuette                                             [0x2f08 resolution 22]
+tlm:nutzung~'Gasthof abgelegen.*'                                    [0x2a01 resolution 22]
+
+# Public transport stops: how most people reach a trailhead.
+tlm:layer=tlm_oev_haltestelle & tlm:objektart='Haltestelle Bahn'     [0x2f17 resolution 21]
+tlm:layer=tlm_oev_haltestelle & tlm:objektart='Haltestelle Schiff'   [0x2f16 resolution 21]
+tlm:layer=tlm_oev_haltestelle & tlm:objektart='Uebrige Bahnen'       [0x2f17 resolution 21]
+tlm:layer=tlm_oev_haltestelle                                        [0x2f15 resolution 22]

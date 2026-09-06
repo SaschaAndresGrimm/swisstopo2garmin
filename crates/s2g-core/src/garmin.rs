@@ -348,6 +348,11 @@ pub fn compile(
         .arg(format!("--code-page={}", opts.code_page))
         // Without this, labels are uppercased and transliterated to ASCII.
         .arg("--lower-case")
+        // Mountain refuges and remote inns are building *footprints*, so a rule in the
+        // points style would never fire on them: that file only sees nodes. This makes
+        // mkgmap generate a point per area first, which the points rules then match.
+        // Only areas a points rule actually matches become POIs.
+        .arg("--add-pois-to-areas")
         .arg(format!("--family-id={}", id.family_id))
         .arg(format!("--product-id={}", id.product_id))
         .arg(format!("--family-name={}", id.family_name))

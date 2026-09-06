@@ -22,6 +22,7 @@ export type {
   ReleaseInfo,
   SavedRecipeInfo,
   TrackImport,
+  UsbDeviceInfo,
   TaskProgress,
 } from "./bindings";
 
@@ -83,6 +84,8 @@ export const SOURCES = [
 export const api = {
   listDevices: () => invoke<import("./bindings").DeviceSummary[]>("list_devices"),
   detectDevices: () => invoke<import("./bindings").ConnectedDevice[]>("detect_devices"),
+  /** Garmin devices on the USB bus, including ones not mounted as a filesystem. */
+  usbDevices: () => invoke<import("./bindings").UsbDeviceInfo[]>("usb_devices"),
   listPresets: () => invoke<import("./bindings").PresetInfo[]>("list_presets"),
   listLayers: () => invoke<import("./bindings").LayerInfo[]>("list_layers"),
   listRecipes: () => invoke<import("./bindings").SavedRecipeInfo[]>("list_recipes"),
