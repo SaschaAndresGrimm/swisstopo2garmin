@@ -17,6 +17,10 @@ export function bboxOf(a: AreaSelection) {
       maxN: Math.max(...ns) + m,
     };
   }
+  if (a.kind === "adminUnits") {
+    // Resolved when the units were chosen, so no file access is needed here.
+    return { minE: a.minE, minN: a.minN, maxE: a.maxE, maxN: a.maxN };
+  }
   return a.kind === "bbox"
     ? { minE: a.minE, minN: a.minN, maxE: a.maxE, maxN: a.maxN }
     : {

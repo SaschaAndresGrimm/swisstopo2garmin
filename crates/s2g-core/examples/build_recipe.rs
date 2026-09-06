@@ -60,7 +60,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Either a corridor around an imported track, or a radius around a place.
     let gpkg = Gpkg::open(&gpkg_path)?;
-    let area = match arg("--gpx") {
+    let area = match arg("--commune").or_else(|| arg("--canton")) {
+        Some(name) => {
+            let level = if arg("--canton").is_some() {
+                s2g_core::boundaries::AdminLevel::Canton
+            } else {
+                s2g_core::boundaries::AdminLevel::Commune
+            };
+            let units = s2g_core::boundaries::list_units(&cache_root, level)?;
+            let picked: Vec<_> = units
+                .iter()
+                .filter(|u| u.name.eq_ignore_ascii_case(&name))
+                .collect();
+            if picked.is_empty() {
+                return Err(format!("no {} called {name:?}", level.id()).into());
+            }
+            let numbers: Vec<i64> = picked.iter().map(|u| u.number).collect();
+            let buffer_km: f64 = arg("--buffer-km").unwrap_or_else(|| "0".into()).parse()?;
+            let b = s2g_core::boundaries::extent(&cache_root, level, &numbers)?;
+            let m = buffer_km * 1000.0;
+            println!(
+                "unit         : {} {} ({} km² per the dataset), buffer {buffer_km} km",
+                picked[0].name,
+                level.id(),
+                picked.iter().map(|u| u.area_km2).sum::<f64>().round()
+            );
+            AreaSelection::AdminUnits {
+                level,
+                numbers,
+                names: picked.iter().map(|u| u.name.clone()).collect(),
+                buffer_km,
+                min_e: b.min_e - m,
+                min_n: b.min_n - m,
+                max_e: b.max_e + m,
+                max_n: b.max_n + m,
+            }
+        }
+        None => match arg("--gpx") {
         Some(path) => {
             let gpx = s2g_core::gpx::Gpx::parse_file(std::path::Path::new(&path))?;
             let points: Vec<[f64; 2]> = gpx
@@ -110,6 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 northing: hit.northing,
             }
         }
+        },
     };
 
     // Comma-separated layer ids to leave out, as the layer panel would (FR-51).

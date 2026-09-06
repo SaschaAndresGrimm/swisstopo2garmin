@@ -5,6 +5,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { CacheStatus, ReleaseInfo, TaskDone, TaskError, TaskProgress } from "./bindings";
 
 export type {
+  AdminUnitInfo,
   AreaInfo,
   AreaQuery,
   BuildFinished,
@@ -29,11 +30,23 @@ export type {
 export type AreaSelection =
   | { kind: "bbox"; minE: number; minN: number; maxE: number; maxN: number }
   | { kind: "place"; name: string; radiusKm: number; easting: number; northing: number }
-  | { kind: "corridor"; name: string; bufferKm: number; points: [number, number][] };
+  | { kind: "corridor"; name: string; bufferKm: number; points: [number, number][] }
+  | {
+      kind: "adminUnits";
+      level: AdminLevel;
+      numbers: number[];
+      names: string[];
+      bufferKm: number;
+      minE: number;
+      minN: number;
+      maxE: number;
+      maxN: number;
+    };
 
 export type PresetId = "hiking" | "cycling" | "skimo" | "full";
 export type ReliefDetail = "off" | "gentle" | "detailed";
 export type Palette = "summer" | "winter";
+export type AdminLevel = "canton" | "district" | "commune";
 
 export interface Recipe {
   schemaVersion: number;
@@ -90,6 +103,14 @@ export const api = {
     invoke<import("./bindings").DataLocation>("clear_elevation_cache"),
   clearBuildFiles: () => invoke<import("./bindings").DataLocation>("clear_build_files"),
   coverageBbox: () => invoke<[number, number, number, number]>("coverage_bbox"),
+  /** Every unit at one level; the picker filters locally as the user types. */
+  listAdminUnits: (level: AdminLevel) =>
+    invoke<import("./bindings").AdminUnitInfo[]>("list_admin_units", { level }),
+  /** Unit outlines in WGS84, simplified for display. */
+  adminOutline: (level: AdminLevel, numbers: number[]) =>
+    invoke<[number, number][][]>("admin_outline", { level, numbers }),
+  adminExtent: (level: AdminLevel, numbers: number[], bufferKm: number) =>
+    invoke<[number, number, number, number]>("admin_extent", { level, numbers, bufferKm }),
   /** Project a polyline for display. Kept in Rust so there is one projection. */
   lv95LineToWgs84: (points: [number, number][]) =>
     invoke<[number, number][]>("lv95_line_to_wgs84", { points }),

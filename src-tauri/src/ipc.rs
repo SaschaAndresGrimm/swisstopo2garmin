@@ -918,10 +918,15 @@ pub fn lv95_line_to_wgs84(points: Vec<[f64; 2]>) -> IpcResult<Vec<[f64; 2]>> {
 #[serde(rename_all = "camelCase")]
 pub struct AdminUnitInfo {
     /// `kantonsnummer`, `bezirksnummer` or `bfs_nummer` — stable, unlike the name.
+    ///
+    /// Typed as `number`, not `bigint`: ts-rs maps i64 to bigint, but these arrive as
+    /// ordinary JSON numbers and no unit number comes close to 2^53.
+    #[ts(type = "number")]
     pub number: i64,
     pub name: String,
     /// Canton, shown because commune names are not unique.
     pub canton: String,
+    #[ts(type = "number")]
     pub population: i64,
     pub area_km2: f64,
 }
@@ -951,6 +956,44 @@ pub async fn list_admin_units(level: String) -> IpcResult<Vec<AdminUnitInfo>> {
             canton: u.canton,
             population: u.population,
             area_km2: u.area_km2,
+        })
+        .collect())
+}
+
+/// Outlines of the chosen units in WGS84, for the map (FR-33).
+///
+/// Simplified before projecting: a canton is 14,000 points, which is far more than a
+/// screen can show and enough to make the map stutter while dragging. 100 m is invisible
+/// at any zoom the picker is used at.
+#[tauri::command]
+pub async fn admin_outline(level: String, numbers: Vec<i64>) -> IpcResult<Vec<Vec<[f64; 2]>>> {
+    let level = match level.as_str() {
+        "commune" => AdminLevel::Commune,
+        "district" => AdminLevel::District,
+        "canton" => AdminLevel::Canton,
+        other => return Err(format!("unknown administrative level {other:?}")),
+    };
+    if numbers.is_empty() {
+        return Ok(Vec::new());
+    }
+    let root = Cache::default_root();
+    let polys =
+        tokio::task::spawn_blocking(move || boundaries::load_geometry(&root, level, &numbers))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+
+    Ok(polys
+        .iter()
+        .flatten()
+        .map(|ring| {
+            s2g_core::geom::simplify(ring, 100.0)
+                .iter()
+                .map(|c| {
+                    let (lon, lat) = lv95_to_wgs84(c.e, c.n);
+                    [lon, lat]
+                })
+                .collect()
         })
         .collect())
 }

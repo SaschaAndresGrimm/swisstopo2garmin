@@ -30,8 +30,9 @@ export function AreaMap({
   t: T;
   box: DrawnBox | null;
   onBox: (b: DrawnBox) => void;
-  /** Imported track centreline in WGS84 `[lon, lat]`, drawn over the rectangle. */
-  track?: [number, number][] | null;
+  /** Lines to draw over the rectangle in WGS84 `[lon, lat]`: an imported track's
+   *  centreline, or the outlines of the chosen administrative units. */
+  track?: [number, number][][] | null;
 }) {
   const container = useRef<HTMLDivElement | null>(null);
   const map = useRef<MlMap | null>(null);
@@ -153,16 +154,13 @@ export function AreaMap({
       const src = m.getSource(TRACK_SOURCE) as maplibregl.GeoJSONSource | undefined;
       src?.setData({
         type: "FeatureCollection",
-        features:
-          track && track.length > 1
-            ? [
-                {
-                  type: "Feature",
-                  properties: {},
-                  geometry: { type: "LineString", coordinates: track },
-                },
-              ]
-            : [],
+        features: (track ?? [])
+          .filter((line) => line.length > 1)
+          .map((line) => ({
+            type: "Feature",
+            properties: {},
+            geometry: { type: "LineString", coordinates: line },
+          })),
       } as never);
     };
     if (m.isStyleLoaded()) apply();

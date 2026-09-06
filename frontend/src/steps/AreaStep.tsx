@@ -5,6 +5,7 @@ import { useAreaInfo } from "../state/useAreaInfo";
 import { AreaMap, type DrawnBox } from "../map/AreaMap";
 import { SizeEstimate } from "../components/SizeEstimate";
 import { TrackImport } from "../components/TrackImport";
+import { AdminUnitPicker } from "../components/AdminUnitPicker";
 import type { T } from "../i18n";
 
 /**
@@ -47,17 +48,24 @@ export function AreaStep({
 
   // The corridor centreline for the map, projected by the backend so the projection
   // has one implementation rather than two to keep in agreement.
-  const [trackLine, setTrackLine] = useState<[number, number][] | null>(null);
+  // Either the corridor centreline or the outlines of the chosen units, so the map
+  // shows the actual shape rather than only its bounding box.
+  const [trackLine, setTrackLine] = useState<[number, number][][] | null>(null);
   useEffect(() => {
-    if (area?.kind !== "corridor") {
-      setTrackLine(null);
-      return;
-    }
     let live = true;
-    api
-      .lv95LineToWgs84(area.points as [number, number][])
-      .then((line) => live && setTrackLine(line))
-      .catch(() => live && setTrackLine(null));
+    if (area?.kind === "corridor") {
+      api
+        .lv95LineToWgs84(area.points as [number, number][])
+        .then((line) => live && setTrackLine([line]))
+        .catch(() => live && setTrackLine(null));
+    } else if (area?.kind === "adminUnits") {
+      api
+        .adminOutline(area.level, area.numbers)
+        .then((rings) => live && setTrackLine(rings))
+        .catch(() => live && setTrackLine(null));
+    } else {
+      setTrackLine(null);
+    }
     return () => {
       live = false;
     };
@@ -119,6 +127,8 @@ export function AreaStep({
             </button>
           </div>
         </div>
+        <AdminUnitPicker t={t} area={area} onArea={onArea} />
+
         <TrackImport t={t} area={area} onArea={onArea} />
 
         <div className="field">

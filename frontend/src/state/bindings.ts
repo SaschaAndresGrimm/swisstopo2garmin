@@ -6,12 +6,15 @@
 export type AdminUnitInfo = { 
 /**
  * `kantonsnummer`, `bezirksnummer` or `bfs_nummer` — stable, unlike the name.
+ *
+ * Typed as `number`, not `bigint`: ts-rs maps i64 to bigint, but these arrive as
+ * ordinary JSON numbers and no unit number comes close to 2^53.
  */
-number: bigint, name: string, 
+number: number, name: string, 
 /**
  * Canton, shown because commune names are not unique.
  */
-canton: string, population: bigint, areaKm2: number, };
+canton: string, population: number, areaKm2: number, };
 
 export type AreaInfo = { areaKm2: number, 
 /**
