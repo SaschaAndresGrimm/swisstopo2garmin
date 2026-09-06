@@ -261,6 +261,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             t.elapsed().as_secs_f64()
         );
 
+        // DEM for device-side relief shading, resampled from the grid already loaded
+        // for contours -- no second download and no GDAL.
+        if let Some(dem_dir) = arg("--dem-dir") {
+            let res = match arg("--dem-arcsec").as_deref() {
+                Some("3") => s2g_core::dem::Resolution::ArcSecond3,
+                _ => s2g_core::dem::Resolution::ArcSecond1,
+            };
+            let t = std::time::Instant::now();
+            let (files, dstats) = s2g_core::dem::write_hgt(
+                &grid,
+                &bbox,
+                res,
+                std::path::Path::new(&dem_dir),
+                |_| {},
+            )?;
+            println!(
+                "dem     {} cell(s), {:.1}% covered, {:.1} MB in {:.1}s -> {}",
+                files.len(),
+                dstats.coverage() * 100.0,
+                dstats.bytes as f64 / 1e6,
+                t.elapsed().as_secs_f64(),
+                dem_dir
+            );
+        }
+
         let ice = load_ice(&gpkg, &bbox);
         println!("ice     {} polygons for blue-over-ice contours", ice.len());
         let n = builder.add_contours(

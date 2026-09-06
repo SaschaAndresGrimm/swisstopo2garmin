@@ -47,22 +47,15 @@ WINTER_FLAG=""
 CYCLE_FLAG=""
 [ "${S2G_CYCLE:-0}" = "1" ] && CYCLE_FLAG="--cycle"
 
-echo "=== 1/5  extract region (vectors, contours, winter) with the Rust pipeline"
+echo "=== 1/4  extract region (vectors, contours, winter, DEM) with the Rust pipeline"
 cargo build --release -q -p s2g-core --example extract_region
 ./target/release/examples/extract_region \
     --place "$PLACE" --radius-km "$RADIUS" --contour "$INTERVAL" \
-    $WINTER_FLAG $CYCLE_FLAG --out "$WORK/region.osm.pbf" | tee "$WORK/extract.log"
+    $WINTER_FLAG $CYCLE_FLAG \
+    --dem-dir "$WORK/dem-${ARCSEC}" --dem-arcsec "$ARCSEC" \
+    --out "$WORK/region.osm.pbf" | tee "$WORK/extract.log"
 
-BBOX="$(grep -oE 'LV95 [-0-9]+ [-0-9]+ [-0-9]+ [-0-9]+' "$WORK/extract.log" \
-        | head -1 | sed 's/^LV95 //')"
-[ -n "$BBOX" ] || { echo "could not read the bbox from the extractor"; exit 1; }
-
-echo "=== 2/5  DEM tiles for relief shading"
-GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR VSI_CACHE=TRUE \
-python3 "$REPO/spikes/s0/make_dem.py" --bbox-lv95 $BBOX --arcsec "$ARCSEC" \
-        --out "$WORK/dem-${ARCSEC}"
-
-echo "=== 3/5  splitter"
+echo "=== 2/4  splitter"
 rm -rf "$WORK/tiles"; mkdir -p "$WORK/tiles"
 "$JAVA_BIN" -Xmx4g -jar "$SPLITTER_JAR" --output-dir="$WORK/tiles" \
    --max-nodes=700000 --mapid="${S2G_FID:-6324}0001" "$WORK/region.osm.pbf" >/dev/null
@@ -73,7 +66,7 @@ rm -rf "$WORK/tiles"; mkdir -p "$WORK/tiles"
 FID="${S2G_FID:-6324}"
 OVNUM="${FID}0000"
 
-echo "=== 4/5  mkgmap: tiles + overview map"
+echo "=== 3/4  mkgmap: tiles + overview map"
 rm -rf "$WORK/img"; mkdir -p "$WORK/img"; cd "$WORK/img"
 "$JAVA_BIN" -Xmx4g -jar "$MKGMAP_JAR" \
   --style-file="$STYLE_DIR" \
@@ -87,7 +80,7 @@ rm -rf "$WORK/img"; mkdir -p "$WORK/img"; cd "$WORK/img"
   --dem="$WORK/dem-${ARCSEC}" --dem-dists="$DEM_DISTS" \
   "$WORK/tiles"/*.osm.pbf "$TYP_FILE" | grep -iE "^ *(error|.*Exception:)" || true
 
-echo "=== 5/5  mkgmap: combine into gmapsupp"
+echo "=== 4/4  mkgmap: combine into gmapsupp"
 "$JAVA_BIN" -Xmx4g -jar "$MKGMAP_JAR" --gmapsupp --index \
   --family-id="$FID" --product-id=1 \
   ${FID}*.img ovm.img *.typ | grep -iE "^ *(error|.*Exception:)" || true

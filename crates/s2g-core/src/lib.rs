@@ -11,6 +11,7 @@
 
 pub mod cache;
 pub mod contour;
+pub mod dem;
 pub mod devices;
 pub mod download;
 pub mod elevation;
