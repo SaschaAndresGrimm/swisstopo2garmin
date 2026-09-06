@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# Label assignment (see lines file for the rationale).
+# ---------------------------------------------------------------------------
+tlm:name=* { name '${tlm:name}' }
+
+# ---------------------------------------------------------------------------
+# swissTLM3D land cover and land use -> Garmin polygon types.
+#
+# Every type used here MUST also appear in typ/swisstopo.txt [_drawOrder],
+# otherwise the Garmin device draws NOTHING for it (mkgmap doc/typ-compiler.txt:
+# "If a polygon type is not listed in this section, then it will not be
+# displayed at all"). This was the cause of the blank first build.
+#
+# objektart values verified against docs/tlm3d-schema.md.
+# Extended polygon types use the 0x102xx range; lines use 0x101xx.
+# ---------------------------------------------------------------------------
+
+# --- Rock and loose material (Landeskarte greys) ---------------------------
+tlm:objektart=Fels                    [0x10201 resolution 18]
+tlm:objektart='Fels locker'           [0x10201 resolution 19]
+tlm:objektart=Felsbloecke             [0x10201 resolution 20]
+tlm:objektart='Felsbloecke locker'    [0x10201 resolution 20]
+tlm:objektart=Lockergestein           [0x10202 resolution 19]
+tlm:objektart='Lockergestein locker'  [0x10202 resolution 19]
+
+# --- Ice and permanent snow ------------------------------------------------
+tlm:objektart=Gletscher               [0x10203 resolution 17]
+tlm:objektart='Schneefeld Toteis'     [0x10204 resolution 19]
+
+# --- Woodland --------------------------------------------------------------
+tlm:objektart=Wald                    [0x10205 resolution 18]
+tlm:objektart='Wald offen'            [0x10208 resolution 19]
+tlm:objektart=Gehoelzflaeche          [0x10206 resolution 19]
+tlm:objektart=Gebueschwald            [0x10207 resolution 20]
+
+# --- Wetland ---------------------------------------------------------------
+tlm:objektart=Feuchtgebiet            [0x10209 resolution 20]
+
+# --- Agriculture (Areale) --------------------------------------------------
+tlm:objektart=Reben                   [0x1020a resolution 20]
+tlm:objektart=Obstanlage              [0x1020b resolution 21]
+tlm:objektart=Baumschule              [0x1020b resolution 21]
+
+# --- Built-up land use (Areale) --------------------------------------------
+tlm:layer=tlm_areale_verkehrsareal    [0x1020d resolution 21]
+tlm:layer=tlm_areale_freizeitareal    [0x1020e resolution 20]
+tlm:layer=tlm_areale_nutzungsareal    [0x1020c resolution 20]
+
+# --- Water (drawn above land cover) ----------------------------------------
+tlm:objektart='Stehende Gewaesser'    [0x1020f resolution 17]
+tlm:objektart=Fliessgewaesser         [0x10210 resolution 19]
+
+# --- Buildings (topmost) ---------------------------------------------------
+tlm:layer=tlm_bauten_gebaeude_footprint [0x10211 resolution 22]

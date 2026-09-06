@@ -1,0 +1,57 @@
+{
+  "_comment": [
+    "Colours sampled from swisstopo's own raster products (SPEC.md FR-CART9).",
+    "Regenerate the measurements with tools/sample_palette.py.",
+    "Source layer: ch.swisstopo.swisstlm3d-karte-farbe (lossless PNG) at z15,",
+    "cross-checked against ch.swisstopo.pixelkarte-farbe (LK25, JPEG) for symbology.",
+    "The Landeskarte is predominantly white paper: tints are pale, ink does the work."
+  ],
+  "paper":            {"day": "#FFFFFF", "night": "#1A1A1A", "note": "map background"},
+
+  "forest":           {"day": "#CAECC1", "measured": true},
+  "forest_open":      {"day": "#D8F1D0", "derived_from": "forest"},
+  "copse":            {"day": "#D2EFC9", "derived_from": "forest"},
+  "scrub":            {"day": "#DCF2D4", "derived_from": "forest"},
+
+  "rock_ink":         {"day": "#706E6C", "measured": true,
+                       "note": "hachure ink on white; NOT an area fill"},
+  "scree_ink":        {"day": "#9A9793", "derived_from": "rock_ink"},
+
+  "glacier":          {"day": "#CCD3D3", "measured": true},
+  "firn":             {"day": "#DDE3E3", "derived_from": "glacier"},
+
+  "water":            {"day": "#D3EEFF", "measured": true},
+  "water_line":       {"day": "#5FAEDC", "note": "stream/river linework"},
+
+  "wetland_ink":      {"day": "#7FB8A8"},
+  "green_open":       {"day": "#CEE3CE", "measured": true, "note": "farmland/meadow tint"},
+  "green_mid":        {"day": "#B4D6AB", "measured": true, "note": "orchard/garden"},
+
+  "building":         {"day": "#000000", "measured": true,
+                       "note": "LK25 draws buildings solid black"},
+  "builtup":          {"day": "#EFECE6"},
+  "transport_area":   {"day": "#E7E3DC"},
+  "leisure_area":     {"day": "#DCEAD1"},
+
+  "road_motorway":    {"day": "#E8823C", "casing": "#8A4A18"},
+  "road_trunk":       {"day": "#EE9A55", "casing": "#8A4A18"},
+  "road_primary":     {"day": "#F5B461", "casing": "#7A5626"},
+  "road_secondary":   {"day": "#FBD98B", "casing": "#7A6532"},
+  "road_tertiary":    {"day": "#FDECBE", "casing": "#7A6E4E"},
+  "road_minor":       {"day": "#FFFFFF", "casing": "#4D4D4D"},
+  "road_access":      {"day": "#FFFFFF", "casing": "#8C8C8C"},
+  "track":            {"day": "#FFFFFF", "casing": "#9A8A72"},
+  "path":             {"day": "#4D4640"},
+
+  "rail":             {"day": "#2B2B2B", "casing": "#FFFFFF"},
+
+  "hike_yellow":      {"day": "#FFD100", "casing": "#7A6500", "note": "Wanderweg"},
+  "hike_red":         {"day": "#E2001A", "casing": "#FFFFFF", "note": "Bergwanderweg"},
+  "hike_blue":        {"day": "#0067B2", "casing": "#FFFFFF", "note": "Alpinwanderweg"},
+  "via_ferrata":      {"day": "#1A1A1A", "casing": "#E2001A"},
+
+  "contour_minor":    {"day": "#C9A277"},
+  "contour_medium":   {"day": "#BC8F5E"},
+  "contour_major":    {"day": "#A87642"},
+  "contour_ice":      {"day": "#8FB8CC", "note": "LK draws contours blue over ice"}
+}

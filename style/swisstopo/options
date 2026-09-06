@@ -1,0 +1,3 @@
+name=swisstopo
+description=swissTLM3D topographic map
+levels = 0:24, 1:22, 2:21, 3:19, 4:17
