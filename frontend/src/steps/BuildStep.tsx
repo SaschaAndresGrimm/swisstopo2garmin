@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type React from "react";
 import { api, formatBytes, onBuildEvents } from "../state/api";
 import type { BuildFinished, BuildProgress, Recipe } from "../state/api";
 import type { T } from "../i18n";
@@ -9,11 +10,14 @@ export function BuildStep({
   recipe,
   onDone,
   onBack,
+  before,
 }: {
   t: T;
   recipe: Recipe;
   onDone: (r: BuildFinished) => void;
   onBack: () => void;
+  /** Slot for the recipe library, which needs the assembled recipe. */
+  before?: React.ReactNode;
 }) {
   const [progress, setProgress] = useState<BuildProgress | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -68,6 +72,8 @@ export function BuildStep({
   return (
     <section className="screen">
       <h2>{t("step.build")}</h2>
+
+      {before}
 
       <dl className="facts">
         <div>

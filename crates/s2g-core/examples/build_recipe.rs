@@ -67,8 +67,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or_else(|| format!("no place called {place:?}"))?;
     println!("place        : {} at {:.0} {:.0}", hit.name, hit.easting, hit.northing);
 
+    // Comma-separated layer ids to leave out, as the layer panel would (FR-51).
+    let excluded: Vec<String> = arg("--exclude")
+        .map(|v| v.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect())
+        .unwrap_or_default();
+
     let recipe = Recipe {
         relief,
+        excluded_layers: excluded,
         ..Recipe::new(
             format!("{place} {}", preset.id()),
             &device_id,
@@ -95,7 +101,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         style_root: root.join("style"),
         typ_root: root.join("typ"),
         cache_root,
-        work_dir: root.join("out").join("recipe-build"),
+        // A separate work dir keeps comparison builds from overwriting each other.
+        work_dir: root
+            .join("out")
+            .join(arg("--work-dir").unwrap_or_else(|| "recipe-build".into())),
         http: &http,
     };
 

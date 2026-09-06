@@ -13,9 +13,11 @@ export type {
   DatasetEntry,
   DeviceSummary,
   InstallPlan,
+  LayerInfo,
   PlaceMatch,
   PresetInfo,
   ReleaseInfo,
+  SavedRecipeInfo,
   TaskProgress,
 } from "./bindings";
 
@@ -52,6 +54,11 @@ export const api = {
   listDevices: () => invoke<import("./bindings").DeviceSummary[]>("list_devices"),
   detectDevices: () => invoke<import("./bindings").ConnectedDevice[]>("detect_devices"),
   listPresets: () => invoke<import("./bindings").PresetInfo[]>("list_presets"),
+  listLayers: () => invoke<import("./bindings").LayerInfo[]>("list_layers"),
+  listRecipes: () => invoke<import("./bindings").SavedRecipeInfo[]>("list_recipes"),
+  saveRecipe: (recipe: Recipe) => invoke<string>("save_recipe", { recipe }),
+  loadRecipe: (id: string) => invoke<Recipe>("load_recipe", { id }),
+  deleteRecipe: (id: string) => invoke<void>("delete_recipe", { id }),
   findPlaces: (name: string) => invoke<import("./bindings").PlaceMatch[]>("find_places", { name }),
   /** LV95 [minE, minN, maxE, maxN] for a WGS84 rectangle. The projection lives only
    *  in Rust so there is one implementation, not two to keep in agreement. */

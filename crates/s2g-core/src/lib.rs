@@ -22,6 +22,7 @@ pub mod geom;
 pub mod gpkg;
 pub mod http;
 pub mod img;
+pub mod library;
 pub mod pbf;
 pub mod pipeline;
 pub mod proj;

@@ -40,6 +40,20 @@ export type InstallPlan = { source: string, target: string,
  */
 overwrites: boolean, bytes: number, freeBytes: number | null, fits: boolean, };
 
+export type LayerInfo = { 
+/**
+ * The source layer name, which is also what `Recipe.excludedLayers` holds.
+ */
+id: string, group: string, 
+/**
+ * How many attributes travel into the map with this layer, as a rough weight.
+ */
+attributeCount: number, 
+/**
+ * Which presets extract this layer at all.
+ */
+presets: Array<string>, };
+
 export type PlaceMatch = { name: string, alternatives: Array<string>, populationCategory: string | null, easting: number, northing: number, lat: number, lon: number, };
 
 export type PresetInfo = { id: string, needsWinter: boolean, needsCycle: boolean, contourM: number, indexContourM: number, 
@@ -61,6 +75,11 @@ archiveBytes: number | null,
  * Inflated size of the member inside the archive.
  */
 memberBytes: number | null, memberName: string | null, cached: boolean, };
+
+/**
+ * One entry in the saved-recipe library (SPEC.md FR-55).
+ */
+export type SavedRecipeInfo = { id: string, name: string, deviceId: string, preset: string, areaLabel: string, areaKm2: number, savedAt: bigint, };
 
 export type TaskDone = { taskId: string, path: string, };
 

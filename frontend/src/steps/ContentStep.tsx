@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../state/api";
+import { LayerPanel } from "../components/LayerPanel";
 import type { PresetId, PresetInfo, ReliefDetail } from "../state/api";
 import type { T } from "../i18n";
 
@@ -19,6 +20,8 @@ export function ContentStep({
   relief,
   onRelief,
   supportsDem,
+  excluded,
+  onExcluded,
   onNext,
   onBack,
 }: {
@@ -30,6 +33,8 @@ export function ContentStep({
   relief: ReliefDetail;
   onRelief: (r: ReliefDetail) => void;
   supportsDem: boolean;
+  excluded: string[];
+  onExcluded: (ids: string[]) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -119,6 +124,8 @@ export function ContentStep({
           {supportsDem ? t("content.reliefHint") : t("content.reliefUnsupported")}
         </p>
       </div>
+
+      <LayerPanel t={t} preset={preset} excluded={excluded} onExcluded={onExcluded} />
 
       {error && <p className="error">{t("data.error", { message: error })}</p>}
 

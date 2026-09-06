@@ -210,3 +210,25 @@ button[aria-pressed="true"], button.current {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem;
   max-height: 14rem; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
+
+/* ----------------------------------------------------------------- layer panel */
+.layers .layer-group { margin: 0.7rem 0; }
+.layer-group-head {
+  display: flex; align-items: baseline; gap: 0.6rem;
+  padding-bottom: 0.2rem; border-bottom: 1px solid var(--line); margin-bottom: 0.35rem;
+}
+.layer-group-head strong { color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.layers .check { padding: 0.12rem 0; }
+.layers .check > span:last-child { margin-left: auto; }
+button.link {
+  background: none; border: 0; padding: 0; color: var(--accent);
+  font-size: 0.8rem; text-decoration: underline; cursor: pointer;
+}
+
+/* -------------------------------------------------------------- recipe library */
+.saved-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
+.saved-list li { display: flex; align-items: center; gap: 0.6rem; }
+button.saved {
+  flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem;
+  text-align: left; background: var(--bg);
+}

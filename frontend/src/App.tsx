@@ -6,7 +6,9 @@ import { AreaStep } from "./steps/AreaStep";
 import { ContentStep } from "./steps/ContentStep";
 import { BuildStep } from "./steps/BuildStep";
 import { InstallStep } from "./steps/InstallStep";
+import { RecipeLibrary } from "./components/RecipeLibrary";
 import { detectLang, makeT, type Lang } from "./i18n";
+import { api } from "./state/api";
 import type {
   AreaSelection,
   BuildFinished,
@@ -30,6 +32,7 @@ export default function App() {
   const [contourM, setContourM] = useState(20);
   const [indexM, setIndexM] = useState(100);
   const [relief, setRelief] = useState<ReliefDetail>("gentle");
+  const [excluded, setExcluded] = useState<string[]>([]);
   const [built, setBuilt] = useState<BuildFinished | null>(null);
 
   const recipe: Recipe | null = useMemo(() => {
@@ -44,9 +47,9 @@ export default function App() {
       preset,
       contours: { intervalM: contourM, indexM, simplifyM: 8.0 },
       relief,
-      excludedLayers: [],
+      excludedLayers: excluded,
     };
-  }, [deviceId, area, preset, contourM, indexM, relief, t]);
+  }, [deviceId, area, preset, contourM, indexM, relief, excluded, t]);
 
   // A step is reachable only once the steps it depends on are satisfied, so the
   // indicator cannot jump to a screen that would have nothing to work with.
@@ -60,6 +63,30 @@ export default function App() {
   }, [deviceId, area, recipe, built]);
 
   const go = useCallback((v: View) => setView(v), []);
+
+  /** Relief is only offered where the device profile supports a DEM. */
+  const selectDevice = useCallback(async (id: string) => {
+    setDeviceId(id);
+    const d = (await api.listDevices()).find((x) => x.id === id);
+    setSupportsDem(d?.supportsDem ?? false);
+    if (!d?.supportsDem) setRelief("off");
+  }, []);
+
+  /** Restore a saved recipe into every step, then jump to the build step. */
+  const applyRecipe = useCallback(
+    async (r: Recipe) => {
+      await selectDevice(r.deviceId);
+      setArea(r.area);
+      setPreset(r.preset);
+      setContourM(r.contours.intervalM);
+      setIndexM(r.contours.indexM);
+      setRelief(r.relief);
+      setExcluded(r.excludedLayers);
+      setBuilt(null);
+      setView("build");
+    },
+    [selectDevice],
+  );
 
   return (
     <div className="app">
@@ -110,17 +137,9 @@ export default function App() {
           <DeviceStep
             t={t}
             selected={deviceId}
-            onSelect={(id) => {
-              setDeviceId(id);
-              // Relief is only offered where the device supports a DEM.
-              void import("./state/api").then(async ({ api }) => {
-                const list = await api.listDevices();
-                const d = list.find((x) => x.id === id);
-                setSupportsDem(d?.supportsDem ?? false);
-                if (!d?.supportsDem) setRelief("off");
-              });
-            }}
+            onSelect={(id) => void selectDevice(id)}
             onNext={() => go("area")}
+            before={<RecipeLibrary t={t} recipe={null} onLoad={(r) => void applyRecipe(r)} />}
           />
         )}
 
@@ -149,6 +168,8 @@ export default function App() {
             relief={relief}
             onRelief={setRelief}
             supportsDem={supportsDem}
+            excluded={excluded}
+            onExcluded={setExcluded}
             onNext={() => go("build")}
             onBack={() => go("area")}
           />
@@ -163,6 +184,7 @@ export default function App() {
               go("install");
             }}
             onBack={() => go("content")}
+            before={<RecipeLibrary t={t} recipe={recipe} onLoad={(r) => void applyRecipe(r)} />}
           />
         )}
 

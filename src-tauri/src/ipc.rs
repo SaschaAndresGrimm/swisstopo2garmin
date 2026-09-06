@@ -382,6 +382,8 @@ mod tests {
 // ---------------------------------------------------------------------------
 
 use s2g_core::devices::{self, DeviceProfile};
+use s2g_core::extract::{LayerGroup, CYCLE_LAYERS, DEFAULT_LAYERS, WINTER_LAYERS};
+use s2g_core::library;
 use s2g_core::pipeline::{self, BuildContext, Stage};
 use s2g_core::proj::{lv95_to_wgs84, BBox};
 use s2g_core::recipe::{Preset, Recipe};
@@ -579,6 +581,111 @@ pub fn list_presets() -> IpcResult<Vec<PresetInfo>> {
             }
         })
         .collect())
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct LayerInfo {
+    /// The source layer name, which is also what `Recipe.excludedLayers` holds.
+    pub id: String,
+    pub group: String,
+    /// How many attributes travel into the map with this layer, as a rough weight.
+    pub attribute_count: usize,
+    /// Which presets extract this layer at all.
+    pub presets: Vec<String>,
+}
+
+/// The toggleable layers, in panel order (SPEC.md FR-51).
+///
+/// Hiking trails are absent by design: they are an attribute of the road layer, so a
+/// separate toggle would be a lie. The panel says so rather than offering one.
+#[tauri::command]
+pub fn list_layers() -> IpcResult<Vec<LayerInfo>> {
+    let winter: Vec<String> = Preset::all()
+        .iter()
+        .filter(|p| p.needs_winter())
+        .map(|p| p.id().to_string())
+        .collect();
+    let cycle: Vec<String> = Preset::all()
+        .iter()
+        .filter(|p| p.needs_cycle())
+        .map(|p| p.id().to_string())
+        .collect();
+    let all: Vec<String> = Preset::all().iter().map(|p| p.id().to_string()).collect();
+
+    let mut out: Vec<LayerInfo> = DEFAULT_LAYERS
+        .iter()
+        .map(|l| (l, all.clone()))
+        .chain(WINTER_LAYERS.iter().map(|l| (l, winter.clone())))
+        .chain(CYCLE_LAYERS.iter().map(|l| (l, cycle.clone())))
+        .map(|(l, presets)| LayerInfo {
+            id: l.layer.to_string(),
+            group: l.group.id().to_string(),
+            attribute_count: l.attributes.len(),
+            presets,
+        })
+        .collect();
+
+    // Panel order follows the group order, not the extraction order.
+    let order = |g: &str| {
+        LayerGroup::all()
+            .iter()
+            .position(|x| x.id() == g)
+            .unwrap_or(usize::MAX)
+    };
+    out.sort_by_key(|l| order(&l.group));
+    Ok(out)
+}
+
+/// One entry in the saved-recipe library (SPEC.md FR-55).
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct SavedRecipeInfo {
+    pub id: String,
+    pub name: String,
+    pub device_id: String,
+    pub preset: String,
+    pub area_label: String,
+    pub area_km2: f64,
+    pub saved_at: u64,
+}
+
+fn recipes_dir() -> PathBuf {
+    Cache::default_root().join("recipes")
+}
+
+#[tauri::command]
+pub fn list_recipes() -> IpcResult<Vec<SavedRecipeInfo>> {
+    Ok(library::list(&recipes_dir())
+        .into_iter()
+        .map(|r| SavedRecipeInfo {
+            id: r.id,
+            name: r.name,
+            device_id: r.device_id,
+            preset: r.preset,
+            area_label: r.area_label,
+            area_km2: r.area_km2,
+            saved_at: r.saved_at,
+        })
+        .collect())
+}
+
+/// Save under the recipe's own name, replacing an earlier recipe of that name.
+#[tauri::command]
+pub fn save_recipe(recipe: Recipe) -> IpcResult<String> {
+    library::save(&recipes_dir(), &recipe).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn load_recipe(id: String) -> IpcResult<Recipe> {
+    library::load(&recipes_dir(), &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_recipe(id: String) -> IpcResult<()> {
+    library::delete(&recipes_dir(), &id).map_err(|e| e.to_string())
 }
 
 fn walk_has_extension(root: &Path, ext: &str) -> bool {

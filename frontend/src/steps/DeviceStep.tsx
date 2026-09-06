@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type React from "react";
 import { api, formatBytes } from "../state/api";
 import type { ConnectedDevice, DeviceSummary } from "../state/api";
 import type { T } from "../i18n";
@@ -15,11 +16,14 @@ export function DeviceStep({
   selected,
   onSelect,
   onNext,
+  before,
 }: {
   t: T;
   selected: string | null;
   onSelect: (id: string) => void;
   onNext: () => void;
+  /** Slot above the device list, for the saved-recipe shortcut. */
+  before?: React.ReactNode;
 }) {
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [connected, setConnected] = useState<ConnectedDevice[]>([]);
@@ -51,6 +55,8 @@ export function DeviceStep({
     <section className="screen">
       <h2>{t("step.device")}</h2>
       <p className="muted">{t("device.intro")}</p>
+
+      {before}
 
       {connected.length > 0 && (
         <div className="notice">

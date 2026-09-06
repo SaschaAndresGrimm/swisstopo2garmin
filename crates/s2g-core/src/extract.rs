@@ -16,6 +16,50 @@ use crate::gpkg::{Feature, Gpkg};
 use crate::pbf::PbfWriter;
 use crate::proj::{lv95_to_wgs84, BBox};
 
+/// Which panel group a layer belongs to (SPEC.md FR-51).
+///
+/// Groups exist so the layer panel is navigable; they carry no cartographic meaning.
+/// Note that hiking trails are **not** a group: they are an attribute of the road
+/// layer (`tlm:wanderwege`), so they cannot be toggled independently of roads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LayerGroup {
+    LandCover,
+    Water,
+    Transport,
+    Built,
+    Names,
+    Winter,
+    Cycling,
+}
+
+impl LayerGroup {
+    /// In panel order.
+    pub fn all() -> &'static [LayerGroup] {
+        &[
+            LayerGroup::LandCover,
+            LayerGroup::Water,
+            LayerGroup::Transport,
+            LayerGroup::Built,
+            LayerGroup::Names,
+            LayerGroup::Winter,
+            LayerGroup::Cycling,
+        ]
+    }
+
+    pub fn id(&self) -> &'static str {
+        match self {
+            LayerGroup::LandCover => "landCover",
+            LayerGroup::Water => "water",
+            LayerGroup::Transport => "transport",
+            LayerGroup::Built => "built",
+            LayerGroup::Names => "names",
+            LayerGroup::Winter => "winter",
+            LayerGroup::Cycling => "cycling",
+        }
+    }
+}
+
 /// A source layer and the attributes worth carrying into the map.
 pub struct LayerSpec {
     /// Layer name, or a prefix of one.
@@ -30,6 +74,8 @@ pub struct LayerSpec {
     /// Tag namespace. swissTLM3D uses `tlm`; other sources use their own so a style
     /// rule cannot accidentally match the wrong dataset's attribute.
     pub prefix: &'static str,
+    /// Panel group, for the layer list in the GUI.
+    pub group: LayerGroup,
 }
 
 /// Default extraction set.
@@ -54,36 +100,42 @@ pub const DEFAULT_LAYERS: &[LayerSpec] = &[
         ],
         simplify_m: 1.0,
         prefix: "tlm",
+        group: LayerGroup::Transport,
     },
     LayerSpec {
         layer: "tlm_bb_bodenbedeckung",
         attributes: &["objektart"],
         simplify_m: 2.0,
         prefix: "tlm",
+        group: LayerGroup::LandCover,
     },
     LayerSpec {
         layer: "tlm_gewaesser_fliessgewaesser",
         attributes: &["objektart", "name", "verlauf"],
         simplify_m: 1.0,
         prefix: "tlm",
+        group: LayerGroup::Water,
     },
     LayerSpec {
         layer: "tlm_gewaesser_stehendes_gewaesser",
         attributes: &["objektart", "name"],
         simplify_m: 2.0,
         prefix: "tlm",
+        group: LayerGroup::Water,
     },
     LayerSpec {
         layer: "tlm_bauten_gebaeude_footprint",
         attributes: &["objektart"],
         simplify_m: 0.5,
         prefix: "tlm",
+        group: LayerGroup::Built,
     },
     LayerSpec {
         layer: "tlm_oev_eisenbahn",
         attributes: &["objektart", "name"],
         simplify_m: 1.0,
         prefix: "tlm",
+        group: LayerGroup::Transport,
     },
     // Lifts and cableways: 2,903 features nationally, and essential context on a
     // Swiss hiking or ski map. Present in swissTLM3D all along but never extracted.
@@ -92,42 +144,49 @@ pub const DEFAULT_LAYERS: &[LayerSpec] = &[
         attributes: &["objektart", "name"],
         simplify_m: 1.0,
         prefix: "tlm",
+        group: LayerGroup::Transport,
     },
     LayerSpec {
         layer: "tlm_areale_nutzungsareal",
         attributes: &["objektart", "name"],
         simplify_m: 2.0,
         prefix: "tlm",
+        group: LayerGroup::LandCover,
     },
     LayerSpec {
         layer: "tlm_areale_freizeitareal",
         attributes: &["objektart", "name"],
         simplify_m: 2.0,
         prefix: "tlm",
+        group: LayerGroup::LandCover,
     },
     LayerSpec {
         layer: "tlm_areale_verkehrsareal",
         attributes: &["objektart", "name"],
         simplify_m: 2.0,
         prefix: "tlm",
+        group: LayerGroup::Transport,
     },
     LayerSpec {
         layer: "tlm_namen_flurname",
         attributes: &["objektart", "name"],
         simplify_m: 0.0,
         prefix: "tlm",
+        group: LayerGroup::Names,
     },
     LayerSpec {
         layer: "tlm_namen_siedlungsname_zentrum",
         attributes: &["objektart", "name", "einwohnerkategorie"],
         simplify_m: 0.0,
         prefix: "tlm",
+        group: LayerGroup::Names,
     },
     LayerSpec {
         layer: "tlm_eo_einzelobjekt",
         attributes: &["objektart", "name"],
         simplify_m: 0.0,
         prefix: "tlm",
+        group: LayerGroup::Built,
     },
 ];
 
@@ -148,6 +207,7 @@ pub const WINTER_LAYERS: &[LayerSpec] = &[
         attributes: &["discipline", "access", "direction", "route_info"],
         simplify_m: 2.0,
         prefix: "sac",
+        group: LayerGroup::Winter,
     },
     // Named tours with SAC difficulty, ascent and target.
     LayerSpec {
@@ -164,6 +224,7 @@ pub const WINTER_LAYERS: &[LayerSpec] = &[
         ],
         simplify_m: 2.0,
         prefix: "sac",
+        group: LayerGroup::Winter,
     },
     // ASTRA / SchweizMobil signposted snowshoe trails.
     LayerSpec {
@@ -171,6 +232,7 @@ pub const WINTER_LAYERS: &[LayerSpec] = &[
         attributes: &["NameR", "NrR", "TechnikR", "KonditionR", "Routenart"],
         simplify_m: 2.0,
         prefix: "swm",
+        group: LayerGroup::Winter,
     },
     // ASTRA / SchweizMobil signposted winter hiking trails.
     LayerSpec {
@@ -178,6 +240,7 @@ pub const WINTER_LAYERS: &[LayerSpec] = &[
         attributes: &["NameR", "NrR", "KonditionR", "Routenart"],
         simplify_m: 2.0,
         prefix: "swm",
+        group: LayerGroup::Winter,
     },
 ];
 
@@ -196,6 +259,7 @@ pub const CYCLE_LAYERS: &[LayerSpec] = &[
         attributes: &["ObjektArt", "BelagTLM", "VerkehrM"],
         simplify_m: 2.0,
         prefix: "astra",
+        group: LayerGroup::Cycling,
     },
     // The MTB network. IsSTrail marks singletrail, which is the distinction a rider
     // cares about.
@@ -204,6 +268,7 @@ pub const CYCLE_LAYERS: &[LayerSpec] = &[
         attributes: &["IsSTrail", "Technik", "InfraMtb", "BelagTLM"],
         simplify_m: 2.0,
         prefix: "astra",
+        group: LayerGroup::Cycling,
     },
     // Named routes, for the route number label.
     LayerSpec {
@@ -211,6 +276,7 @@ pub const CYCLE_LAYERS: &[LayerSpec] = &[
         attributes: &["NameR", "NrR", "Routenart", "TechnikR", "KonditionR"],
         simplify_m: 2.0,
         prefix: "astra",
+        group: LayerGroup::Cycling,
     },
 ];
 
