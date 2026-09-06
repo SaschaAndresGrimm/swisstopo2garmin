@@ -10,6 +10,7 @@
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-set-title",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }

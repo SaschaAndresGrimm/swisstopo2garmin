@@ -1031,6 +1031,34 @@ pub struct AreaQuery {
     pub relief: Option<String>,
 }
 
+/// Export an area selection as GeoJSON (SPEC.md FR-42).
+#[tauri::command]
+pub fn area_to_geojson(area: s2g_core::recipe::AreaSelection) -> IpcResult<String> {
+    serde_json::to_string_pretty(&s2g_core::geojson::to_geojson(&area)).map_err(|e| e.to_string())
+}
+
+/// Read an area selection from GeoJSON text the frontend has already loaded.
+#[tauri::command]
+pub fn area_from_geojson(text: String) -> IpcResult<s2g_core::recipe::AreaSelection> {
+    s2g_core::geojson::from_geojson(&text).map_err(|e| e.to_string())
+}
+
+/// Save a selection as a GeoJSON file.
+#[tauri::command]
+pub fn export_area(area: s2g_core::recipe::AreaSelection, path: String) -> IpcResult<String> {
+    let json = serde_json::to_string_pretty(&s2g_core::geojson::to_geojson(&area))
+        .map_err(|e| e.to_string())?;
+    let path = PathBuf::from(path);
+    // A selection is a document the user names; the extension is added only if missing.
+    let path = if path.extension().is_some() {
+        path
+    } else {
+        path.with_extension("geojson")
+    };
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
+}
+
 /// Project a polyline to WGS84 for display.
 ///
 /// The frontend needs the track in map coordinates, and the projection lives only in

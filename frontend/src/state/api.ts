@@ -35,6 +35,9 @@ export type AreaSelection =
   | { kind: "bbox"; minE: number; minN: number; maxE: number; maxN: number }
   | { kind: "place"; name: string; radiusKm: number; easting: number; northing: number }
   | { kind: "corridor"; name: string; bufferKm: number; points: [number, number][] }
+  | { kind: "polygon"; points: [number, number][] }
+  | { kind: "circle"; easting: number; northing: number; radiusKm: number }
+  | { kind: "composite"; parts: AreaSelection[] }
   | {
       kind: "adminUnits";
       level: AdminLevel;
@@ -131,6 +134,12 @@ export const api = {
     invoke<[number, number][][]>("admin_outline", { level, numbers }),
   adminExtent: (level: AdminLevel, numbers: number[], bufferKm: number) =>
     invoke<[number, number, number, number]>("admin_extent", { level, numbers, bufferKm }),
+  /** Selections travel as GeoJSON in WGS84, which QGIS and geojson.io both read. */
+  areaToGeojson: (area: AreaSelection) => invoke<string>("area_to_geojson", { area }),
+  areaFromGeojson: (text: string) => invoke<AreaSelection>("area_from_geojson", { text }),
+  exportArea: (area: AreaSelection, path: string) =>
+    invoke<string>("export_area", { area, path }),
+
   /** Project a polyline for display. Kept in Rust so there is one projection. */
   lv95LineToWgs84: (points: [number, number][]) =>
     invoke<[number, number][]>("lv95_line_to_wgs84", { points }),

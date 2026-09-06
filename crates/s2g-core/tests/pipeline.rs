@@ -439,3 +439,112 @@ fn masked_tiles_are_dilated_by_one_cell() {
         }
     }
 }
+
+/// The area kinds added for FR-31 and FR-41 must behave like the ones before them.
+#[test]
+fn drawn_polygons_circles_and_composites_produce_sane_areas() {
+    use s2g_core::geom::Coord;
+    use s2g_core::recipe::AreaSelection;
+
+    let dir = tempfile::tempdir().unwrap();
+
+    // A 10 km square drawn by hand, given without its closing point.
+    let polygon = AreaSelection::Polygon {
+        points: vec![
+            [2_600_000.0, 1_200_000.0],
+            [2_610_000.0, 1_200_000.0],
+            [2_610_000.0, 1_210_000.0],
+            [2_600_000.0, 1_210_000.0],
+        ],
+    };
+    assert_eq!(polygon.bbox().area_km2(), 100.0);
+    let mask = polygon.mask(dir.path()).unwrap().expect("a polygon has a mask");
+    assert!(mask.contains(Coord::new(2_605_000.0, 1_205_000.0)));
+    assert!(!mask.contains(Coord::new(2_615_000.0, 1_205_000.0)));
+
+    // A circle: inside at the centre, outside past the radius, and round rather than
+    // square at the diagonal.
+    let circle = AreaSelection::Circle {
+        easting: 2_605_000.0,
+        northing: 1_205_000.0,
+        radius_km: 3.0,
+    };
+    let mask = circle.mask(dir.path()).unwrap().unwrap();
+    assert!(mask.contains(Coord::new(2_605_000.0, 1_205_000.0)));
+    assert!(mask.contains(Coord::new(2_607_900.0, 1_205_000.0)));
+    assert!(!mask.contains(Coord::new(2_608_100.0, 1_205_000.0)));
+    assert!(
+        !mask.contains(Coord::new(2_607_500.0, 1_207_500.0)),
+        "the corner of the bounding box must be outside a circle"
+    );
+
+    // A composite covers both parts and nothing between them.
+    let composite = AreaSelection::Composite {
+        parts: vec![
+            circle.clone(),
+            AreaSelection::Circle {
+                easting: 2_640_000.0,
+                northing: 1_205_000.0,
+                radius_km: 3.0,
+            },
+        ],
+    };
+    let mask = composite.mask(dir.path()).unwrap().unwrap();
+    assert!(mask.contains(Coord::new(2_605_000.0, 1_205_000.0)));
+    assert!(mask.contains(Coord::new(2_640_000.0, 1_205_000.0)));
+    assert!(!mask.contains(Coord::new(2_622_000.0, 1_205_000.0)));
+    // Its extent spans both.
+    let b = composite.bbox();
+    assert_eq!(b.min_e, 2_602_000.0);
+    assert_eq!(b.max_e, 2_643_000.0);
+}
+
+/// A composite containing a plain rectangle cannot be masked: the rectangle covers its
+/// whole box, so masking the rest would claim the build excludes things it includes.
+#[test]
+fn a_composite_with_an_unmasked_part_has_no_mask() {
+    use s2g_core::recipe::AreaSelection;
+
+    let dir = tempfile::tempdir().unwrap();
+    let composite = AreaSelection::Composite {
+        parts: vec![
+            AreaSelection::Circle {
+                easting: 2_605_000.0,
+                northing: 1_205_000.0,
+                radius_km: 3.0,
+            },
+            AreaSelection::BBox {
+                min_e: 2_600_000.0,
+                min_n: 1_200_000.0,
+                max_e: 2_610_000.0,
+                max_n: 1_210_000.0,
+            },
+        ],
+    };
+    assert!(composite.mask(dir.path()).unwrap().is_none());
+    // The extent still covers both.
+    assert!(composite.bbox().area_km2() >= 100.0);
+}
+
+/// Two different shapes must not share a cache key.
+#[test]
+fn the_shape_digest_separates_the_new_area_kinds() {
+    use s2g_core::recipe::AreaSelection;
+
+    let a = AreaSelection::Polygon {
+        points: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
+    };
+    let b = AreaSelection::Polygon {
+        points: vec![[0.0, 0.0], [2.0, 0.0], [2.0, 2.0]],
+    };
+    assert_ne!(a.shape_digest(), b.shape_digest());
+
+    let c1 = AreaSelection::Circle { easting: 1.0, northing: 2.0, radius_km: 3.0 };
+    let c2 = AreaSelection::Circle { easting: 1.0, northing: 2.0, radius_km: 4.0 };
+    assert_ne!(c1.shape_digest(), c2.shape_digest());
+
+    // Order matters in a composite only insofar as it changes the union; the digest is
+    // allowed to differ, but the two must not collide with a single part.
+    let single = AreaSelection::Composite { parts: vec![c1.clone()] };
+    assert_ne!(single.shape_digest(), c1.shape_digest());
+}

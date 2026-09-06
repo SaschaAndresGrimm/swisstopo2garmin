@@ -23,6 +23,7 @@ pub mod estimate;
 pub mod extract;
 pub mod fit;
 pub mod garmin;
+pub mod geojson;
 pub mod geom;
 pub mod gpkg;
 pub mod gpx;

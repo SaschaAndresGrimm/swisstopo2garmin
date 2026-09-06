@@ -111,6 +111,15 @@ pub fn list(dir: &Path) -> Vec<SavedRecipe> {
                     crate::recipe::AreaSelection::Corridor {
                         name, buffer_km, ..
                     } => format!("{name} · ±{buffer_km:.1} km"),
+                    crate::recipe::AreaSelection::Polygon { points } => {
+                        format!("{} points · {:.0} km²", points.len(), bbox.area_km2())
+                    }
+                    crate::recipe::AreaSelection::Circle { radius_km, .. } => {
+                        format!("circle · {radius_km:.0} km")
+                    }
+                    crate::recipe::AreaSelection::Composite { parts } => {
+                        format!("{} areas · {:.0} km²", parts.len(), bbox.area_km2())
+                    }
                     crate::recipe::AreaSelection::AdminUnits {
                         names, buffer_km, ..
                     } => {

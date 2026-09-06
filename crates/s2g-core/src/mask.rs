@@ -23,6 +23,12 @@ pub enum Mask {
     Polygons(PolygonMask),
     /// Everything within `radius_m` of any polyline. Route corridors.
     Corridor(CorridorMask),
+    /// Several masks combined (SPEC.md FR-41).
+    ///
+    /// A point is inside if any part contains it. Kept as a list rather than merged
+    /// into one geometry: merging polygons is real work to get right, and a union
+    /// answers the only question a mask is ever asked.
+    Union(Vec<Mask>),
     /// A polygon set grown outwards by a distance (SPEC.md FR-34).
     ///
     /// Exact Minkowski growth by a disc, not an approximation: a point is inside if it
@@ -60,8 +66,17 @@ impl Mask {
         }
     }
 
+    /// Combine masks. A single part is returned as itself rather than wrapped.
+    pub fn union(mut parts: Vec<Mask>) -> Self {
+        if parts.len() == 1 {
+            return parts.remove(0);
+        }
+        Mask::Union(parts)
+    }
+
     pub fn contains(&self, p: Coord) -> bool {
         match self {
+            Mask::Union(parts) => parts.iter().any(|m| m.contains(p)),
             Mask::Polygons(m) => m.contains(p),
             Mask::Corridor(m) => m.contains(p),
             Mask::BufferedPolygons { inside, edge } => inside.contains(p) || edge.contains(p),
@@ -71,6 +86,20 @@ impl Mask {
     /// The mask's own extent, which is the bounding box a build should clip to.
     pub fn bbox(&self) -> BBox {
         match self {
+            Mask::Union(parts) => {
+                let mut it = parts.iter().map(|m| m.bbox());
+                match it.next() {
+                    None => BBox::new(0.0, 0.0, 0.0, 0.0),
+                    Some(first) => it.fold(first, |a, b| {
+                        BBox::new(
+                            a.min_e.min(b.min_e),
+                            a.min_n.min(b.min_n),
+                            a.max_e.max(b.max_e),
+                            a.max_n.max(b.max_n),
+                        )
+                    }),
+                }
+            }
             Mask::Polygons(m) => m.bbox,
             Mask::Corridor(m) => m.bbox,
             // The edge corridor already includes the buffer on all sides.

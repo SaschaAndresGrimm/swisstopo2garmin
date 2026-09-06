@@ -112,6 +112,32 @@ pub enum AreaSelection {
         max_n: f64,
     },
 
+    /// A freehand polygon drawn on the map (SPEC.md FR-31).
+    #[serde(rename_all = "camelCase")]
+    Polygon {
+        /// LV95 `[easting, northing]`, in order. Closed implicitly.
+        points: Vec<[f64; 2]>,
+    },
+
+    /// A circle around a point (SPEC.md FR-31).
+    ///
+    /// Distinct from `Place` even though both are a radius: a circle is somewhere the
+    /// user pointed at, with no name to re-resolve and no settlement behind it.
+    #[serde(rename_all = "camelCase")]
+    Circle {
+        easting: f64,
+        northing: f64,
+        radius_km: f64,
+    },
+
+    /// Several selections combined (SPEC.md FR-41).
+    ///
+    /// The union of its parts: a canton plus the valley next door, or two ends of a
+    /// traverse. Nested composites are allowed but pointless, and flatten to the same
+    /// thing.
+    #[serde(rename_all = "camelCase")]
+    Composite { parts: Vec<AreaSelection> },
+
     /// A corridor around an imported GPX or FIT track (SPEC.md FR-38, FR-39).
     ///
     /// Points are LV95 and already simplified: a corridor is kilometres wide, so metre
@@ -123,6 +149,51 @@ pub enum AreaSelection {
         /// `[easting, northing]` pairs, in order.
         points: Vec<[f64; 2]>,
     },
+}
+
+/// A ring that closes, since a drawn polygon does not.
+fn closed_ring(points: &[[f64; 2]]) -> Vec<crate::geom::Coord> {
+    let mut ring: Vec<crate::geom::Coord> = points
+        .iter()
+        .map(|p| crate::geom::Coord::new(p[0], p[1]))
+        .collect();
+    if ring.first() != ring.last() {
+        if let Some(first) = ring.first().copied() {
+            ring.push(first);
+        }
+    }
+    ring
+}
+
+/// Bounding box of a point set, grown by `margin`.
+fn bbox_of(points: &[[f64; 2]], margin: f64) -> BBox {
+    let (mut e0, mut n0, mut e1, mut n1) =
+        (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for p in points {
+        e0 = e0.min(p[0]);
+        n0 = n0.min(p[1]);
+        e1 = e1.max(p[0]);
+        n1 = n1.max(p[1]);
+    }
+    if points.is_empty() {
+        BBox::new(0.0, 0.0, 0.0, 0.0)
+    } else {
+        BBox::new(e0 - margin, n0 - margin, e1 + margin, n1 + margin)
+    }
+}
+
+/// FNV-1a over coordinate bits. Not cryptographic; it separates two shapes.
+fn digest_points(points: &[[f64; 2]]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for p in points {
+        for v in [p[0], p[1]] {
+            for b in v.to_bits().to_le_bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x1000_0000_01b3);
+            }
+        }
+    }
+    h
 }
 
 impl AreaSelection {
@@ -141,6 +212,30 @@ impl AreaSelection {
                     .collect()],
                 buffer_km * 1000.0,
             )),
+            AreaSelection::Polygon { points } => Some(crate::mask::Mask::polygons(vec![vec![
+                closed_ring(points),
+            ]])),
+            AreaSelection::Circle {
+                easting,
+                northing,
+                radius_km,
+            } => Some(crate::mask::Mask::corridor(
+                vec![vec![crate::geom::Coord::new(*easting, *northing)]],
+                radius_km * 1000.0,
+            )),
+            AreaSelection::Composite { parts } => {
+                // A part with no mask covers its whole bounding box, and a union with
+                // an unmasked part is that box: masking the rest would be a lie about
+                // what the build contains.
+                let mut masks = Vec::new();
+                for part in parts {
+                    match part.mask(cache_root)? {
+                        Some(m) => masks.push(m),
+                        None => return Ok(None),
+                    }
+                }
+                Some(crate::mask::Mask::union(masks))
+            }
             AreaSelection::AdminUnits {
                 level,
                 numbers,
@@ -190,6 +285,26 @@ impl AreaSelection {
                     BBox::new(e0 - m, n0 - m, e1 + m, n1 + m)
                 }
             }
+            AreaSelection::Polygon { points } => bbox_of(points, 0.0),
+            AreaSelection::Circle {
+                easting,
+                northing,
+                radius_km,
+            } => BBox::from_center(*easting, *northing, radius_km * 1000.0),
+            AreaSelection::Composite { parts } => {
+                let mut it = parts.iter().map(|p| p.bbox());
+                match it.next() {
+                    None => BBox::new(0.0, 0.0, 0.0, 0.0),
+                    Some(first) => it.fold(first, |acc, b| {
+                        BBox::new(
+                            acc.min_e.min(b.min_e),
+                            acc.min_n.min(b.min_n),
+                            acc.max_e.max(b.max_e),
+                            acc.max_n.max(b.max_n),
+                        )
+                    }),
+                }
+            }
             // Resolved when the units were chosen, so this needs no file access.
             AreaSelection::AdminUnits {
                 min_e,
@@ -222,6 +337,31 @@ impl AreaSelection {
                 ) {
                     h ^= b as u64;
                     h = h.wrapping_mul(0x1000_0000_01b3);
+                }
+                h
+            }
+            AreaSelection::Polygon { points } => digest_points(points),
+            AreaSelection::Circle {
+                easting,
+                northing,
+                radius_km,
+            } => digest_points(&[[*easting, *northing], [*radius_km, 0.0]]),
+            AreaSelection::Composite { parts } => {
+                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                for p in parts {
+                    for b in p.shape_digest().to_le_bytes() {
+                        h ^= b as u64;
+                        h = h.wrapping_mul(0x1000_0000_01b3);
+                    }
+                    // The bounding box too, so two parts differing only in extent are
+                    // not treated as one.
+                    let bb = p.bbox();
+                    for v in [bb.min_e, bb.min_n, bb.max_e, bb.max_n] {
+                        for b in v.to_bits().to_le_bytes() {
+                            h ^= b as u64;
+                            h = h.wrapping_mul(0x1000_0000_01b3);
+                        }
+                    }
                 }
                 h
             }

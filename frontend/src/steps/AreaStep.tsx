@@ -43,6 +43,7 @@ export function AreaStep({
   const [matches, setMatches] = useState<PlaceMatch[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exported, setExported] = useState<string | null>(null);
 
   const { info, error: infoError } = useAreaInfo(area, deviceId, preset, contourM, relief);
 
@@ -195,6 +196,32 @@ export function AreaStep({
       <AreaMap
         t={t}
         track={trackLine}
+        onPolygon={(points) => {
+          void (async () => {
+            try {
+              // Projected by the backend, so the app has one projection.
+              const lv95 = await Promise.all(
+                points.map((p) => api.wgs84BboxToLv95(p[0], p[1], p[0], p[1])),
+              );
+              onArea({
+                kind: "polygon",
+                points: lv95.map(([e, n]) => [e, n] as [number, number]),
+              });
+            } catch (e) {
+              setError(String(e));
+            }
+          })();
+        }}
+        onCircle={(centre, radiusM) => {
+          void (async () => {
+            try {
+              const [e, n] = await api.wgs84BboxToLv95(centre[0], centre[1], centre[0], centre[1]);
+              onArea({ kind: "circle", easting: e, northing: n, radiusKm: radiusM / 1000 });
+            } catch (err) {
+              setError(String(err));
+            }
+          })();
+        }}
         box={box}
         onBox={(b) => {
           setBox(b);
@@ -222,6 +249,54 @@ export function AreaStep({
 
       {(error ?? infoError) && (
         <p className="error">{t("data.error", { message: error ?? infoError ?? "" })}</p>
+      )}
+
+      {/* Selections travel as GeoJSON, which QGIS and geojson.io both read (FR-42). */}
+      <div className="row tight">
+        <input
+          type="file"
+          accept=".geojson,.json"
+          aria-label={t("area.import")}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            void (async () => {
+              try {
+                onArea(await api.areaFromGeojson(await f.text()));
+              } catch (err) {
+                setError(String(err));
+              }
+            })();
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          disabled={!area}
+          onClick={() => {
+            if (!area) return;
+            void (async () => {
+              try {
+                const { save } = await import("@tauri-apps/plugin-dialog");
+                const path = await save({
+                  title: t("area.exportTitle"),
+                  defaultPath: "selection.geojson",
+                  filters: [{ name: "GeoJSON", extensions: ["geojson"] }],
+                });
+                if (typeof path === "string") setExported(await api.exportArea(area, path));
+              } catch (err) {
+                setError(String(err));
+              }
+            })();
+          }}
+        >
+          {t("area.export")}
+        </button>
+      </div>
+      {exported && (
+        <p className="muted small">
+          {t("area.exported")} <span className="mono">{exported}</span>
+        </p>
       )}
 
       <div className="row">

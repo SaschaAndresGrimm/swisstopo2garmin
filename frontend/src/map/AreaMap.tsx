@@ -21,15 +21,24 @@ const TRACK_SOURCE = "s2g-track";
  * Drawing is implemented directly rather than via a draw plugin: one rectangle is all
  * the area step needs, and a plugin would add a dependency and its own styling.
  */
+/** Which drawing tool is armed. */
+export type DrawTool = "rect" | "polygon" | "circle";
+
 export function AreaMap({
   t,
   box,
   onBox,
+  onPolygon,
+  onCircle,
   track,
 }: {
   t: T;
   box: DrawnBox | null;
   onBox: (b: DrawnBox) => void;
+  /** Freehand polygon in WGS84 `[lon, lat]`, closed by the caller (FR-31). */
+  onPolygon?: (points: [number, number][]) => void;
+  /** Centre in WGS84 and a radius in metres (FR-31). */
+  onCircle?: (centre: [number, number], radiusM: number) => void;
   /** Lines to draw over the rectangle in WGS84 `[lon, lat]`: an imported track's
    *  centreline, or the outlines of the chosen administrative units. */
   track?: [number, number][][] | null;
@@ -38,11 +47,19 @@ export function AreaMap({
   const map = useRef<MlMap | null>(null);
   const [base, setBase] = useState<BaseLayerId>("pixelkarte");
   const [drawing, setDrawing] = useState(false);
+  const [tool, setTool] = useState<DrawTool>("rect");
   const dragStart = useRef<maplibregl.LngLat | null>(null);
+  // Vertices of a polygon in progress, kept in a ref so the map handlers see the
+  // current value without being rebound on every click.
+  const vertices = useRef<[number, number][]>([]);
 
   // Keep the latest callback without re-creating the map.
   const onBoxRef = useRef(onBox);
   onBoxRef.current = onBox;
+  const onPolygonRef = useRef(onPolygon);
+  onPolygonRef.current = onPolygon;
+  const onCircleRef = useRef(onCircle);
+  onCircleRef.current = onCircle;
 
   const rectGeoJson = useCallback((b: DrawnBox | null) => {
     if (!b) return { type: "FeatureCollection" as const, features: [] };
@@ -178,13 +195,69 @@ export function AreaMap({
     }
     m.dragPan.disable();
 
+    // Metres between two positions, for the circle radius. Small distances at Swiss
+    // latitudes, so the spherical approximation is well within a pixel.
+    const metres = (a: maplibregl.LngLat, b: maplibregl.LngLat) => {
+      const R = 6_371_000;
+      const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+      const dLon = ((b.lng - a.lng) * Math.PI) / 180;
+      const lat = ((a.lat + b.lat) / 2) * (Math.PI / 180);
+      const x = dLon * Math.cos(lat);
+      return Math.sqrt(x * x + dLat * dLat) * R;
+    };
+
+    const ringOf = (points: [number, number][]) => ({
+      type: "FeatureCollection" as const,
+      features: [
+        {
+          type: "Feature" as const,
+          properties: {},
+          geometry: { type: "Polygon" as const, coordinates: [[...points, points[0]]] },
+        },
+      ],
+    });
+
+    const click = (e: maplibregl.MapMouseEvent) => {
+      if (tool !== "polygon") return;
+      vertices.current = [...vertices.current, [e.lngLat.lng, e.lngLat.lat]];
+      const src = m.getSource(RECT_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      if (vertices.current.length >= 3) src?.setData(ringOf(vertices.current) as never);
+    };
+
+    // Double-click finishes a polygon; the map's own zoom is suppressed while drawing.
+    const finish = (e: maplibregl.MapMouseEvent) => {
+      if (tool !== "polygon") return;
+      e.preventDefault();
+      if (vertices.current.length >= 3) onPolygonRef.current?.(vertices.current);
+      vertices.current = [];
+      setDrawing(false);
+    };
+
     const down = (e: maplibregl.MapMouseEvent) => {
+      if (tool === "polygon") return;
       dragStart.current = e.lngLat;
     };
+    const circleRing = (centre: maplibregl.LngLat, radiusM: number) => {
+      const points: [number, number][] = [];
+      for (let i = 0; i < 64; i++) {
+        const a = (i / 64) * Math.PI * 2;
+        const dLat = ((radiusM * Math.sin(a)) / 6_371_000) * (180 / Math.PI);
+        const dLon =
+          ((radiusM * Math.cos(a)) / (6_371_000 * Math.cos((centre.lat * Math.PI) / 180))) *
+          (180 / Math.PI);
+        points.push([centre.lng + dLon, centre.lat + dLat]);
+      }
+      return points;
+    };
+
     const move = (e: maplibregl.MapMouseEvent) => {
       const s = dragStart.current;
       if (!s) return;
       const src = m.getSource(RECT_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      if (tool === "circle") {
+        src?.setData(ringOf(circleRing(s, metres(s, e.lngLat))) as never);
+        return;
+      }
       src?.setData(
         rectGeoJson({
           west: Math.min(s.lng, e.lngLat.lng),
@@ -198,6 +271,15 @@ export function AreaMap({
       const s = dragStart.current;
       dragStart.current = null;
       if (!s) return;
+      if (tool === "circle") {
+        const r = metres(s, e.lngLat);
+        // An accidental click is not a circle.
+        if (r > 200) {
+          onCircleRef.current?.([s.lng, s.lat], r);
+          setDrawing(false);
+        }
+        return;
+      }
       const b = {
         west: Math.min(s.lng, e.lngLat.lng),
         south: Math.min(s.lat, e.lngLat.lat),
@@ -213,12 +295,19 @@ export function AreaMap({
     m.on("mousedown", down);
     m.on("mousemove", move);
     m.on("mouseup", up);
+    m.on("click", click);
+    m.on("dblclick", finish);
+    m.doubleClickZoom.disable();
     return () => {
       m.off("mousedown", down);
       m.off("mousemove", move);
       m.off("mouseup", up);
+      m.off("click", click);
+      m.off("dblclick", finish);
+      m.doubleClickZoom.enable();
+      vertices.current = [];
     };
-  }, [drawing, rectGeoJson]);
+  }, [drawing, tool, rectGeoJson]);
 
   /** Centre and frame a box the user chose elsewhere (a place search result). */
   const frame = useCallback((b: DrawnBox) => {
@@ -237,14 +326,30 @@ export function AreaMap({
   return (
     <div className="areamap">
       <div className="areamap-toolbar">
-        <button
-          type="button"
-          className={drawing ? "primary" : ""}
-          aria-pressed={drawing}
-          onClick={() => setDrawing((d) => !d)}
-        >
-          {drawing ? t("map.drawing") : t("map.draw")}
-        </button>
+        {(["rect", "polygon", "circle"] as DrawTool[]).map((x) => (
+          <button
+            key={x}
+            type="button"
+            className={drawing && tool === x ? "primary" : ""}
+            aria-pressed={drawing && tool === x}
+            onClick={() => {
+              vertices.current = [];
+              if (drawing && tool === x) {
+                setDrawing(false);
+              } else {
+                setTool(x);
+                setDrawing(true);
+              }
+            }}
+          >
+            {t(`map.tool.${x}`)}
+          </button>
+        ))}
+        {drawing && (
+          <span className="muted small">
+            {tool === "polygon" ? t("map.polygonHint") : t("map.drawing")}
+          </span>
+        )}
         <div className="spacer" />
         <select
           aria-label={t("map.base")}
