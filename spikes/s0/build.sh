@@ -43,12 +43,15 @@ python3 "$REPO/spikes/s0/checkstyle.py" >/dev/null || {
 # Winter routes (ski touring, snowshoe, winter hiking) when S2G_WINTER=1.
 WINTER_FLAG=""
 [ "${S2G_WINTER:-0}" = "1" ] && WINTER_FLAG="--winter"
+# Cycle and mountain-bike routes when S2G_CYCLE=1 (needs spikes/s0/fetch_routes.py).
+CYCLE_FLAG=""
+[ "${S2G_CYCLE:-0}" = "1" ] && CYCLE_FLAG="--cycle"
 
 echo "=== 1/5  extract region (vectors, contours, winter) with the Rust pipeline"
 cargo build --release -q -p s2g-core --example extract_region
 ./target/release/examples/extract_region \
     --place "$PLACE" --radius-km "$RADIUS" --contour "$INTERVAL" \
-    $WINTER_FLAG --out "$WORK/region.osm.pbf" | tee "$WORK/extract.log"
+    $WINTER_FLAG $CYCLE_FLAG --out "$WORK/region.osm.pbf" | tee "$WORK/extract.log"
 
 BBOX="$(grep -oE 'LV95 [-0-9]+ [-0-9]+ [-0-9]+ [-0-9]+' "$WORK/extract.log" \
         | head -1 | sed 's/^LV95 //')"

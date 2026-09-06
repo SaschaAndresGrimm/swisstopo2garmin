@@ -135,6 +135,10 @@ LINES = [
     ("0x10109", "Skitour Vorsicht", "ski_caution",   4, 1),
     ("0x1010a", "Schneeschuhtrail", "snowshoe",      4, 1),
     ("0x1010b", "Winterwanderweg", "winter_hiking",  4, 1),
+    # Cycling preset.
+    ("0x1010c", "Veloroute",       "cycle_route",     4, 1),
+    ("0x1010d", "Mountainbikeroute", "mtb_route",     4, 1),
+    ("0x1010e", "Singletrail",     "mtb_singletrail", 3, 1),
     ("0x1a",    "Faehre",         "water_line",     2, 0),
     ("0x18",    "Bach",           "water_line",     2, 0),
     ("0x1f",    "Fluss",          "water_line",     4, 0),

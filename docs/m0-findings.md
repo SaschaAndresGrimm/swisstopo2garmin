@@ -294,6 +294,19 @@ swissTLM3D.
 dates, so an exact-match layer lookup breaks on the next release. Layers are resolved
 by exact name first, then by prefix.
 
+**Finding 4.21 — all three ASTRA datasets ship a file named `Route.shp`.**
+`veloland`, `mountainbikeland` and `wanderland` each contain `Route.shp`, `Etappe.shp`
+and a network file. Tagged by file stem alone, a mountain-bike route is
+indistinguishable from a cycle route and renders in the wrong colour. The layer tag is
+therefore qualified with the dataset directory. A useful side effect: `wanderland_Route`
+supplies the **official hiking route numbers**, which swissTLM3D does not carry.
+
+**Finding 4.22 — `Netzhier` is empty in the real route data.** Both `VeloWeg` (88,939
+records) and `MTBWeg` (52,316) declare a 254-character `Netzhier` field that looks like
+a network hierarchy — exactly what a cycle map wants for grading route importance — and
+it is empty in every record. The cycle network is therefore drawn as a single class.
+`MTBWeg.IsSTrail` does carry signal: 4,802 segments are singletrail.
+
 **Finding 4.4 — IMG header offsets** (for the Stage 6 verifier): `DSKIMG` at **0x10**,
 `GARMIN` at 0x41, description at 0x49, block-size exponents E1/E2 at 0x61/0x62, FAT at
 0x600. Several online references place `DSKIMG` elsewhere; the above is measured.

@@ -182,5 +182,20 @@
     "day": "#F075B0",
     "casing": "#FFFFFF",
     "note": "Winterwanderweg; magenta signage, lighter than snowshoe"
+  },
+  "cycle_route": {
+    "day": "#0090D0",
+    "casing": "#FFFFFF",
+    "note": "Veloland; SchweizMobil cycle signage is light blue"
+  },
+  "mtb_route": {
+    "day": "#5AAA46",
+    "casing": "#FFFFFF",
+    "note": "Mountainbikeland. SchweizMobil signs it light blue like Veloland and distinguishes it only by pictogram, which a Garmin cannot render, so green is a deliberate deviation for legibility"
+  },
+  "mtb_singletrail": {
+    "day": "#2E7D32",
+    "casing": "#FFFFFF",
+    "note": "MTBWeg.IsSTrail = 1"
   }
 }

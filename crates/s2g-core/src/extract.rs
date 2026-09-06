@@ -181,6 +181,39 @@ pub const WINTER_LAYERS: &[LayerSpec] = &[
     },
 ];
 
+/// Cycle and mountain-bike networks, from the ASTRA shapefiles.
+///
+/// swissTLM3D carries no cycle data at all (docs/m0-findings.md §4.19) and these
+/// datasets publish no GeoPackage, so they arrive through [`crate::shapefile`].
+///
+/// `Etappe` (stages) is deliberately absent: it duplicates the route geometry with
+/// stage metadata that adds nothing on a device screen.
+pub const CYCLE_LAYERS: &[LayerSpec] = &[
+    // The cycle path network. Netzhier looks like a hierarchy but is empty in the
+    // real data, so there is nothing to grade the network by.
+    LayerSpec {
+        layer: "VeloWeg",
+        attributes: &["ObjektArt", "BelagTLM", "VerkehrM"],
+        simplify_m: 2.0,
+        prefix: "astra",
+    },
+    // The MTB network. IsSTrail marks singletrail, which is the distinction a rider
+    // cares about.
+    LayerSpec {
+        layer: "MTBWeg",
+        attributes: &["IsSTrail", "Technik", "InfraMtb", "BelagTLM"],
+        simplify_m: 2.0,
+        prefix: "astra",
+    },
+    // Named routes, for the route number label.
+    LayerSpec {
+        layer: "Route",
+        attributes: &["NameR", "NrR", "Routenart", "TechnikR", "KonditionR"],
+        simplify_m: 2.0,
+        prefix: "astra",
+    },
+];
+
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ExtractStats {
     pub features: u64,
@@ -294,6 +327,61 @@ impl RegionBuilder {
         self.stats.features += n;
         self.stats.per_layer.push(("contours".to_string(), n));
         Ok(n)
+    }
+
+    /// Add features from a shapefile.
+    ///
+    /// Shapefiles hold one layer per file with no layer name inside, so the spec's
+    /// `layer` names the file stem and becomes the `layer` tag.
+    pub fn add_shapefile(
+        &mut self,
+        shp: &crate::shapefile::Shapefile,
+        spec: &LayerSpec,
+        cancel: &Cancel,
+    ) -> Result<u64> {
+        self.add_shapefile_as(shp, spec, spec.layer, cancel)
+    }
+
+    /// As [`RegionBuilder::add_shapefile`], but with an explicit layer tag.
+    ///
+    /// Needed because all three ASTRA datasets ship a file called `Route.shp`. Tagged
+    /// by file stem alone, a mountain-bike route would be indistinguishable from a
+    /// cycle route and would render in the wrong colour.
+    pub fn add_shapefile_as(
+        &mut self,
+        shp: &crate::shapefile::Shapefile,
+        spec: &LayerSpec,
+        layer_tag: &str,
+        cancel: &Cancel,
+    ) -> Result<u64> {
+        let bbox = &self.bbox;
+        let stats = &mut self.stats;
+        let writer = &mut self.writer;
+        let mut count = 0u64;
+
+        shp.for_each_in_bbox(bbox, spec.attributes, |f| {
+            if cancel.is_cancelled() {
+                return false;
+            }
+            let Some(clipped) = clip(&f.geometry, bbox) else {
+                return true;
+            };
+            let mut tags = build_tags(spec, &f);
+            // Replace the layer tag with the qualified name.
+            if let Some(slot) = tags.iter_mut().find(|(k, _)| k.ends_with(":layer")) {
+                slot.1 = layer_tag.to_string();
+            }
+            emit(writer, &clipped, &tags, spec.simplify_m, stats);
+            count += 1;
+            true
+        })?;
+
+        if cancel.is_cancelled() {
+            return Err(crate::Error::Cancelled);
+        }
+        stats.features += count;
+        stats.per_layer.push((layer_tag.to_string(), count));
+        Ok(count)
     }
 
     pub fn add_vectors(

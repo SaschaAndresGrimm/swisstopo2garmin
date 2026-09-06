@@ -368,15 +368,52 @@ that are unioned, and modes can be mixed (e.g. two cantons plus a route corridor
 
 ### 6.5 Content configuration (step 3)
 
-- **FR-50** **Presets** as the primary control, tuned per device family:
-  - *Cycling (Edge)* — roads and cycle network prominent, contours 20 m, buildings simplified, POIs for services.
-  - *Hiking (fēnix)* — hiking network by SAC/trail class prominent, contours 10 m, minimal buildings, small file.
-  - *Ski touring* — slope-relevant land cover, contours 10 m, avalanche-relevant terrain emphasis.
-  - *Full topo* — everything, largest file.
+- **FR-50** **Presets** are the primary control. Each selects a *content set*, a
+  *cartography variant* and *contour defaults*; the layer panel (FR-51) then refines them.
+  The preset list is fixed — it is not a free-form layer builder, because the value of a
+  preset is that it is already correct for a purpose.
+
+  | Preset | Content beyond the base topo | Contours | Cartography |
+  |---|---|---|---|
+  | **Hiking** *(default)* | hiking network by Swiss trail class (Wanderweg / Bergwanderweg / Alpinwanderweg), lifts and cableways | 20 m, index 100 m | per device class |
+  | **Cycling** | cycle and mountain-bike route networks, road hierarchy emphasised, buildings simplified | 20 m, index 100 m | handlebar |
+  | **Ski touring (skimo)** | SAC ski routes split into **skiable / carrying / caution**, snowshoe trails, winter hiking trails, lifts and cableways | 20 m, index 100 m | per device class |
+  | **Full topo** | every available layer | 10 m, index 50 m | handlebar |
+
+  Notes that matter for the UI:
+  - **Base topo is always present** in every preset: land cover, hydrography, buildings,
+    place names, contours and relief. A preset adds a themed network on top; it never
+    strips the map down to just that network.
+  - **Lifts and cableways** (`tlm_oev_uebrige_bahn`) appear in Hiking, Ski touring and
+    Full topo. They are mountain context, not a winter-only feature.
+  - The **Ski touring** preset requires the three winter datasets (~38 MB, all
+    GeoPackage) and the **Cycling** preset requires the ASTRA route networks
+    (~110 MB, shapefile). Both are separate downloads from swissTLM3D, so a preset that
+    needs data the user does not have must offer to fetch it rather than silently
+    producing an empty theme (see FR-13).
+  - Presets are **not** device-locked. The earlier draft tied Cycling to Edge and Hiking
+    to fēnix; that was wrong — a fēnix is used for ski touring and an Edge for
+    bikepacking on hiking trails. The device chooses the *cartography variant*
+    (FR-CART6), the preset chooses the *content*.
+
 - **FR-51** An expandable **layer panel** for per-layer control: include/exclude, and a
-  minimum zoom level at which each layer appears. Layers mirror the TLM3D topics
-  (roads, rail/public transport, buildings, land cover, hydrography, single objects, names)
-  plus contours and hillshade-derived features.
+  minimum zoom level at which each layer appears. Layers are grouped so the panel stays
+  legible:
+
+  | Group | Layers |
+  |---|---|
+  | Terrain | contours, relief shading (DEM), rock, scree, glacier and firn |
+  | Land cover | forest, open forest, copse, scrub, wetland, water |
+  | Transport | roads by class, rail, **lifts and cableways**, ferries |
+  | Hiking | trail classes, via ferrata |
+  | **Winter** | ski routes (skiable / carrying / caution), snowshoe trails, winter hiking trails |
+  | **Cycling** | national cycle routes, mountain-bike routes, official route numbers |
+  | Built | buildings, land use areas, parking, leisure grounds |
+  | Names | settlements, field names, single objects |
+
+  A group whose source data is not downloaded is shown **disabled with the reason**,
+  never hidden — a user looking for ski routes must be able to see that the feature
+  exists and what it needs.
 - **FR-52** Contour settings: interval (5/10/20/50/100 m), whether to label, and which
   intervals count as minor/medium/major.
 - **FR-53** Label language: German, French, Italian, or "local" (whatever the source
@@ -808,7 +845,8 @@ cache key source.
     ]
   },
   "content": {
-    "preset": "hiking",
+    "preset": "hiking",              // hiking | cycling | skimo | full
+
     "layers": { "buildings": { "include": true, "minLevel": 2 } },
     "contours": { "intervalM": 10, "label": true, "majorEveryM": 100 },
     "labelLanguage": "local"

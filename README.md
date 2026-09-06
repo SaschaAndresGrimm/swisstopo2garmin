@@ -67,6 +67,19 @@ stale, so the two sides cannot drift.
 
 ```bash
 spikes/s0/build.sh Grindelwald 8 20      # place, radius km, contour interval m
+
+# content presets (SPEC.md FR-50)
+S2G_WINTER=1 spikes/s0/build.sh Grindelwald 8 20   # ski touring, snowshoe, winter hiking
+S2G_CYCLE=1  spikes/s0/build.sh Grindelwald 8 20   # cycle and mountain-bike routes
+S2G_STYLE=swisstopo-wrist spikes/s0/build.sh Grindelwald 8 20   # fenix cartography
+S2G_ARCSEC=3 spikes/s0/build.sh Grindelwald 8 20   # gentler relief shading
+```
+
+The winter and cycling presets need their own data:
+
+```bash
+python3 spikes/s0/fetch_winter.py   # ~38 MB, GeoPackage
+python3 spikes/s0/fetch_routes.py   # ~170 MB, shapefile
 ```
 
 Produces `out/gmapsupp-<place>.img` plus a preview PNG. Copy the `.img` to

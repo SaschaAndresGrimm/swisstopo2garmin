@@ -125,3 +125,22 @@ sac:layer~'ski_routes.*' { name '${sac:name}' }                     [0x10107 res
 # ASTRA / SchweizMobil signposted winter trails.
 swm:layer=Schneeschuhwanderwege { name '${swm:NameR}' }             [0x1010a resolution 21]
 swm:layer=Winterwanderwege      { name '${swm:NameR}' }             [0x1010b resolution 21]
+
+# ---------------------------------------------------------------------------
+# Cycling preset. Sources are ASTRA shapefiles -- see docs/routes-schema.md.
+#
+# VeloWeg.Netzhier looks like a network hierarchy but is empty throughout the real
+# data, so the cycle network is drawn as one class. MTBWeg.IsSTrail does carry
+# signal: 4,802 of 52,316 segments are singletrail.
+# ---------------------------------------------------------------------------
+astra:layer=MTBWeg & astra:IsSTrail=1  [0x1010e resolution 22]
+astra:layer=MTBWeg                     [0x1010d resolution 21]
+astra:layer=VeloWeg                    [0x1010c resolution 21]
+
+# Named routes carry the route number as the label. All three ASTRA datasets ship a
+# file called Route.shp, so the layer tag is qualified by dataset -- otherwise a
+# mountain-bike route would render as a cycle route.
+astra:layer=mountainbikeland_Route & astra:NrR=* { name '${astra:NrR}' } [0x1010d resolution 20]
+astra:layer=veloland_Route & astra:NrR=* { name '${astra:NrR}' }         [0x1010c resolution 20]
+# wanderland gives the official hiking route numbers, which swissTLM3D does not carry.
+astra:layer=wanderland_Route & astra:NrR=* { name '${astra:NrR}' }       [0x10101 resolution 20]

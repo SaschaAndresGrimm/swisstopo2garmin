@@ -552,6 +552,36 @@ BorderWidth=1
 [end]
 
 [_line]
+Type=0x1010c
+String1=0x04,Veloroute
+Xpm="0 0 2 0"
+"1 c #0090D0"
+"2 c #FFFFFF"
+LineWidth=2
+BorderWidth=1
+[end]
+
+[_line]
+Type=0x1010d
+String1=0x04,Mountainbikeroute
+Xpm="0 0 2 0"
+"1 c #5AAA46"
+"2 c #FFFFFF"
+LineWidth=2
+BorderWidth=1
+[end]
+
+[_line]
+Type=0x1010e
+String1=0x04,Singletrail
+Xpm="0 0 2 0"
+"1 c #2E7D32"
+"2 c #FFFFFF"
+LineWidth=2
+BorderWidth=1
+[end]
+
+[_line]
 Type=0x1a
 String1=0x04,Faehre
 Xpm="0 0 1 0"

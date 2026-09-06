@@ -23,6 +23,7 @@ pub mod http;
 pub mod img;
 pub mod pbf;
 pub mod proj;
+pub mod shapefile;
 pub mod stac;
 pub mod zip;
 

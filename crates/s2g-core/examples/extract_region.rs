@@ -13,7 +13,7 @@ use s2g_core::cache::Cache;
 use s2g_core::contour::{generate, ContourConfig};
 use s2g_core::download::Cancel;
 use s2g_core::elevation::{fetch_tiles, load_grid};
-use s2g_core::extract::{RegionBuilder, DEFAULT_LAYERS, WINTER_LAYERS};
+use s2g_core::extract::{RegionBuilder, CYCLE_LAYERS, DEFAULT_LAYERS, WINTER_LAYERS};
 use s2g_core::geom::{point_in_polygon, Coord, Geometry};
 use s2g_core::gpkg::Gpkg;
 use s2g_core::http::ReqwestHttp;
@@ -67,6 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(8.0);
     let interval: i32 = arg("--contour").and_then(|v| v.parse().ok()).unwrap_or(0);
     let want_winter = flag("--winter");
+    let want_cycle = flag("--cycle");
     let cancel = Cancel::new();
 
     let gpkg_path = national_gpkg().ok_or("swissTLM3D not cached; download it first")?;
@@ -166,6 +167,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect();
         if !absent.is_empty() {
             println!("winter layers not found in any source: {absent:?}");
+        }
+    }
+
+    // ---- cycle and MTB routes (ASTRA shapefiles) ----
+    if want_cycle {
+        let routes = Cache::default_root().join("routes");
+        let mut matched = 0;
+        // Each dataset unpacks into its own directory with a year in the name, so the
+        // files are found by walking rather than by a fixed path.
+        let mut stack = vec![routes.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                    continue;
+                }
+                if p.extension().map(|x| x != "shp").unwrap_or(true) {
+                    continue;
+                }
+                let stem = p
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let Some(spec) = CYCLE_LAYERS.iter().find(|l| l.layer == stem) else {
+                    continue;
+                };
+                // All three datasets ship a Route.shp, so the layer tag is qualified
+                // with the dataset directory (veloland / mountainbikeland / wanderland).
+                let dataset = p
+                    .parent()
+                    .and_then(|d| d.parent())
+                    .and_then(|d| d.file_name())
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let layer_tag = if stem == "Route" {
+                    format!("{dataset}_Route")
+                } else {
+                    stem.clone()
+                };
+                let shp = s2g_core::shapefile::Shapefile::open(&p)?;
+                let n = builder.add_shapefile_as(&shp, spec, &layer_tag, &cancel)?;
+                if n > 0 {
+                    println!("  {layer_tag:<40} {n:>8}");
+                }
+                matched += 1;
+            }
+        }
+        if matched == 0 {
+            return Err(format!(
+                "no route shapefiles under {}; run spikes/s0/fetch_routes.py",
+                routes.display()
+            )
+            .into());
         }
     }
 
