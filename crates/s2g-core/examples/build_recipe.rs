@@ -156,6 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let recipe = Recipe {
         relief,
+        slope_classes: arg("--slope").is_some() || std::env::args().any(|a| a == "--slope"),
         excluded_layers: excluded,
         ..Recipe::new(format!("{place} {}", preset.id()), &device_id, area).with_preset(preset)
     };
@@ -197,6 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("tiles        : {}", report.tile_count);
     println!("features     : {} ({} nodes, {} ways)", report.features, report.nodes, report.ways);
     println!("contours     : {} lines", report.contour_lines);
+    println!("slope areas  : {}", report.slope_areas);
     println!("relief       : {}", if report.has_dem { "yes" } else { "no" });
     println!("family id    : {}", report.family_id);
     for w in &report.warnings {

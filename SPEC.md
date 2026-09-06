@@ -711,6 +711,29 @@ moves toward the raster look** — above all DEM relief shading (FR-CART8).
   contours pink. The winter sheet recolours selectively, so it has to be measured
   selectively.*
 
+- **FR-CART12** **Slope classes over 30°**, optional and off by default. swisstopo
+  publishes `ch.swisstopo.hangneigung-ueber_30` as a rendered WMTS layer only, with no
+  dataset behind it, so the classes are *computed* from the same swissALTI3D data a build
+  already fetches for contours, and only the colours come from swisstopo (FR-CART9).
+  Classes are 30–35°, 35–40°, 40–45°, 45–50° and over 50°.
+
+  Two decisions the implementation rests on:
+  - **Computed over a 10 m baseline, not the grid's native 2 m.** At 2 m the result is
+    dominated by boulders, road cuttings and canopy artefacts: a single wild sample reads
+    as an 80°+ cliff. Ski-touring practice and swisstopo's own product work at about
+    10 m, where the number means what a skier reads it to mean.
+  - **Drawn as a hatch over a transparent ground**, because a Garmin TYP polygon fill has
+    no alpha and a solid fill would bury the map the classes are meant to inform.
+
+  Cost, measured from three paired builds in alpine terrain: about **3,568 bytes per
+  km²**, which the size estimate accounts for.
+
+- **FR-CART13** Named **SAC huts** from `ch.swisstopo.unterkuenfte-winter` (506 of them).
+  swissTLM3D marks hut *buildings* (`nutzung=Schutzhuette`) but carries no name for them,
+  so a hut was an unlabelled rectangle. Contact details and opening hours are **not**
+  available in any free dataset — the SAC portal holds them, and this dataset only links
+  to it — so the map carries the name and position, not the phone number.
+
 ### 8.2 Deliverables
 
 1. **`style/` — an mkgmap style directory** containing `points`, `lines`, `polygons`,

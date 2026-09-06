@@ -67,6 +67,8 @@
   "content.relief.off": "Désactivé",
   "content.reliefHint": "Le relief est rendu par l'appareil. « Détaillé » paraît très sombre dans les Alpes.",
   "content.reliefUnsupported": "Ce profil d'appareil ne déclare pas de prise en charge du relief.",
+  "content.slope": "Déclivité supérieure à 30°",
+  "content.slopeHint": "Calculée à partir des données d'altitude, dans les classes de swisstopo : 30–35°, 35–40°, 40–45°, 45–50° et plus de 50°. Dessinée en hachures pour que la carte reste lisible. Environ 3,5 Mo par 1000 km² en terrain alpin, bien moins ailleurs.",
   "data.available": "Dernière édition : {release}",
   "data.cacheLocation": "Emplacement du cache",
   "data.cached": "à jour",

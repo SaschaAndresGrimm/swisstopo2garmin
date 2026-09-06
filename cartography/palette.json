@@ -378,5 +378,93 @@
       "contour_ice": "water"
     },
     "rejected_approach": "A single per-channel linear fit of winter against summer over paired pixels reached only R^2 0.71 on blue and turned the bistre contours pink: the winter sheet recolours selectively, so it must be measured selectively."
+  },
+  "slope_30": {
+    "day": "#F2E50A",
+    "winter": "#F2E50A",
+    "measured": true,
+    "note": "slope 30-35\u00b0",
+    "source": "ch.swisstopo.hangneigung-ueber_30",
+    "evidence": "dominates the valley floor, so the shallowest class",
+    "observed_share_percent": {
+      "valley floor, Grindelwald": 90.1,
+      "moderate flank, Aletsch": 22.6,
+      "near-vertical, Eiger north face": 0.9
+    }
+  },
+  "slope_35": {
+    "day": "#F46F24",
+    "winter": "#F46F24",
+    "measured": true,
+    "note": "slope 35-40\u00b0",
+    "source": "ch.swisstopo.hangneigung-ueber_30",
+    "evidence": "prominent on a moderate flank",
+    "observed_share_percent": {
+      "valley floor, Grindelwald": 8.4,
+      "moderate flank, Aletsch": 32.1,
+      "near-vertical, Eiger north face": 4.7
+    }
+  },
+  "slope_40": {
+    "day": "#DE055B",
+    "winter": "#DE055B",
+    "measured": true,
+    "note": "slope 40-45\u00b0",
+    "source": "ch.swisstopo.hangneigung-ueber_30",
+    "evidence": "present on a moderate flank and on the face",
+    "observed_share_percent": {
+      "valley floor, Grindelwald": 1.5,
+      "moderate flank, Aletsch": 16.8,
+      "near-vertical, Eiger north face": 19.2
+    }
+  },
+  "slope_45": {
+    "day": "#C889BB",
+    "winter": "#C889BB",
+    "measured": true,
+    "note": "slope 45-50\u00b0",
+    "source": "ch.swisstopo.hangneigung-ueber_30",
+    "evidence": "absent from moderate ground, present on the face",
+    "observed_share_percent": {
+      "moderate flank, Aletsch": 11.0,
+      "near-vertical, Eiger north face": 16.5
+    }
+  },
+  "slope_50": {
+    "day": "#4B4B4B",
+    "winter": "#4B4B4B",
+    "measured": true,
+    "note": "slope over 50\u00b0",
+    "source": "ch.swisstopo.hangneigung-ueber_30",
+    "evidence": "dominates the near-vertical face",
+    "observed_share_percent": {
+      "moderate flank, Aletsch": 17.6,
+      "near-vertical, Eiger north face": 58.8
+    }
+  },
+  "_slope": {
+    "source": "ch.swisstopo.hangneigung-ueber_30",
+    "method": "The layer is WMTS only, so the classes are computed from swissALTI3D and only the colours are taken from swisstopo. Each colour's class is established by sampling terrain of known steepness rather than by assuming the legend's order.",
+    "probes": {
+      "valley floor, Grindelwald": [
+        46.6244,
+        8.0413
+      ],
+      "moderate flank, Aletsch": [
+        46.44,
+        8.06
+      ],
+      "near-vertical, Eiger north face": [
+        46.5775,
+        8.0053
+      ]
+    },
+    "classes": {
+      "30": "#F2E50A",
+      "35": "#F46F24",
+      "40": "#DE055B",
+      "45": "#C889BB",
+      "50": "#4B4B4B"
+    }
   }
 }

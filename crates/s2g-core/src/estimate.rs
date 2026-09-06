@@ -20,6 +20,23 @@ use crate::error::{Error, Result};
 use crate::extract::LayerGroup;
 use crate::recipe::{Recipe, ReliefDetail};
 
+/// Bytes per km² added by the slope classes.
+///
+/// Not a fitted coefficient. It is measured from three paired builds — the same recipe
+/// with and without the classes — because refitting the whole model would have meant
+/// rebuilding the training set:
+///
+/// | area | km² | with | without | added | B/km² |
+/// |---|---:|---:|---:|---:|---:|
+/// | Grindelwald | 144 | 1,559,040 | 1,089,024 | 470,016 | 3,264 |
+/// | Zermatt | 100 | 1,184,256 | 822,784 | 361,472 | 3,615 |
+/// | Andermatt | 100 | 1,153,024 | 770,560 | 382,464 | 3,825 |
+///
+/// All three are steep alpine terrain, which is the worst case: slope classes only
+/// exist above 30°, so a Mittelland build adds far less. The error is therefore on the
+/// side of over-estimating, which is the safe side for a device budget.
+pub const SLOPE_BYTES_PER_KM2: f64 = 3_568.0;
+
 /// Number of fitted coefficients: intercept, one per layer group, contour, two relief.
 const TERMS: usize = 1 + 7 + 1 + 2;
 
@@ -33,6 +50,10 @@ pub struct Predictors {
     /// 0 when contours are off.
     pub contour_interval_m: i32,
     pub relief: ReliefDetail,
+    /// Slope classes over 30°, which add a large amount of polygon (FR-CART12).
+    /// Defaults so logs written before slope classes existed still load.
+    #[serde(default)]
+    pub slope_classes: bool,
 }
 
 impl Predictors {
@@ -112,6 +133,19 @@ impl Default for SizeModel {
     }
 }
 
+/// What the slope classes add to a build of this area.
+///
+/// Kept outside the fitted model deliberately: it is added here and subtracted before
+/// fitting, so a user who builds with slope classes on does not have their extra bytes
+/// attributed to the feature-count coefficients.
+fn slope_adjustment(p: &Predictors) -> f64 {
+    if p.slope_classes {
+        p.area_km2 * SLOPE_BYTES_PER_KM2
+    } else {
+        0.0
+    }
+}
+
 impl SizeModel {
     pub fn predict(&self, p: &Predictors) -> u64 {
         let x = p.row();
@@ -120,7 +154,7 @@ impl SizeModel {
             .zip(self.coefficients.iter())
             .map(|(a, b)| a * b)
             .sum();
-        y.max(0.0) as u64
+        (y + slope_adjustment(p)).max(0.0) as u64
     }
 
     /// Refit from samples, pulled toward `prior` by `lambda` (ridge regression).
@@ -141,7 +175,9 @@ impl SizeModel {
         let mut rhs = [0.0f64; TERMS];
         for s in samples {
             let x = s.predictors.row();
-            let y = s.actual_bytes as f64;
+            // The slope term is not fitted, so its contribution is removed before the
+            // rest of the model is asked to explain the bytes.
+            let y = (s.actual_bytes as f64 - slope_adjustment(&s.predictors)).max(0.0);
             for i in 0..TERMS {
                 rhs[i] += x[i] * y;
                 for j in 0..TERMS {
@@ -535,6 +571,7 @@ mod tests {
             area_km2: area,
             contour_interval_m: interval,
             relief,
+            slope_classes: false,
         }
     }
 
@@ -937,5 +974,94 @@ mod tests {
             current_model(&path, &dir.path().join("missing.jsonl")),
             SizeModel::default()
         );
+    }
+}
+
+#[cfg(test)]
+mod slope_tests {
+    use super::*;
+
+    fn predictors(area_km2: f64, slope: bool) -> Predictors {
+        Predictors {
+            group_counts: Default::default(),
+            area_km2,
+            contour_interval_m: 20,
+            relief: ReliefDetail::Off,
+            slope_classes: slope,
+        }
+    }
+
+    /// The measured cost must actually reach the estimate.
+    #[test]
+    fn slope_classes_add_their_measured_cost_per_square_kilometre() {
+        let m = SizeModel::default();
+        let plain = m.predict(&predictors(144.0, false));
+        let with_slope = m.predict(&predictors(144.0, true));
+        let added = with_slope - plain;
+        let expected = (144.0 * SLOPE_BYTES_PER_KM2) as u64;
+        assert_eq!(added, expected, "expected {expected} added, got {added}");
+
+        // And it scales with area, since the classes cover terrain.
+        let bigger = m.predict(&predictors(288.0, true)) - m.predict(&predictors(288.0, false));
+        assert_eq!(bigger, added * 2);
+    }
+
+    /// The measurement it was taken from must still hold, within the observed spread.
+    #[test]
+    fn the_slope_estimate_matches_the_paired_builds_it_came_from() {
+        // area km², measured with, measured without.
+        let observed = [(144.0, 1_559_040u64, 1_089_024u64), (100.0, 1_184_256, 822_784), (100.0, 1_153_024, 770_560)];
+        for (km2, with_s, without) in observed {
+            let predicted_extra = km2 * SLOPE_BYTES_PER_KM2;
+            let actual_extra = (with_s - without) as f64;
+            let err = (predicted_extra - actual_extra).abs() / actual_extra;
+            assert!(
+                err < 0.12,
+                "{km2} km²: predicted {predicted_extra:.0} against {actual_extra:.0}, {:.0}% out",
+                err * 100.0
+            );
+        }
+    }
+
+    /// Fitting must not attribute slope bytes to the feature coefficients.
+    ///
+    /// Without subtracting the term first, a user who builds with the classes on would
+    /// teach the model that land cover costs several times what it does.
+    #[test]
+    fn fitting_ignores_the_slope_contribution() {
+        let prior = SizeModel::default();
+        let base = predictors(144.0, false);
+        let truth = prior.predict(&base);
+
+        // The same build, once without the classes and once with, both recorded truly.
+        let without = Sample {
+            predictors: base.clone(),
+            actual_bytes: truth,
+            stage_seconds: Vec::new(),
+            at: 0,
+        };
+        let with_slope = Sample {
+            predictors: predictors(144.0, true),
+            actual_bytes: truth + (144.0 * SLOPE_BYTES_PER_KM2) as u64,
+            stage_seconds: Vec::new(),
+            at: 0,
+        };
+
+        // Both samples agree with the prior once the slope term is removed, so the fit
+        // should stay put rather than being dragged by the slope build.
+        let fitted = SizeModel::fit(&[without, with_slope], &prior, 1e7);
+        for (a, b) in fitted.coefficients.iter().zip(prior.coefficients.iter()) {
+            assert!(
+                (a - b).abs() < 1.0,
+                "fit moved from {b} to {a} on data that agrees with it"
+            );
+        }
+    }
+
+    #[test]
+    fn a_log_written_before_slope_classes_existed_still_loads() {
+        let old = r#"{"predictors":{"groupCounts":{},"areaKm2":100.0,"contourIntervalM":20,"relief":"off"},"actualBytes":1000}"#;
+        let s: Sample = serde_json::from_str(old).expect("older log lines must parse");
+        assert!(!s.predictors.slope_classes);
     }
 }

@@ -27,6 +27,9 @@ pub const SKITOUREN: &str = "ch.swisstopo-karto.skitouren";
 pub const SCHNEESCHUH: &str = "ch.astra.schneeschuhwanderwege";
 pub const WINTERWANDERN: &str = "ch.astra.winterwanderwege";
 
+/// Mountain huts and winter accommodation, with contact details (SPEC.md FR-50).
+pub const UNTERKUENFTE: &str = "ch.swisstopo.unterkuenfte-winter";
+
 /// Cycle and hiking route networks.
 ///
 /// **Shapefile and File Geodatabase only** — no GeoPackage is published, so these need

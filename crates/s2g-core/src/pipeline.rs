@@ -93,6 +93,8 @@ pub struct BuildReport {
     pub nodes: u64,
     pub ways: u64,
     pub contour_lines: usize,
+    /// Slope-class areas drawn, when the recipe asked for them.
+    pub slope_areas: usize,
     pub has_dem: bool,
     pub warnings: Vec<String>,
     /// Deterministic identity, so the same recipe keeps its place on the device.
@@ -315,9 +317,13 @@ pub async fn build(
 
     // ---- elevation, contours and relief ----------------------------------
     let mut contour_lines = 0usize;
+    let mut slope_areas = 0usize;
     let mut dem_dir: Option<PathBuf> = None;
 
-    if recipe.contours.interval_m > 0 || recipe.relief.resolution().is_some() {
+    if recipe.contours.interval_m > 0
+        || recipe.relief.resolution().is_some()
+        || recipe.slope_classes
+    {
         cancel.check_cancelled()?;
         on_stage(StageUpdate {
             stage: Stage::Elevation,
@@ -349,6 +355,18 @@ pub async fn build(
         }
 
         let grid = load_grid(&paths, &bbox)?;
+
+        if recipe.slope_classes {
+            on_stage(StageUpdate {
+                stage: Stage::Contours,
+                fraction: None,
+                detail: "slope classes over 30°".into(),
+            });
+            let (slopes, sstats) = crate::slope::areas(&grid, &Default::default());
+            cancel.check_cancelled()?;
+            slope_areas = sstats.areas;
+            builder.add_slope_areas(&slopes, cancel)?;
+        }
 
         if recipe.contours.interval_m > 0 {
             on_stage(StageUpdate {
@@ -479,6 +497,7 @@ pub async fn build(
                 area_km2: bbox.area_km2(),
                 contour_interval_m: recipe.contours.interval_m,
                 relief: recipe.relief,
+                slope_classes: recipe.slope_classes,
             },
             actual_bytes: out.bytes,
             stage_seconds: stage_seconds
@@ -504,6 +523,7 @@ pub async fn build(
         nodes: stats.nodes,
         ways: stats.ways,
         contour_lines,
+        slope_areas,
         has_dem: info.has_dem(),
         warnings,
         family_id: identity.family_id,

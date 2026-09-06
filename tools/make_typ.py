@@ -52,6 +52,17 @@ def wetland_ticks(x: int, y: int) -> bool:
     return ((x + (y // 8) * 4) % 16) < 6
 
 
+def slope_hatch(x: int, y: int) -> bool:
+    """Diagonal hatch at 50% coverage.
+
+    Slope classes cover whole mountainsides, so a solid fill would bury the map they are
+    meant to inform. A hatch over a transparent ground reads as a tint at a glance and
+    still lets contours, trails and place names through -- which a Garmin TYP cannot
+    achieve with alpha, since polygon fills have none.
+    """
+    return (x + y) % 4 < 2
+
+
 def vineyard_rows(x: int, y: int) -> bool:
     if x % 8 != 0:
         return False
@@ -63,6 +74,12 @@ PATTERNS = {
     "scree":    (scree_stipple, "paper", "scree_ink"),
     "wetland":  (wetland_ticks, "paper", "wetland_ink"),
     "vineyard": (vineyard_rows, "green_mid", "wetland_ink"),
+    # Slope classes: hatched over a transparent ground (FR-CART12).
+    "slope_30": (slope_hatch, None, "slope_30"),
+    "slope_35": (slope_hatch, None, "slope_35"),
+    "slope_40": (slope_hatch, None, "slope_40"),
+    "slope_45": (slope_hatch, None, "slope_45"),
+    "slope_50": (slope_hatch, None, "slope_50"),
 }
 
 
@@ -92,6 +109,17 @@ PATTERN_POLYGONS = [
     ("0x10202", 2, "Lockergestein", "scree"),
     ("0x10209", 5, "Feuchtgebiet",  "wetland"),
     ("0x1020a", 5, "Reben",         "vineyard"),
+    # Slope classes sit above the land cover and below the linework, and steeper draws
+    # over shallower so an overlapping pair reads as the steeper of the two.
+    #
+    # 0x1021x, not 0x1022x: a Garmin extended type carries its subtype in five bits, so
+    # a polygon subtype above 0x1f does not exist. mkgmap rejects 0x10220 outright --
+    # "invalid type 0x10220 for POLYGON" -- which is at least a loud failure.
+    ("0x10212", 9, "Hangneigung 30", "slope_30"),
+    ("0x10213", 10, "Hangneigung 35", "slope_35"),
+    ("0x10214", 11, "Hangneigung 40", "slope_40"),
+    ("0x10215", 12, "Hangneigung 45", "slope_45"),
+    ("0x10216", 13, "Hangneigung 50", "slope_50"),
 ]
 
 # (type, label, icon) where icon None means "label only, no symbol".
@@ -206,7 +234,8 @@ def build(wrist: bool, winter: bool = False) -> str:
         w(f"Type={t}")
         w(f"String1=0x04,{lab}")
         w('Xpm="32 32 2 1"')
-        w(f'". c {c(bg, key)}"')
+        # A None background is transparent, so the map underneath still shows through.
+        w('". c none"' if bg is None else f'". c {c(bg, key)}"')
         w(f'"# c {c(ink, key)}"')
         for r in rows:
             w(f'"{r}"')

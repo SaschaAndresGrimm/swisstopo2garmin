@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 use crate::stac;
 
 /// STAC collections holding winter route data.
-pub const WINTER_COLLECTIONS: &[&str] = &[stac::SKITOUREN, stac::SCHNEESCHUH, stac::WINTERWANDERN];
+pub const WINTER_COLLECTIONS: &[&str] =
+    &[stac::SKITOUREN, stac::SCHNEESCHUH, stac::WINTERWANDERN, stac::UNTERKUENFTE];
 
 /// STAC collections holding the ASTRA route networks.
 ///

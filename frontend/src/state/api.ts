@@ -58,6 +58,7 @@ export interface Recipe {
   contours: { intervalM: number; indexM: number; simplifyM: number };
   relief: ReliefDetail;
   palette: Palette;
+  slopeClasses: boolean;
   excludedLayers: string[];
 }
 

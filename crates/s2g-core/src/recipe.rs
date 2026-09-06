@@ -322,6 +322,12 @@ pub struct Recipe {
     /// recipes saved before winter existed still load.
     #[serde(default)]
     pub palette: Palette,
+    /// Draw slope classes over 30° (SPEC.md FR-CART12).
+    ///
+    /// Off by default: the classes cover whole mountainsides, and on a summer hiking
+    /// map they are noise. Defaults rather than being required, so older recipes load.
+    #[serde(default)]
+    pub slope_classes: bool,
     /// Layer ids explicitly switched off in the layer panel (FR-51).
     #[serde(default)]
     pub excluded_layers: Vec<String>,
@@ -338,6 +344,7 @@ impl Recipe {
             contours: ContourSettings::default(),
             relief: ReliefDetail::Gentle,
             palette: Palette::Summer,
+            slope_classes: false,
             excluded_layers: Vec::new(),
         }
     }
@@ -356,7 +363,7 @@ impl Recipe {
     pub fn cache_key(&self) -> String {
         let b = self.area.bbox();
         format!(
-            "{}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{:?}|{}|{}",
+            "{}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{:?}|{}|{}|{}",
             self.device_id,
             b.min_e,
             b.min_n,
@@ -368,6 +375,7 @@ impl Recipe {
             self.contours.index_m,
             self.relief,
             self.palette.id(),
+            self.slope_classes,
             self.excluded_layers.join(",")
         )
     }

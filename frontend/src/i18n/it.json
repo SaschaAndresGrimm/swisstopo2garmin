@@ -67,6 +67,8 @@
   "content.relief.off": "Disattivato",
   "content.reliefHint": "Il rilievo è disegnato dal dispositivo. «Dettagliato» risulta molto scuro nelle Alpi.",
   "content.reliefUnsupported": "Questo profilo non dichiara il supporto al rilievo.",
+  "content.slope": "Pendenza superiore a 30°",
+  "content.slopeHint": "Calcolata dai dati di quota, nelle classi di swisstopo: 30–35°, 35–40°, 40–45°, 45–50° e oltre 50°. Disegnata a tratteggio perché la mappa sottostante resti leggibile. Circa 3,5 MB per 1000 km² in terreno alpino, molto meno altrove.",
   "data.available": "Ultima edizione: {release}",
   "data.cacheLocation": "Posizione della cache",
   "data.cached": "aggiornato",

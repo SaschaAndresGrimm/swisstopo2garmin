@@ -67,6 +67,8 @@
   "content.relief.off": "Off",
   "content.reliefHint": "Relief is rendered by the device. Detailed can look very dark in the Alps.",
   "content.reliefUnsupported": "This device profile does not report relief support.",
+  "content.slope": "Slope classes over 30°",
+  "content.slopeHint": "Computed from the elevation data, in swisstopo's own classes: 30–35°, 35–40°, 40–45°, 45–50° and over 50°. Drawn as a hatch so the map underneath stays readable. Adds roughly 3.5 MB per 1,000 km² in alpine terrain, and much less where the ground is gentle.",
   "data.available": "Latest release: {release}",
   "data.cacheLocation": "Cache location",
   "data.cached": "up to date",

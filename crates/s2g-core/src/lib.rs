@@ -35,6 +35,7 @@ pub mod proj;
 pub mod recipe;
 pub mod settings;
 pub mod shapefile;
+pub mod slope;
 pub mod stac;
 pub mod zip;
 

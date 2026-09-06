@@ -239,6 +239,17 @@ pub const WINTER_LAYERS: &[LayerSpec] = &[
         prefix: "sac",
         group: LayerGroup::Winter,
     },
+    // SAC huts, 506 of them with their proper names. swissTLM3D marks the buildings
+    // (nutzung=Schutzhuette) but cannot name them, so a hut was a rectangle labelled
+    // nothing. Contact details and opening hours are not in this dataset -- they live
+    // behind the SAC portal, and the url_sac_* columns only link there.
+    LayerSpec {
+        layer: "accomodation_winter",
+        attributes: &["name"],
+        simplify_m: 0.0,
+        prefix: "sac",
+        group: LayerGroup::Built,
+    },
     // ASTRA / SchweizMobil signposted snowshoe trails.
     LayerSpec {
         layer: "Schneeschuhwanderwege",
@@ -382,6 +393,46 @@ impl RegionBuilder {
         stats.nodes = nodes;
         stats.ways = ways;
         Ok(stats)
+    }
+
+    /// Add slope-class areas as closed ways (SPEC.md FR-CART12).
+    ///
+    /// Tagged `slope=<degrees>` so the style keys on the class directly. Each area is a
+    /// closed way; the TYP draws steeper classes over shallower ones, so overlapping
+    /// bands read as the steeper of the two without any polygon arithmetic here.
+    pub fn add_slope_areas(
+        &mut self,
+        areas: &[crate::slope::SlopeArea],
+        cancel: &Cancel,
+    ) -> Result<u64> {
+        let mut n = 0u64;
+        for a in areas {
+            if cancel.is_cancelled() {
+                return Err(crate::Error::Cancelled);
+            }
+            if let Some(mask) = &self.mask {
+                // Clipped like everything else: a corridor should not carry slope
+                // classes for the whole bounding box.
+                if !a.ring.iter().any(|p| mask.contains(*p)) {
+                    continue;
+                }
+            }
+            let refs: Vec<i64> = a
+                .ring
+                .iter()
+                .map(|p| {
+                    let (lon, lat) = lv95_to_wgs84(p.e, p.n);
+                    self.writer.node_at(lon, lat)
+                })
+                .collect();
+            let tags = vec![("slope".to_string(), a.min_deg.to_string())];
+            if self.writer.way(refs, tags).is_some() {
+                n += 1;
+            }
+        }
+        self.stats.features += n;
+        self.stats.per_layer.push(("slope".to_string(), n));
+        Ok(n)
     }
 
     /// Add contour lines, tagged the way mkgmap styles expect (FR-P6).

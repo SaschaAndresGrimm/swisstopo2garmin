@@ -52,3 +52,14 @@ tlm:objektart=Fliessgewaesser         [0x10210 resolution 19]
 
 # --- Buildings (topmost) ---------------------------------------------------
 tlm:layer=tlm_bauten_gebaeude_footprint [0x10211 resolution 22]
+
+# ---------------------------------------------------------------------------
+# Slope classes over 30 degrees (FR-CART12), computed from swissALTI3D. Emitted
+# only when the recipe asks for them. Resolution 19: these are terrain-scale
+# areas, and drawing them when zoomed out turns the map into a colour wash.
+# ---------------------------------------------------------------------------
+slope=30 [0x10212 resolution 19]
+slope=35 [0x10213 resolution 19]
+slope=40 [0x10214 resolution 19]
+slope=45 [0x10215 resolution 19]
+slope=50 [0x10216 resolution 19]

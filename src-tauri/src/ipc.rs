@@ -1363,6 +1363,7 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
         area_km2: bbox.area_km2(),
         contour_interval_m: probe.contours.interval_m,
         relief,
+        slope_classes: probe.slope_classes,
     };
     let estimated = model.predict(&predictors);
 

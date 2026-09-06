@@ -23,6 +23,8 @@ export function ContentStep({
   onRelief,
   palette,
   onPalette,
+  slopeClasses,
+  onSlopeClasses,
   supportsDem,
   area,
   deviceId,
@@ -40,6 +42,8 @@ export function ContentStep({
   onRelief: (r: ReliefDetail) => void;
   palette: Palette;
   onPalette: (p: Palette) => void;
+  slopeClasses: boolean;
+  onSlopeClasses: (on: boolean) => void;
   supportsDem: boolean;
   /** The chosen area, so the estimate can update as content changes (FR-54). */
   area: AreaSelection | null;
@@ -154,6 +158,18 @@ export function ContentStep({
         <p className="muted small">
           {supportsDem ? t("content.reliefHint") : t("content.reliefUnsupported")}
         </p>
+      </div>
+
+      <div className="field">
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={slopeClasses}
+            onChange={(e) => onSlopeClasses(e.target.checked)}
+          />
+          <span>{t("content.slope")}</span>
+        </label>
+        <p className="muted small">{t("content.slopeHint")}</p>
       </div>
 
       <LayerPanel t={t} preset={preset} excluded={excluded} onExcluded={onExcluded} />

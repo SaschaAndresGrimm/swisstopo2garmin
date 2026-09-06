@@ -16,6 +16,9 @@ tlm:layer=tlm_eo_einzelobjekt                                        [0x6400 res
 # Mountain refuges and remote inns, from the building layer's `nutzung`. These are the
 # points a hiker actually navigates between, and until now they were anonymous
 # rectangles among 4.1 M buildings.
+# Named SAC huts, which swissTLM3D cannot name.
+sac:layer~'accomodation_winter.*' { name '${sac:name}' }  [0x2f08 resolution 21]
+
 tlm:nutzung=Schutzhuette                                             [0x2f08 resolution 22]
 tlm:nutzung~'Gasthof abgelegen.*'                                    [0x2a01 resolution 22]
 
