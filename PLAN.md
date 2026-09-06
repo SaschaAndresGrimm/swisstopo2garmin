@@ -421,12 +421,17 @@ and leaves a clean state.
 | 1. Device step | **done** | Grouped list, USB detection, generic fallback, confidence shown with the reason a number is unverified. Limit overrides (FR-DEV3) not exposed in the UI yet. |
 | 2. Area step — map, rectangle, place radius | **done** | MapLibre + swisstopo WMTS, drag-to-draw, place search with population ranking. Projection is done in Rust so there is one implementation (FR-P1). |
 | 2. Area step — whole Switzerland (FR-35) | **done** | Extent read from `LV95_BOUNDS` via `coverage_bbox`, so it cannot drift from the coverage check. Auto-partitioning (FR-36) is not implemented. |
-| 2. Area step — admin units, GPX/FIT, composite, GeoJSON | **not started** | FR-33/34, FR-38…FR-42. All three need area masking by an arbitrary polygon, which the extractor does not have: it clips to a bounding box. That capability is the real prerequisite. |
+| 2. Area step — GPX/FIT corridor (FR-38…FR-40) | **done** | Import, buffer, route drawn on the map with length and ascent. Built on `mask.rs`, which filters vectors, shapefiles and contours by an arbitrary shape; the bbox stays the cheap first cut. |
+| 2. Area step — admin units, composite, GeoJSON | **not started** | FR-33/34, FR-41/42. Masking now exists, so what remains is acquiring swissBOUNDARIES3D (37 MB) and the unit picker. |
 | 3. Content step | **done** | Four presets with disabled-and-explained when data is missing, layer panel (FR-51), contour interval, relief detail, recipe save/load (FR-55). Label language (FR-53) not implemented. |
 | 4. Size estimator | **done** | Ridge-regression model over R-tree feature counts, fitted from real builds and shipped as `estimator/size-model.json`; every build appends to a local calibration log that refits it (FR-60…FR-63). Budget bar shows estimate, budget and margin together. |
 | 5. Build step | **done** | Seven stages with progress and detail, bounded live log, working cancellation. ETA is not shown. |
 | 6. Install step | **done** | Device identity, free space, plan shown before writing, overwrite confirmation with backup, eject reminder. |
 | 7. Accessibility and theming | **partial** | Light/dark from the OS, focus rings, selected state carried by border as well as colour, progress bars carry ARIA. No screen-reader pass and no keyboard-only walkthrough yet. |
+
+Data acquisition covers every dataset the presets need (base, winter, cycling), not
+just swissTLM3D. Three bugs on that path were found by using it and are recorded in
+docs/m0-findings.md.
 
 Verified end to end: a Grindelwald 6 km hiking recipe for the Edge 840 builds in 31.6 s to
 a 1,095,680 B `gmapsupp.img` with relief; excluding buildings and local names in the layer

@@ -334,6 +334,60 @@ size lever: 10 m roughly doubles the contour contribution.
 
 ---
 
+## 5b. Dataset acquisition — three bugs the spikes hid
+
+The Milestone 5 spikes fetched the winter and route datasets with Python, into flat
+`winter/` and `routes/` directories. The app writes the content-addressed layout
+`<cache>/<collection>/<item>/<file>`. Everything worked on a machine that had run the
+spikes and would have failed on a user's.
+
+**Finding 5.2 — the pipeline searched only the spike layout.** Winter and cycle data
+acquired through the app was downloaded, verified, recorded, and then never found by a
+build. The content step told users to fetch data that the build could not read. Both
+layouts are now searched (`crates/s2g-core/src/datasets.rs`).
+
+**Finding 5.3 — the SAC skitouren archive holds two GeoPackages.**
+`skitouren_2056.gpkg.zip` contains `ski_routes_2056.gpkg` (21.8 MB) *and*
+`ski_network_2056.gpkg` (13.5 MB). The streaming inflater resolves the archive's *first*
+member, so acquiring this collection through the app would have silently dropped the ski
+network — the layer carrying the skiable / carrying / caution classification, which is
+the distinction that matters in the field. Only swissTLM3D is streamed now; it is the
+one archive where peak disk actually matters (4.5 GB compressed against 10.0 GB
+inflated) and the one that really holds a single member.
+
+**Finding 5.4 — the ASTRA archives are written as streams.** Local file headers have bit
+3 of the flags set and zero sizes, with the real values in a trailing data descriptor.
+A reader that walks local headers fails on `Etappe.cpg`, the first zero-length member.
+`zip::extract_all` reads the central directory instead. `veloland_2056.shp.zip` is
+54,431,691 B and expands to 15 files, the largest being `VeloWeg.dbf` at 283.5 MB.
+
+**Finding 5.5 — both layouts on one machine means every route drawn twice.** Discovery
+now keeps one file per dataset — for routes, per dataset *and* layer, because all three
+ASTRA datasets ship a `Route.shp` — preferring the app layout and the newest release.
+
+---
+
+## 5c. Corridor masking
+
+The extractor clips to a bounding box. That is exactly right for a rectangle or a place
+radius and wrong for anything else: the bounding box of a transalpine route is most of
+Switzerland.
+
+Jungfrau region route, 20 km, 3 km buffer, Edge 840, 20 m contours, gentle relief:
+
+| Build | Features | `gmapsupp.img` |
+|---|---:|---:|
+| Corridor | 23,636 | 1,070,080 B |
+| Same extent as a plain rectangle | 35,094 | 1,325,568 B |
+
+**Finding 5.6 — masking contours is what makes a corridor small.** At a 3 km buffer both
+builds produced 9,195 contour ways: in that terrain every contour line touches the
+corridor, because contours follow the valley walls the route follows. At a 0.5 km buffer
+the count falls to 3,192. Contours are the dominant size term, so a mask that filtered
+only vector features would leave most of the saving on the table.
+
+---
+
 ## 6. Changes required to SPEC.md
 
 1. **NFR-1** — canton budget is not achievable with serial contour generation.
