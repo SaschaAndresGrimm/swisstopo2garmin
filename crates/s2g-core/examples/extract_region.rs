@@ -232,7 +232,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let http = ReqwestHttp::new()?;
         let elev_root = Cache::default_root();
         let t = std::time::Instant::now();
-        let (paths, fstats) = fetch_tiles(&http, &elev_root, &bbox, 12, &cancel, |_| {}).await?;
+        let (paths, fstats) =
+            fetch_tiles(&http, &elev_root, &bbox, None, 12, &cancel, |_| {}).await?;
         println!(
             "elevation {} cells ({} cached, {} fetched, {} older duplicates skipped, {} missing) in {:.1}s",
             paths.len(),

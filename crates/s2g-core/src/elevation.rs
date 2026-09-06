@@ -34,6 +34,58 @@ impl Cell {
     }
 
     /// Cells covering `bbox`, in row-major order.
+    /// The cells a mask actually needs, dilated by one cell.
+    ///
+    /// A canton's bounding box is more than twice its area and a route corridor's is
+    /// most of the country, so fetching the whole box downloads and stores tiles whose
+    /// contours the mask then throws away — 14.5 GB against 6.5 GB for Valais.
+    ///
+    /// Dilated by one cell because contours are generated from a grid: a tile whose
+    /// neighbour is absent has no data to interpolate against at that edge, which would
+    /// put a seam exactly along the boundary the user selected.
+    pub fn covering_mask(bbox: &BBox, mask: &crate::mask::Mask) -> Vec<Cell> {
+        use std::collections::HashSet;
+
+        let all = Cell::covering(bbox);
+        let mut keep: HashSet<Cell> = HashSet::new();
+        for cell in &all {
+            let (e, n) = cell.origin();
+            let s = TILE_SPAN_M;
+            // Corners and centre: a cell smaller than the mask's detail could otherwise
+            // straddle it with every corner outside.
+            let probes = [
+                (e, n),
+                (e + s, n),
+                (e, n + s),
+                (e + s, n + s),
+                (e + s / 2.0, n + s / 2.0),
+            ];
+            if probes
+                .iter()
+                .any(|(pe, pn)| mask.contains(crate::geom::Coord::new(*pe, *pn)))
+            {
+                keep.insert(*cell);
+            }
+        }
+        // Dilate: keep every neighbour of a kept cell.
+        let mut out: HashSet<Cell> = HashSet::new();
+        for c in &keep {
+            for dn in -1..=1 {
+                for de in -1..=1 {
+                    out.insert(Cell {
+                        e_km: c.e_km + de,
+                        n_km: c.n_km + dn,
+                    });
+                }
+            }
+        }
+        // Never fetch outside the requested box: the dilation can step past its edge.
+        let inside: HashSet<Cell> = all.iter().copied().collect();
+        let mut v: Vec<Cell> = out.intersection(&inside).copied().collect();
+        v.sort_by_key(|c| (c.n_km, c.e_km));
+        v
+    }
+
     pub fn covering(bbox: &BBox) -> Vec<Cell> {
         let e0 = (bbox.min_e / TILE_SPAN_M).floor() as i32;
         let e1 = ((bbox.max_e / TILE_SPAN_M).ceil() as i32 - 1).max(e0);
@@ -264,6 +316,8 @@ pub async fn fetch_tiles(
     http: &dyn Http,
     cache_root: &Path,
     bbox: &BBox,
+    // `mask` restricts the fetch to the tiles the shape needs; None fetches the box.
+    mask: Option<&crate::mask::Mask>,
     concurrency: usize,
     cancel: &Cancel,
     mut progress: impl FnMut(&FetchStats),
@@ -272,7 +326,10 @@ pub async fn fetch_tiles(
     let items = stac.items_in_bbox(ALTI3D, bbox.to_wgs84(), 200).await?;
     let newest = newest_per_cell(&items);
 
-    let wanted: Vec<Cell> = Cell::covering(bbox);
+    let wanted: Vec<Cell> = match mask {
+        Some(m) => Cell::covering_mask(bbox, m),
+        None => Cell::covering(bbox),
+    };
     let wanted_set: HashSet<Cell> = wanted.iter().copied().collect();
 
     let mut stats = FetchStats {

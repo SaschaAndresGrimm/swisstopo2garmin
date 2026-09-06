@@ -328,7 +328,10 @@ pub struct RegionBuilder {
     bbox: BBox,
     /// Optional shape a feature must also intersect (SPEC.md FR-34, FR-39). The bbox
     /// stays the cheap first cut; the mask does the rest.
-    mask: Option<crate::mask::Mask>,
+    ///
+    /// Shared rather than owned: the elevation fetch uses the same mask to skip tiles,
+    /// and building a canton's twice would mean indexing 14,000 vertices twice.
+    mask: Option<std::sync::Arc<crate::mask::Mask>>,
     stats: ExtractStats,
 }
 
@@ -343,13 +346,13 @@ impl RegionBuilder {
     }
 
     /// Restrict output to features intersecting `mask` as well as the bounding box.
-    pub fn with_mask(mut self, mask: crate::mask::Mask) -> Self {
+    pub fn with_mask(mut self, mask: std::sync::Arc<crate::mask::Mask>) -> Self {
         self.mask = Some(mask);
         self
     }
 
     /// Whether a clipped geometry survives the mask. Always true without one.
-    fn passes(mask: &Option<crate::mask::Mask>, geom: &Geometry) -> bool {
+    fn passes(mask: &Option<std::sync::Arc<crate::mask::Mask>>, geom: &Geometry) -> bool {
         match mask {
             Some(m) => m.intersects(geom),
             None => true,

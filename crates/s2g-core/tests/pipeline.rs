@@ -361,3 +361,81 @@ async fn a_build_refuses_to_start_when_the_disk_is_too_small() {
         "expected a refusal to start, got: {msg}"
     );
 }
+
+/// A mask must cut the elevation tiles fetched, not just the features kept.
+///
+/// A canton's bounding box is more than twice its area and a route corridor's is most
+/// of the country, so fetching the whole box downloads and caches tiles whose contours
+/// the mask then discards.
+#[test]
+fn a_mask_reduces_the_elevation_tiles_a_build_needs() {
+    use s2g_core::elevation::Cell;
+    use s2g_core::geom::Coord;
+    use s2g_core::mask::Mask;
+    use s2g_core::proj::BBox;
+
+    // A 40 km box with a 4 km-wide corridor across its diagonal.
+    let bbox = BBox::new(2_600_000.0, 1_180_000.0, 2_640_000.0, 1_220_000.0);
+    let track = vec![
+        Coord::new(2_602_000.0, 1_182_000.0),
+        Coord::new(2_638_000.0, 1_218_000.0),
+    ];
+    let mask = Mask::corridor(vec![track], 2_000.0);
+
+    let all = Cell::covering(&bbox);
+    let masked = Cell::covering_mask(&bbox, &mask);
+
+    assert_eq!(all.len(), 1_600, "40 x 40 one-kilometre cells");
+    assert!(
+        masked.len() < all.len() / 3,
+        "corridor should need far fewer than {} tiles, needed {}",
+        all.len(),
+        masked.len()
+    );
+    assert!(!masked.is_empty());
+
+    // Every kept cell must be inside the requested box: the dilation must not step out.
+    let inside: std::collections::HashSet<_> = all.iter().copied().collect();
+    assert!(masked.iter().all(|c| inside.contains(c)));
+
+    // Every cell the corridor actually touches must be kept, or contours get holes.
+    for cell in &all {
+        let (e, n) = cell.origin();
+        let centre = Coord::new(e + 500.0, n + 500.0);
+        if mask.contains(centre) {
+            assert!(masked.contains(cell), "dropped a cell the corridor covers: {cell:?}");
+        }
+    }
+}
+
+/// The dilation exists so contours have data to interpolate against at the edge.
+#[test]
+fn masked_tiles_are_dilated_by_one_cell() {
+    use s2g_core::elevation::Cell;
+    use s2g_core::geom::Coord;
+    use s2g_core::mask::Mask;
+    use s2g_core::proj::BBox;
+
+    let bbox = BBox::new(2_600_000.0, 1_200_000.0, 2_610_000.0, 1_210_000.0);
+    // A disc well inside the box, so dilation is never clipped by its edge.
+    let mask = Mask::corridor(vec![vec![Coord::new(2_605_000.0, 1_205_000.0)]], 1_000.0);
+    let masked = Cell::covering_mask(&bbox, &mask);
+
+    // The neighbours of every covered cell must be present.
+    for cell in &masked {
+        let (e, n) = cell.origin();
+        if !mask.contains(Coord::new(e + 500.0, n + 500.0)) {
+            continue;
+        }
+        for (de, dn) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let neighbour = Cell {
+                e_km: cell.e_km + de,
+                n_km: cell.n_km + dn,
+            };
+            assert!(
+                masked.contains(&neighbour),
+                "missing neighbour {neighbour:?} of covered cell {cell:?}"
+            );
+        }
+    }
+}

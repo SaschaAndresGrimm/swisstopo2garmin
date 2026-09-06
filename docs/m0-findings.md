@@ -388,6 +388,33 @@ only vector features would leave most of the saving on the table.
 
 ---
 
+## 5d. Masks and the elevation cache
+
+**Finding 5.7 — a mask has to cut the elevation fetch, not just the features.** Contours
+are generated from a grid over the bounding box, so a masked build was downloading and
+caching tiles whose contours it then discarded. For canton Valais the box is 11,660 km²
+against the canton's 5,225 km²: the space precheck asked for **14.5 GB** where the shape
+needs about **6.5 GB**. `Cell::covering_mask` now selects only the tiles the shape
+reaches, dilated by one cell so contours still have neighbouring data to interpolate
+against at the boundary — without the dilation the seam lands exactly on the edge the
+user selected.
+
+**Finding 5.8 — a canton polygon defeats a bounding-box index.** `PolygonMask` bucketed
+each *polygon* by its bounding box, and a canton is one polygon with 14,364 vertices, so
+every lookup walked all of them: 15 µs, on a mask that a build queries once per feature
+vertex. Indexing the ring segments as well identifies cells no boundary crosses; those
+are uniform, so their verdict is computed once and cached. Valais went from **4,865 ms
+to 998 ms** for 314,805 lookups, with the identical 155,231 points inside.
+
+**Finding 5.9 — the elevation cache is the part that grows.** swissTLM3D is a fixed
+10.0 GB, but cached swissALTI3D tiles grow with every new area at roughly 1.2 MB per
+square kilometre. Eighteen calibration builds accumulated 3.9 GB and filled a
+development disk. They were invisible in the app's own usage reporting, because
+`Cache::list` only sees `<collection>/<item>/` directories and the tiles are loose files
+one level down.
+
+---
+
 ## 6. Changes required to SPEC.md
 
 1. **NFR-1** — canton budget is not achievable with serial contour generation.
