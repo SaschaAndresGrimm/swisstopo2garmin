@@ -11,6 +11,7 @@ import { detectLang, makeT, type Lang } from "./i18n";
 import { api } from "./state/api";
 import type {
   AreaSelection,
+  Palette,
   BuildFinished,
   PresetId,
   Recipe,
@@ -32,6 +33,7 @@ export default function App() {
   const [contourM, setContourM] = useState(20);
   const [indexM, setIndexM] = useState(100);
   const [relief, setRelief] = useState<ReliefDetail>("gentle");
+  const [palette, setPalette] = useState<Palette>("summer");
   const [excluded, setExcluded] = useState<string[]>([]);
   const [built, setBuilt] = useState<BuildFinished | null>(null);
 
@@ -47,9 +49,10 @@ export default function App() {
       preset,
       contours: { intervalM: contourM, indexM, simplifyM: 8.0 },
       relief,
+      palette,
       excludedLayers: excluded,
     };
-  }, [deviceId, area, preset, contourM, indexM, relief, excluded, t]);
+  }, [deviceId, area, preset, contourM, indexM, relief, palette, excluded, t]);
 
   // A step is reachable only once the steps it depends on are satisfied, so the
   // indicator cannot jump to a screen that would have nothing to work with.
@@ -81,6 +84,7 @@ export default function App() {
       setContourM(r.contours.intervalM);
       setIndexM(r.contours.indexM);
       setRelief(r.relief);
+      setPalette(r.palette ?? "summer");
       setExcluded(r.excludedLayers);
       setBuilt(null);
       setView("build");
@@ -170,6 +174,8 @@ export default function App() {
             onContourM={setContourM}
             relief={relief}
             onRelief={setRelief}
+            palette={palette}
+            onPalette={setPalette}
             supportsDem={supportsDem}
             area={area}
             deviceId={deviceId ?? ""}

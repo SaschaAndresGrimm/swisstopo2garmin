@@ -26,3 +26,4 @@ serde_json.workspace = true
 # Generates the TypeScript IPC types from the Rust definitions so the two sides
 # cannot drift (PLAN.md M1 task 6); a test writes them and CI checks them in.
 ts-rs = "10"
+tauri-plugin-dialog = "2.7.3"

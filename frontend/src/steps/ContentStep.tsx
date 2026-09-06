@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../state/api";
 import { LayerPanel } from "../components/LayerPanel";
-import type { AreaSelection, PresetId, PresetInfo, ReliefDetail } from "../state/api";
+import type { AreaSelection, Palette, PresetId, PresetInfo, ReliefDetail } from "../state/api";
 import { useAreaInfo } from "../state/useAreaInfo";
 import { SizeEstimate } from "../components/SizeEstimate";
 import type { T } from "../i18n";
@@ -21,6 +21,8 @@ export function ContentStep({
   onContourM,
   relief,
   onRelief,
+  palette,
+  onPalette,
   supportsDem,
   area,
   deviceId,
@@ -36,6 +38,8 @@ export function ContentStep({
   onContourM: (m: number) => void;
   relief: ReliefDetail;
   onRelief: (r: ReliefDetail) => void;
+  palette: Palette;
+  onPalette: (p: Palette) => void;
   supportsDem: boolean;
   /** The chosen area, so the estimate can update as content changes (FR-54). */
   area: AreaSelection | null;
@@ -111,6 +115,24 @@ export function ContentStep({
           </button>
         </div>
         <p className="muted small">{t("content.contourHint")}</p>
+      </div>
+
+      <div className="field">
+        <label htmlFor="palette">{t("content.palette")}</label>
+        <div className="row tight" id="palette">
+          {(["summer", "winter"] as Palette[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              className={palette === p ? "current" : ""}
+              aria-pressed={palette === p}
+              onClick={() => onPalette(p)}
+            >
+              {t(`content.palette.${p}`)}
+            </button>
+          ))}
+        </div>
+        <p className="muted small">{t("content.paletteHint")}</p>
       </div>
 
       <div className="field">

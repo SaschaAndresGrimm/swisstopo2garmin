@@ -16,6 +16,9 @@ REPO = Path(__file__).resolve().parents[2]
 VARIANTS = [
     (REPO / "style" / "swisstopo", REPO / "typ" / "swisstopo.txt"),
     (REPO / "style" / "swisstopo-wrist", REPO / "typ" / "swisstopo-wrist.txt"),
+    # The winter variants recolour the same rules, so they must cover the same types.
+    (REPO / "style" / "swisstopo", REPO / "typ" / "swisstopo-winter.txt"),
+    (REPO / "style" / "swisstopo-wrist", REPO / "typ" / "swisstopo-wrist-winter.txt"),
 ]
 
 def types_in(path: Path) -> set[str]:

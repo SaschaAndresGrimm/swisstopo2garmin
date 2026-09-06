@@ -187,6 +187,29 @@ impl Default for ContourSettings {
     }
 }
 
+/// Which measured colour scheme the map is printed in (SPEC.md FR-CART11).
+///
+/// swisstopo publishes a Winter national map alongside the summer one, and its
+/// recolouring is measured rather than invented (see `tools/winter_palette.py`). It
+/// exists so ski and snowshoe routes read against a base map that has stepped back;
+/// it is a cartography choice, not a content one, so it is independent of the preset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Palette {
+    #[default]
+    Summer,
+    Winter,
+}
+
+impl Palette {
+    pub fn id(&self) -> &'static str {
+        match self {
+            Palette::Summer => "summer",
+            Palette::Winter => "winter",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReliefDetail {
@@ -220,6 +243,10 @@ pub struct Recipe {
     pub preset: Preset,
     pub contours: ContourSettings,
     pub relief: ReliefDetail,
+    /// Colour scheme. Defaults to summer, and defaults rather than being required so
+    /// recipes saved before winter existed still load.
+    #[serde(default)]
+    pub palette: Palette,
     /// Layer ids explicitly switched off in the layer panel (FR-51).
     #[serde(default)]
     pub excluded_layers: Vec<String>,
@@ -235,6 +262,7 @@ impl Recipe {
             preset: Preset::Hiking,
             contours: ContourSettings::default(),
             relief: ReliefDetail::Gentle,
+            palette: Palette::Summer,
             excluded_layers: Vec::new(),
         }
     }
@@ -253,7 +281,7 @@ impl Recipe {
     pub fn cache_key(&self) -> String {
         let b = self.area.bbox();
         format!(
-            "{}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{:?}|{}",
+            "{}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{:?}|{}|{}",
             self.device_id,
             b.min_e,
             b.min_n,
@@ -264,6 +292,7 @@ impl Recipe {
             self.contours.interval_m,
             self.contours.index_m,
             self.relief,
+            self.palette.id(),
             self.excluded_layers.join(",")
         )
     }

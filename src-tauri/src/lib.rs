@@ -5,6 +5,8 @@ mod ipc;
 
 pub fn run() {
     tauri::Builder::default()
+        // Only for the data-directory picker; a webview cannot browse the filesystem.
+        .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
             // Reclaim partial downloads stranded by a previous kill or power loss.
             // An inflating download cannot be resumed, so a leftover `.part` is pure
@@ -45,6 +47,9 @@ pub fn run() {
             ipc::describe_area,
             ipc::wgs84_bbox_to_lv95,
             ipc::coverage_bbox,
+            ipc::data_location,
+            ipc::inspect_data_location,
+            ipc::set_data_location,
             ipc::import_track,
             ipc::lv95_line_to_wgs84,
             ipc::start_build,

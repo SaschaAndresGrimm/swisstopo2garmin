@@ -175,6 +175,18 @@ elevation tiles for a chosen area so that even that step can be made offline.
 **FR-C3** The app must never require the user to download the national dataset in order to
 just *look around* the area picker (which uses WMTS, §3.4) or to see size estimates.
 
+**FR-C4** The data location must be **choosable before the first download**, not after.
+swissTLM3D alone inflates to 10.0 GB, plus elevation tiles and build working files, so a
+machine with a small internal disk needs to point this at an external volume up front.
+The chosen directory is shown with its free space and the space already used, is checked
+for writability when chosen rather than four gigabytes into a transfer, and the app states
+plainly that changing it copies nothing — datasets already downloaded stay where they are.
+`S2G_CACHE` overrides the setting, and the UI says so instead of appearing not to work.
+
+**FR-C5** Two locations, one setting: the build working directory lives under the same
+root as the dataset cache. A build's intermediates are as large as the datasets they come
+from, so splitting them across volumes would defeat the purpose of choosing one.
+
 ### 4.2 Optimization: build a national intermediate once
 
 > **Status after Milestone 0: CONDITIONAL — probably not needed.** swissTLM3D ships with
@@ -444,6 +456,20 @@ that are unioned, and modes can be mixed (e.g. two cantons plus a route corridor
 
 - **FR-70** Build stages are explicit and individually reported: *clip → convert → contours →
   split → compile → assemble → verify*. See §7.
+- **FR-70a** Progress is weighted by how long each stage usually takes, not by stage
+  count. Counting stages makes the bar lurch: on a warm elevation cache the contour stage
+  alone is over 80 % of a build. Weights are measured from real builds and refitted from
+  the user's own builds as the calibration log fills (see FR-62).
+- **FR-70b** A **time remaining** figure is shown alongside elapsed time, derived by
+  extrapolating from elapsed time and the weighted fraction complete, so it converges
+  even when the shipped weights are wrong for this machine. No figure is shown at all
+  until the extrapolation would mean something — a "four hours remaining" flashed in the
+  first second is worse than no number — and the actual duration is reported on
+  completion, which is what makes the next estimate credible.
+- **FR-70c** **Cancellation must stop the work, not just the reporting.** The build spawns
+  `splitter` and `mkgmap` as child processes; a cancelled build kills them rather than
+  waiting for them to finish. Both are minutes long on a large area, so waiting means the
+  UI says "cancelled" while the machine keeps working.
 - **FR-71** Every build produces a **manifest** (§11.3) recording input dataset releases and
   checksums, the recipe, tool versions, timestamps, and output file hashes. A build must be
   bit-reproducible given the same manifest, up to timestamps.
@@ -662,6 +688,28 @@ moves toward the raster look** — above all DEM relief shading (FR-CART8).
 - **FR-CART10** Where the Landeskarte uses a texture rather than a flat tint (rock
   hachures, wetland ticks, vineyard rows, scree stipple), use TYP XPM pattern fills rather
   than a solid colour approximation.
+- **FR-CART11** A **winter colour scheme**, selectable independently of the content
+  preset. swisstopo publishes a Winter national map
+  (`ch.swisstopo.pixelkarte-farbe-winter`) alongside the summer one, so the winter
+  scheme is *measured* from it like every other colour (FR-CART9) rather than invented:
+  the per-channel shift from summer to winter is measured over the same tiles in both
+  sheets and applied to the summer palette. Measured shifts, as (R, G, B):
+  forest `(-7, +7, +45)`, glacier `(-7, +15, +29)`, open land `(-7, +10, +36)`,
+  built-up `(-7, +7, +32)`, rock ink `(-16, -5, -2)`, water unchanged. Overlay colours —
+  routes, ink, buildings, rail, the road hierarchy and contours — are printed on the
+  sheet at full strength and are **not** shifted; the point of the winter sheet is that
+  the base map steps back so the routes on it read.
+
+  The scheme is **not** tied to the ski touring preset. A winter sheet is useful for a
+  snowshoe outing on a hiking map, and a ski tourer may prefer the summer sheet; the
+  preset chooses content, the scheme chooses colour. It changes the TYP only, since the
+  geometry rules are identical, and it is part of the map's identity so a winter map does
+  not overwrite the summer one on the device. See `tools/winter_palette.py`.
+
+  *A single per-channel linear fit of the whole winter sheet against the summer one was
+  tried first and rejected: R² reached only 0.71 on blue and it turned the bistre
+  contours pink. The winter sheet recolours selectively, so it has to be measured
+  selectively.*
 
 ### 8.2 Deliverables
 

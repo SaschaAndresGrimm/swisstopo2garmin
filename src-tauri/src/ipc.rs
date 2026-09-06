@@ -1023,6 +1023,70 @@ pub fn import_track(name: String, bytes: Vec<u8>) -> IpcResult<TrackImport> {
     })
 }
 
+/// Where data lives, how much room is there, and how much is already used.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct DataLocation {
+    pub path: String,
+    /// True when `S2G_CACHE` is set, in which case the setting is overridden and the
+    /// UI must say so rather than appearing not to work.
+    pub from_environment: bool,
+    /// True when nothing is configured and the platform default is in use.
+    pub is_default: bool,
+    #[ts(type = "number | null")]
+    pub free_bytes: Option<u64>,
+    #[ts(type = "number")]
+    pub used_bytes: u64,
+    pub exists: bool,
+}
+
+async fn describe_location(path: PathBuf) -> DataLocation {
+    let used = Cache::new(path.clone())
+        .total_bytes()
+        .await
+        .unwrap_or(0);
+    DataLocation {
+        from_environment: std::env::var("S2G_CACHE").is_ok(),
+        is_default: path == s2g_core::settings::Settings::default_data_root(),
+        free_bytes: available_bytes(&path),
+        used_bytes: used,
+        exists: path.is_dir(),
+        path: path.display().to_string(),
+    }
+}
+
+#[tauri::command]
+pub async fn data_location() -> IpcResult<DataLocation> {
+    Ok(describe_location(Cache::default_root()).await)
+}
+
+/// Report on a candidate directory without committing to it (FR-C2).
+#[tauri::command]
+pub async fn inspect_data_location(path: String) -> IpcResult<DataLocation> {
+    Ok(describe_location(PathBuf::from(path)).await)
+}
+
+/// Point the app at a different data directory.
+///
+/// Nothing is moved: the datasets already downloaded stay where they are, and the UI
+/// says so. Copying gigabytes between volumes is the file manager's job, and doing it
+/// silently behind a settings change would be worse than saying nothing happened.
+#[tauri::command]
+pub async fn set_data_location(path: Option<String>) -> IpcResult<DataLocation> {
+    let mut settings = s2g_core::settings::Settings::load();
+    match path {
+        Some(p) => {
+            let dir = PathBuf::from(p);
+            s2g_core::settings::check_writable(&dir)?;
+            settings.data_root = Some(dir);
+        }
+        None => settings.data_root = None,
+    }
+    settings.save().map_err(|e| e.to_string())?;
+    Ok(describe_location(Cache::default_root()).await)
+}
+
 /// The full swissTLM3D coverage extent in LV95 (SPEC.md FR-35).
 ///
 /// Read from the one place that defines it, so the "whole Switzerland" action cannot
@@ -1128,8 +1192,14 @@ pub struct BuildProgress {
     pub stage_label: String,
     pub stage_index: usize,
     pub stage_count: usize,
+    /// Progress within the current stage, when the stage can report it.
     pub fraction: Option<f64>,
     pub detail: String,
+    /// Progress through the whole build, weighted by how long each stage usually takes.
+    pub overall: f64,
+    pub elapsed_seconds: f64,
+    /// Seconds remaining, absent until the extrapolation would mean something (FR-71).
+    pub eta_seconds: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -1146,6 +1216,9 @@ pub struct BuildFinished {
     pub contour_lines: usize,
     pub has_dem: bool,
     pub warnings: Vec<String>,
+    /// How long the build actually took. Shown on completion, and what makes the next
+    /// build's estimate credible.
+    pub seconds: f64,
 }
 
 /// Start a build. Progress arrives as `build:progress`, then `build:done` or
@@ -1203,6 +1276,13 @@ pub async fn start_build(
         let emit = app.clone();
         let pid = id.clone();
         let mut last = std::time::Instant::now() - PROGRESS_INTERVAL;
+        // Stage weights come from this user's own builds once there are any, because
+        // the split between stages moves enormously with a warm or cold elevation
+        // cache. Until then the shipped weights apply.
+        let weights = estimate::stage_weights(&estimate::CalibrationLog::read(
+            &calibration_log_path(),
+        ));
+        let build_started = std::time::Instant::now();
         let result = pipeline::build(&ctx, &recipe, &profile, &cancel, move |u| {
             // Stage changes are always reported; progress within a stage is throttled.
             if last.elapsed() < PROGRESS_INTERVAL && u.fraction.is_some() {
@@ -1210,9 +1290,14 @@ pub async fn start_build(
             }
             last = std::time::Instant::now();
             let index = Stage::all().iter().position(|s| *s == u.stage).unwrap_or(0);
+            let elapsed = build_started.elapsed().as_secs_f64();
+            let overall = estimate::build_fraction(&weights, index, u.fraction.unwrap_or(0.0));
             let _ = emit.emit(
                 "build:progress",
                 BuildProgress {
+                    overall,
+                    elapsed_seconds: elapsed,
+                    eta_seconds: estimate::eta_seconds(elapsed, overall),
                     task_id: pid.clone(),
                     stage: format!("{:?}", u.stage).to_lowercase(),
                     stage_label: u.stage.label().to_string(),
@@ -1237,6 +1322,7 @@ pub async fn start_build(
                         features: report.features,
                         contour_lines: report.contour_lines,
                         has_dem: report.has_dem,
+                        seconds: report.stage_seconds.iter().map(|(_, v)| *v).sum(),
                         warnings: report.warnings,
                     },
                 );

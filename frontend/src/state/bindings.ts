@@ -43,9 +43,26 @@ export type AreaQuery = { minE: number, minN: number, maxE: number, maxN: number
  */
 preset: string | null, contourM: number | null, relief: string | null, };
 
-export type BuildFinished = { taskId: string, gmapsupp: string, bytes: number, tileCount: number, features: number, contourLines: number, hasDem: boolean, warnings: Array<string>, };
+export type BuildFinished = { taskId: string, gmapsupp: string, bytes: number, tileCount: number, features: number, contourLines: number, hasDem: boolean, warnings: Array<string>, 
+/**
+ * How long the build actually took. Shown on completion, and what makes the next
+ * build's estimate credible.
+ */
+seconds: number, };
 
-export type BuildProgress = { taskId: string, stage: string, stageLabel: string, stageIndex: number, stageCount: number, fraction: number | null, detail: string, };
+export type BuildProgress = { taskId: string, stage: string, stageLabel: string, stageIndex: number, stageCount: number, 
+/**
+ * Progress within the current stage, when the stage can report it.
+ */
+fraction: number | null, detail: string, 
+/**
+ * Progress through the whole build, weighted by how long each stage usually takes.
+ */
+overall: number, elapsedSeconds: number, 
+/**
+ * Seconds remaining, absent until the extrapolation would mean something (FR-71).
+ */
+etaSeconds: number | null, };
 
 export type CacheStatus = { root: string, totalBytes: number, freeBytes: number | null, entries: Array<DatasetEntry>, };
 
@@ -54,6 +71,20 @@ export type ConnectedDevice = { mount: string, model: string | null,
  * Profile chosen for this device, if one matched.
  */
 profileId: string | null, freeBytes: number | null, existingMaps: Array<string>, };
+
+/**
+ * Where data lives, how much room is there, and how much is already used.
+ */
+export type DataLocation = { path: string, 
+/**
+ * True when `S2G_CACHE` is set, in which case the setting is overridden and the
+ * UI must say so rather than appearing not to work.
+ */
+fromEnvironment: boolean, 
+/**
+ * True when nothing is configured and the platform default is in use.
+ */
+isDefault: boolean, freeBytes: number | null, usedBytes: number, exists: boolean, };
 
 export type DatasetEntry = { collection: string, item: string, file: string, bytes: number, inflated: boolean, fetchedAt: string | null, };
 

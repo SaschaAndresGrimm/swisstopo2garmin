@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, formatBytes, onTaskEvents, SOURCES } from "../state/api";
 import type { CacheStatus, TaskProgress } from "../state/api";
 import { SourceRow } from "./SourceRow";
+import { DataLocation } from "../components/DataLocation";
 import type { T } from "../i18n";
 
 export function DataScreen({ t }: { t: T }) {
@@ -89,6 +90,8 @@ export function DataScreen({ t }: { t: T }) {
           </div>
         </dl>
       )}
+
+      <DataLocation t={t} onChanged={() => void refreshCache()} />
 
       <p className="muted small">{t("data.inflateNote")}</p>
 

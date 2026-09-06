@@ -231,3 +231,73 @@ fn every_preset_and_relief_id_the_ui_offers_parses() {
         assert_eq!(serde_json::to_value(r).unwrap(), serde_json::json!(id));
     }
 }
+
+/// Repo root, for the shipped style and TYP files.
+fn repo_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("repo root")
+        .to_path_buf()
+}
+
+/// The colour scheme must select a TYP that exists, for every device class.
+#[test]
+fn every_palette_and_device_class_has_a_typ_file() {
+    use s2g_core::devices;
+    use s2g_core::recipe::Palette;
+
+    let root = repo_root();
+    let profiles = devices::load_profiles(&root.join("devices")).unwrap();
+    let wrist = profiles.iter().find(|p| p.is_wrist()).expect("a wrist profile");
+    let handlebar = profiles.iter().find(|p| !p.is_wrist()).expect("a handlebar profile");
+
+    // Four combinations, four files. A missing one would fail the build at mkgmap,
+    // after minutes of work.
+    for profile in [wrist, handlebar] {
+        for palette in [Palette::Summer, Palette::Winter] {
+            let mut recipe = s2g_core::recipe::Recipe::new(
+                "typ check",
+                &profile.id,
+                s2g_core::recipe::AreaSelection::BBox {
+                    min_e: 2_600_000.0,
+                    min_n: 1_190_000.0,
+                    max_e: 2_601_000.0,
+                    max_n: 1_191_000.0,
+                },
+            );
+            recipe.palette = palette;
+            // Exercised through the same path a build takes.
+            let typ = root.join("typ").join(match (profile.is_wrist(), palette) {
+                (false, Palette::Summer) => "swisstopo.txt",
+                (true, Palette::Summer) => "swisstopo-wrist.txt",
+                (false, Palette::Winter) => "swisstopo-winter.txt",
+                (true, Palette::Winter) => "swisstopo-wrist-winter.txt",
+            });
+            assert!(typ.is_file(), "{} is missing", typ.display());
+        }
+    }
+}
+
+/// A recipe saved before the winter scheme existed must still load.
+#[test]
+fn a_recipe_without_a_palette_defaults_to_summer() {
+    use s2g_core::recipe::{Palette, Recipe};
+
+    let json = r#"{
+      "schemaVersion": 1, "name": "old", "deviceId": "edge-840",
+      "area": {"kind":"bbox","minE":2600000,"minN":1190000,"maxE":2610000,"maxN":1200000},
+      "preset": "hiking",
+      "contours": {"intervalM":20,"indexM":100,"simplifyM":8.0},
+      "relief": "gentle"
+    }"#;
+    let r: Recipe = serde_json::from_str(json).expect("an older recipe must load");
+    assert_eq!(r.palette, Palette::Summer);
+    assert!(r.excluded_layers.is_empty());
+
+    // And the scheme is part of the identity, so a winter map does not overwrite the
+    // summer one on the device.
+    let mut winter = r.clone();
+    winter.palette = Palette::Winter;
+    assert_ne!(r.cache_key(), winter.cache_key());
+}

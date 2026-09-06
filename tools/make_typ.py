@@ -149,13 +149,22 @@ LINES = [
 ]
 
 
-def build(wrist: bool) -> str:
+def build(wrist: bool, winter: bool = False) -> str:
+    """Render the TYP. `winter` selects the measured winter colours (FR-CART11).
+
+    Colour-only: the winter sheet recolours the base map so the routes printed on it
+    read, and the geometry rules are the same either way. See tools/winter_palette.py.
+    """
+    key = "winter" if winter else "day"
     L: list[str] = []
     w = L.append
     w(";-----------------------------------------------------------------------------")
     w("; swisstopo2garmin TYP -- GENERATED FILE, DO NOT EDIT.")
     if wrist:
         w("; WRIST VARIANT: thinner linework for a ~1.3 inch screen (FR-CART6).")
+    if winter:
+        w("; WINTER VARIANT: colours measured from swisstopo's Winter national map")
+        w(";   (FR-CART11); regenerate the measurements with tools/winter_palette.py.")
     w(";   source: cartography/palette.json + tools/make_typ.py")
     w(";   regenerate: python3 tools/make_typ.py")
     w(";")
@@ -175,12 +184,12 @@ def build(wrist: bool) -> str:
     w("[end]")
     w("")
 
-    for t, _o, lab, key in SOLID_POLYGONS:
+    for t, _o, lab, fill in SOLID_POLYGONS:
         w("[_polygon]")
         w(f"Type={t}")
         w(f"String1=0x04,{lab}")
         w('Xpm="0 0 1 0"')
-        w(f'"1 c {c(key)}"')
+        w(f'"1 c {c(fill, key)}"')
         w("[end]")
         w("")
 
@@ -191,8 +200,8 @@ def build(wrist: bool) -> str:
         w(f"Type={t}")
         w(f"String1=0x04,{lab}")
         w('Xpm="32 32 2 1"')
-        w(f'". c {c(bg)}"')
-        w(f'"# c {c(ink)}"')
+        w(f'". c {c(bg, key)}"')
+        w(f'"# c {c(ink, key)}"')
         for r in rows:
             w(f'"{r}"')
         w("[end]")
@@ -211,7 +220,7 @@ def build(wrist: bool) -> str:
             size = 5 if wrist else 7
             w(f'DayXpm="{size} {size} 2 1"')
             w('"  c none"')
-            w(f'"# c {c("building")}"')
+            w(f'"# c {c("building", key)}"')
             for row in range(size):
                 edge = row == 0 or row == size - 1
                 w('"' + ("".join(" " if edge else "#" for _ in range(size))) + '"')
@@ -219,8 +228,8 @@ def build(wrist: bool) -> str:
         w("[end]")
         w("")
 
-    for t, lab, key, width, border in LINES:
-        entry = PALETTE[key]
+    for t, lab, line_key, width, border in LINES:
+        entry = PALETTE[line_key]
         if wrist:
             width = max(WRIST_MIN_WIDTH, round(width * WRIST_LINE_SCALE))
             border = min(border, 1)
@@ -229,13 +238,15 @@ def build(wrist: bool) -> str:
         w(f"String1=0x04,{lab}")
         if border and "casing" in entry:
             w('Xpm="0 0 2 0"')
-            w(f'"1 c {entry["day"]}"')
+            w(f'"1 c {entry[key]}"')
+            # Casings are dark outlines whose job is separation, not tint, so the
+            # winter sheet keeps them.
             w(f'"2 c {entry["casing"]}"')
             w(f"LineWidth={width}")
             w(f"BorderWidth={border}")
         else:
             w('Xpm="0 0 1 0"')
-            w(f'"1 c {entry["day"]}"')
+            w(f'"1 c {entry[key]}"')
             w(f"LineWidth={width}")
         w("[end]")
         w("")
@@ -244,9 +255,15 @@ def build(wrist: bool) -> str:
 
 
 def main() -> None:
-    for wrist, name in ((False, "swisstopo.txt"), (True, "swisstopo-wrist.txt")):
+    variants = (
+        (False, False, "swisstopo.txt"),
+        (True, False, "swisstopo-wrist.txt"),
+        (False, True, "swisstopo-winter.txt"),
+        (True, True, "swisstopo-wrist-winter.txt"),
+    )
+    for wrist, winter, name in variants:
         out = REPO / "typ" / name
-        out.write_text(build(wrist))
+        out.write_text(build(wrist, winter))
         print(f"wrote {out}")
     print(
         f"  {len(SOLID_POLYGONS)} solid polygons, {len(PATTERN_POLYGONS)} pattern fills, "

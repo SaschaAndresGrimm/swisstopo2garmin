@@ -32,6 +32,7 @@ pub mod pbf;
 pub mod pipeline;
 pub mod proj;
 pub mod recipe;
+pub mod settings;
 pub mod shapefile;
 pub mod stac;
 pub mod zip;

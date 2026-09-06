@@ -97,6 +97,9 @@ pub struct BuildReport {
     pub warnings: Vec<String>,
     /// Deterministic identity, so the same recipe keeps its place on the device.
     pub family_id: u16,
+    /// Seconds spent in each stage, in the order they ran. Feeds the time estimate
+    /// shown during the next build (FR-71).
+    pub stage_seconds: Vec<(Stage, f64)>,
 }
 
 /// Style directory for a device: wrist devices get the reduced cartography (FR-CART6).
@@ -108,12 +111,18 @@ fn style_for(profile: &DeviceProfile, root: &Path) -> PathBuf {
     }
 }
 
-fn typ_for(profile: &DeviceProfile, root: &Path) -> PathBuf {
-    if profile.is_wrist() {
-        root.join("swisstopo-wrist.txt")
-    } else {
-        root.join("swisstopo.txt")
-    }
+/// TYP for a device and colour scheme.
+///
+/// The winter variants recolour the same rules, so only the TYP changes: the style
+/// directory is chosen by device class alone.
+fn typ_for(profile: &DeviceProfile, root: &Path, palette: crate::recipe::Palette) -> PathBuf {
+    let name = match (profile.is_wrist(), palette) {
+        (false, crate::recipe::Palette::Summer) => "swisstopo.txt",
+        (true, crate::recipe::Palette::Summer) => "swisstopo-wrist.txt",
+        (false, crate::recipe::Palette::Winter) => "swisstopo-winter.txt",
+        (true, crate::recipe::Palette::Winter) => "swisstopo-wrist-winter.txt",
+    };
+    root.join(name)
 }
 
 /// Locate the cached national swissTLM3D GeoPackage.
@@ -133,8 +142,30 @@ pub async fn build(
     recipe: &Recipe,
     profile: &DeviceProfile,
     cancel: &Cancel,
-    mut on_stage: impl FnMut(StageUpdate),
+    mut report_stage: impl FnMut(StageUpdate),
 ) -> Result<BuildReport> {
+    // Time every stage by watching the updates that already flow through here, rather
+    // than instrumenting each of the ten call sites. Mutex rather than RefCell because
+    // this future is spawned on a multi-threaded runtime and must stay Send.
+    let timings: std::sync::Mutex<Vec<(Stage, f64)>> = Default::default();
+    let current: std::sync::Mutex<Option<(Stage, std::time::Instant)>> = Default::default();
+    let mut on_stage = |u: StageUpdate| {
+        {
+            let mut cur = current.lock().expect("stage clock poisoned");
+            match *cur {
+                Some((stage, at)) if stage != u.stage => {
+                    timings
+                        .lock()
+                        .expect("stage timings poisoned")
+                        .push((stage, at.elapsed().as_secs_f64()));
+                    *cur = Some((u.stage, std::time::Instant::now()));
+                }
+                None => *cur = Some((u.stage, std::time::Instant::now())),
+                _ => {}
+            }
+        }
+        report_stage(u);
+    };
     let bbox = recipe.area.bbox();
     if !bbox.within_switzerland() {
         return Err(Error::NotFound(
@@ -340,7 +371,7 @@ pub async fn build(
     let mut opts = BuildOptions::new(
         identity.clone(),
         style_dir.clone(),
-        typ_for(profile, &ctx.typ_root),
+        typ_for(profile, &ctx.typ_root, recipe.palette),
     );
     if let (Some(dir), Some(res)) = (dem_dir.clone(), recipe.relief.resolution()) {
         let levels = style_level_count(&style_dir)?;
@@ -377,6 +408,15 @@ pub async fn build(
         return Err(Error::Zip(device.problems.join("; ")));
     }
 
+    // The last stage is still open; close it so verify is not always reported as zero.
+    if let Some((stage, at)) = current.lock().expect("stage clock poisoned").take() {
+        timings
+            .lock()
+            .expect("stage timings poisoned")
+            .push((stage, at.elapsed().as_secs_f64()));
+    }
+    let stage_seconds = timings.into_inner().expect("stage timings poisoned");
+
     // ---- record for the size estimator (FR-62) ---------------------------
     // The predictors are recomputed here, the same way the estimator computes them
     // before a build, so training features and prediction features are identical.
@@ -389,6 +429,10 @@ pub async fn build(
                 relief: recipe.relief,
             },
             actual_bytes: out.bytes,
+            stage_seconds: stage_seconds
+                .iter()
+                .map(|(s, secs)| (format!("{s:?}").to_lowercase(), *secs))
+                .collect(),
             at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -411,6 +455,7 @@ pub async fn build(
         has_dem: info.has_dem(),
         warnings,
         family_id: identity.family_id,
+        stage_seconds,
     })
 }
 

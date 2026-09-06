@@ -84,14 +84,11 @@ impl Cache {
     }
 
     /// Default location: the OS app-data directory, overridable with `S2G_CACHE`.
+    /// The data root in force: `S2G_CACHE`, else the saved setting, else the
+    /// platform default. Resolved in one place so a build and the Data screen cannot
+    /// disagree about where the data is (see [`crate::settings`]).
     pub fn default_root() -> PathBuf {
-        if let Ok(p) = std::env::var("S2G_CACHE") {
-            return PathBuf::from(p);
-        }
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap_or_else(|_| ".".into());
-        PathBuf::from(home).join(".cache").join("swisstopo2garmin")
+        crate::settings::data_root()
     }
 
     pub fn root(&self) -> &Path {

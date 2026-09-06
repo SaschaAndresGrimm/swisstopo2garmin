@@ -11,6 +11,7 @@ export type {
   BuildProgress,
   CacheStatus,
   ConnectedDevice,
+  DataLocation,
   DatasetEntry,
   DeviceSummary,
   InstallPlan,
@@ -32,6 +33,7 @@ export type AreaSelection =
 
 export type PresetId = "hiking" | "cycling" | "skimo" | "full";
 export type ReliefDetail = "off" | "gentle" | "detailed";
+export type Palette = "summer" | "winter";
 
 export interface Recipe {
   schemaVersion: number;
@@ -41,6 +43,7 @@ export interface Recipe {
   preset: PresetId;
   contours: { intervalM: number; indexM: number; simplifyM: number };
   relief: ReliefDetail;
+  palette: Palette;
   excludedLayers: string[];
 }
 
@@ -77,6 +80,12 @@ export const api = {
   /** LV95 [minE, minN, maxE, maxN] for a WGS84 rectangle. The projection lives only
    *  in Rust so there is one implementation, not two to keep in agreement. */
   /** Full swissTLM3D coverage in LV95, for the whole-Switzerland action (FR-35). */
+  dataLocation: () => invoke<import("./bindings").DataLocation>("data_location"),
+  inspectDataLocation: (path: string) =>
+    invoke<import("./bindings").DataLocation>("inspect_data_location", { path }),
+  /** `null` restores the platform default. */
+  setDataLocation: (path: string | null) =>
+    invoke<import("./bindings").DataLocation>("set_data_location", { path }),
   coverageBbox: () => invoke<[number, number, number, number]>("coverage_bbox"),
   /** Project a polyline for display. Kept in Rust so there is one projection. */
   lv95LineToWgs84: (points: [number, number][]) =>
@@ -146,6 +155,19 @@ export function onTaskEvents(handlers: {
     handlers.onFailure?.(msg);
     return [] as UnlistenFn[];
   });
+}
+
+/**
+ * A duration as a person would say it. Deliberately coarse: a build ETA that reads
+ * "3 min" and drifts is honest, one that reads "3 min 12 s" and drifts looks broken.
+ */
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  return `${h} h ${m % 60} min`;
 }
 
 export function formatBytes(n: number | null | undefined): string {

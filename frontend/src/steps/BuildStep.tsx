@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type React from "react";
-import { api, formatBytes, onBuildEvents } from "../state/api";
+import { api, formatBytes, formatDuration, onBuildEvents } from "../state/api";
 import type { BuildFinished, BuildProgress, Recipe } from "../state/api";
 import type { T } from "../i18n";
 
@@ -65,9 +65,9 @@ export function BuildStep({
     }
   };
 
-  const pct = progress
-    ? ((progress.stageIndex + (progress.fraction ?? 0)) / progress.stageCount) * 100
-    : 0;
+  // Weighted by how long each stage usually takes, not by stage count: the contour
+  // stage alone is nearly half a build, so counting stages made the bar lurch.
+  const pct = progress ? progress.overall * 100 : 0;
 
   return (
     <section className="screen">
@@ -91,6 +91,10 @@ export function BuildStep({
         <div>
           <dt>{t("content.relief")}</dt>
           <dd>{t(`content.relief.${recipe.relief}`)}</dd>
+        </div>
+        <div>
+          <dt>{t("build.palette")}</dt>
+          <dd>{t(`content.palette.${recipe.palette}`)}</dd>
         </div>
       </dl>
 
@@ -129,6 +133,13 @@ export function BuildStep({
             </div>
             <div className="progress-meta muted small">
               <span>{progress.detail}</span>
+              <span className="spacer" />
+              <span>{t("build.elapsed", { time: formatDuration(progress.elapsedSeconds) })}</span>
+              <span>
+                {progress.etaSeconds !== null
+                  ? t("build.remaining", { time: formatDuration(progress.etaSeconds) })
+                  : t("build.estimating")}
+              </span>
             </div>
           </div>
         </div>
@@ -138,6 +149,10 @@ export function BuildStep({
         <div className="notice">
           <strong>{t("build.finished")}</strong>
           <dl className="facts">
+            <div>
+              <dt>{t("build.took")}</dt>
+              <dd>{formatDuration(result.seconds)}</dd>
+            </div>
             <div>
               <dt>{t("build.size")}</dt>
               <dd>{formatBytes(result.bytes)}</dd>

@@ -68,6 +68,10 @@ impl Predictors {
 pub struct Sample {
     pub predictors: Predictors,
     pub actual_bytes: u64,
+    /// Seconds per stage, keyed by the lowercase stage name. Absent in logs written
+    /// before build timing existed, which is why it defaults rather than being required.
+    #[serde(default)]
+    pub stage_seconds: Vec<(String, f64)>,
     /// Unix seconds, for pruning an old log.
     #[serde(default)]
     pub at: u64,
@@ -318,6 +322,108 @@ impl CalibrationLog {
     }
 }
 
+/// Fraction of a build's time spent in each stage, in [`crate::pipeline::Stage`] order.
+///
+/// **Provenance, and its limits.** Measured from three Grindelwald 6 km builds with a
+/// warm elevation cache and relief off (docs/size-model.md), which is all the timed
+/// build data there is so far. That makes them a poor guide to a *first* build of an
+/// area, where fetching elevation tiles dominates and contours do not: on a cold cache
+/// the elevation stage has been observed to take longer than everything else together.
+///
+/// They are therefore a seed, not a claim. Two things correct for it: the estimate
+/// re-extrapolates from elapsed time as the build proceeds, so it converges even when
+/// these weights are wrong, and [`stage_weights`] replaces them with the user's own
+/// builds as soon as the calibration log has any.
+///
+/// The three runs, in seconds:
+///
+/// | stage | run 1 | run 2 | run 3 |
+/// |---|---:|---:|---:|
+/// | extract | 0.6 | 0.6 | 0.5 |
+/// | elevation | 1.1 | 1.2 | 1.0 |
+/// | contours | 24.7 | 25.5 | 25.2 |
+/// | relief | 0.0 | 0.0 | 0.0 |
+/// | split | 1.0 | 1.1 | 0.9 |
+/// | compile | 2.7 | 2.7 | 2.7 |
+/// | verify | 0.1 | 0.1 | 0.1 |
+/// Averaged as fractions of each run, exactly as [`stage_weights`] averages the
+/// calibration log, so a measured seed and a refitted one mean the same thing.
+pub const DEFAULT_STAGE_WEIGHTS: [f64; 7] = [
+    0.0185, // extract
+    0.0359, // elevation
+    0.8214, // contours
+    0.0000, // relief -- off in all three runs, so unmeasured rather than free
+    0.0327, // split
+    0.0883, // compile
+    0.0033, // verify
+];
+
+/// Stage names in the order [`DEFAULT_STAGE_WEIGHTS`] uses.
+pub const STAGE_NAMES: [&str; 7] = [
+    "extract",
+    "elevation",
+    "contours",
+    "relief",
+    "split",
+    "compile",
+    "verify",
+];
+
+/// Time weights per stage, averaged over the samples that recorded any.
+///
+/// Averaged as *fractions of each build* rather than as raw seconds, so one large
+/// build does not drown out ten small ones — the weights describe shape, not duration.
+pub fn stage_weights(samples: &[Sample]) -> [f64; 7] {
+    let mut sums = [0.0f64; 7];
+    let mut n = 0usize;
+    for s in samples {
+        let total: f64 = s.stage_seconds.iter().map(|(_, v)| *v).sum();
+        if total <= 0.0 {
+            continue;
+        }
+        for (name, secs) in &s.stage_seconds {
+            if let Some(i) = STAGE_NAMES.iter().position(|x| x == name) {
+                sums[i] += secs / total;
+            }
+        }
+        n += 1;
+    }
+    if n == 0 {
+        return DEFAULT_STAGE_WEIGHTS;
+    }
+    let mut out = [0.0; 7];
+    let mut total = 0.0;
+    for i in 0..7 {
+        out[i] = sums[i] / n as f64;
+        total += out[i];
+    }
+    if total <= 0.0 {
+        return DEFAULT_STAGE_WEIGHTS;
+    }
+    for w in out.iter_mut() {
+        *w /= total;
+    }
+    out
+}
+
+/// Fraction of a build complete, from the stage it is in and its progress within it.
+pub fn build_fraction(weights: &[f64; 7], stage_index: usize, within: f64) -> f64 {
+    let done: f64 = weights.iter().take(stage_index.min(7)).sum();
+    let current = weights.get(stage_index).copied().unwrap_or(0.0);
+    (done + current * within.clamp(0.0, 1.0)).clamp(0.0, 1.0)
+}
+
+/// Seconds remaining, from elapsed time and the fraction complete.
+///
+/// `None` until enough of the build has happened for the extrapolation to mean
+/// anything: a "4 hours remaining" flashed in the first second is worse than no number.
+pub fn eta_seconds(elapsed: f64, fraction: f64) -> Option<f64> {
+    if fraction < 0.02 || elapsed < 2.0 || fraction >= 1.0 {
+        return None;
+    }
+    Some(elapsed * (1.0 - fraction) / fraction)
+}
+
 /// Where the local calibration log lives, beside the dataset cache.
 pub fn calibration_log_path() -> std::path::PathBuf {
     crate::cache::Cache::default_root().join("calibration.jsonl")
@@ -474,6 +580,7 @@ mod tests {
             samples.push(Sample {
                 predictors: p,
                 actual_bytes: actual,
+                stage_seconds: Vec::new(),
                 at: 0,
             });
         }
@@ -501,6 +608,7 @@ mod tests {
         let sample = Sample {
             predictors: p.clone(),
             actual_bytes: predicted * 2,
+            stage_seconds: Vec::new(),
             at: 0,
         };
         let fitted = SizeModel::fit(&[sample], &prior, 1e6);
@@ -525,6 +633,7 @@ mod tests {
             &[Sample {
                 predictors: p,
                 actual_bytes: 1,
+                stage_seconds: Vec::new(),
                 at: 0,
             }],
             &prior,
@@ -567,6 +676,7 @@ mod tests {
             .map(|_| Sample {
                 predictors: p.clone(),
                 actual_bytes: 1_000,
+                stage_seconds: Vec::new(),
                 at: 0,
             })
             .collect();
@@ -580,6 +690,7 @@ mod tests {
         let s = Sample {
             predictors: predictors(&[("names", 12)], 5.0, 20, ReliefDetail::Gentle),
             actual_bytes: 123_456,
+            stage_seconds: vec![("contours".into(), 12.5)],
             at: 1_700_000_000,
         };
         CalibrationLog::append(&path, &s).unwrap();
@@ -639,6 +750,7 @@ mod tests {
                 Sample {
                     actual_bytes: truth.predict(&p),
                     predictors: p,
+                    stage_seconds: Vec::new(),
                     at: 0,
                 }
             })
@@ -671,6 +783,7 @@ mod tests {
                     ReliefDetail::Gentle,
                 ),
                 actual_bytes: 500_000 + rng() % 3_000_000,
+                stage_seconds: Vec::new(),
                 at: 0,
             })
             .collect();
@@ -694,9 +807,124 @@ mod tests {
         let s = Sample {
             predictors: predictors(&[("water", 10)], 1.0, 20, ReliefDetail::Off),
             actual_bytes: 1_000,
+            stage_seconds: Vec::new(),
             at: 0,
         };
         assert!(SizeModel::loocv_mape(&[s.clone(), s], &prior, 1e6).is_infinite());
+    }
+
+    fn timed(stages: &[(&str, f64)]) -> Sample {
+        Sample {
+            predictors: predictors(&[], 100.0, 20, ReliefDetail::Off),
+            actual_bytes: 1_000_000,
+            stage_seconds: stages.iter().map(|(n, v)| ((*n).to_string(), *v)).collect(),
+            at: 0,
+        }
+    }
+
+    /// The seed weights must be a distribution, or every estimate is scaled wrongly.
+    #[test]
+    fn the_default_stage_weights_sum_to_one() {
+        let total: f64 = DEFAULT_STAGE_WEIGHTS.iter().sum();
+        assert!((total - 1.0).abs() < 1e-3, "weights sum to {total}");
+        assert_eq!(DEFAULT_STAGE_WEIGHTS.len(), STAGE_NAMES.len());
+        assert!(DEFAULT_STAGE_WEIGHTS.iter().all(|w| *w >= 0.0));
+    }
+
+    /// Contours dominate a warm-cache build, which is what the seed was measured on.
+    /// If this ever stops holding, the doc comment's provenance is stale.
+    #[test]
+    fn the_seed_weights_match_the_runs_they_document() {
+        let runs: [[f64; 7]; 3] = [
+            [0.6, 1.1, 24.7, 0.0, 1.0, 2.7, 0.1],
+            [0.6, 1.2, 25.5, 0.0, 1.1, 2.7, 0.1],
+            [0.5, 1.0, 25.2, 0.0, 0.9, 2.7, 0.1],
+        ];
+        let samples: Vec<Sample> = runs
+            .iter()
+            .map(|r| {
+                timed(
+                    &STAGE_NAMES
+                        .iter()
+                        .zip(r.iter())
+                        .map(|(n, v)| (*n, *v))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        let derived = stage_weights(&samples);
+        for (i, (a, b)) in derived.iter().zip(DEFAULT_STAGE_WEIGHTS.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 5e-4,
+                "stage {} ({}): documented {b}, recomputed {a}",
+                i,
+                STAGE_NAMES[i]
+            );
+        }
+    }
+
+    #[test]
+    fn stage_weights_fall_back_to_the_shipped_defaults_without_data() {
+        assert_eq!(stage_weights(&[]), DEFAULT_STAGE_WEIGHTS);
+        // Samples from before timing existed carry no stages and must not count.
+        assert_eq!(stage_weights(&[timed(&[])]), DEFAULT_STAGE_WEIGHTS);
+    }
+
+    #[test]
+    fn stage_weights_are_shape_not_duration() {
+        // Same shape, wildly different durations: one long build must not outvote the
+        // short ones, so the weights must come out identical either way.
+        let short = timed(&[("extract", 1.0), ("contours", 3.0)]);
+        let long = timed(&[("extract", 100.0), ("contours", 300.0)]);
+        let a = stage_weights(std::slice::from_ref(&short));
+        let b = stage_weights(&[short, long]);
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert!((x - y).abs() < 1e-9, "{a:?} vs {b:?}");
+        }
+        assert!((a[0] - 0.25).abs() < 1e-9, "{a:?}");
+        assert!((a[2] - 0.75).abs() < 1e-9, "{a:?}");
+        assert!((a.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn an_unknown_stage_name_is_ignored_rather_than_shifting_every_weight() {
+        let w = stage_weights(&[timed(&[("extract", 1.0), ("teleport", 9.0)])]);
+        assert!((w.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+        assert!((w[0] - 1.0).abs() < 1e-9, "{w:?}");
+    }
+
+    #[test]
+    fn build_fraction_accumulates_completed_stages() {
+        let w = DEFAULT_STAGE_WEIGHTS;
+        assert_eq!(build_fraction(&w, 0, 0.0), 0.0);
+        assert!((build_fraction(&w, 1, 0.0) - w[0]).abs() < 1e-9);
+        assert!((build_fraction(&w, 1, 0.5) - (w[0] + w[1] * 0.5)).abs() < 1e-9);
+        // The last stage finishing means done, and out-of-range input cannot exceed 1.
+        assert!((build_fraction(&w, 6, 1.0) - 1.0).abs() < 1e-9);
+        assert_eq!(build_fraction(&w, 99, 1.0), 1.0);
+    }
+
+    #[test]
+    fn no_eta_is_offered_until_it_would_mean_something() {
+        // A "four hours remaining" flashed in the first second is worse than nothing.
+        assert_eq!(eta_seconds(0.5, 0.5), None);
+        assert_eq!(eta_seconds(10.0, 0.001), None);
+        assert_eq!(eta_seconds(10.0, 1.0), None);
+
+        // Half done after 10 s means about 10 s to go.
+        let eta = eta_seconds(10.0, 0.5).unwrap();
+        assert!((eta - 10.0).abs() < 1e-9, "{eta}");
+        // A quarter done after 30 s means about 90 s to go.
+        let eta = eta_seconds(30.0, 0.25).unwrap();
+        assert!((eta - 90.0).abs() < 1e-9, "{eta}");
+    }
+
+    #[test]
+    fn a_sample_written_before_timing_existed_still_loads() {
+        let old = r#"{"predictors":{"groupCounts":{},"areaKm2":100.0,"contourIntervalM":20,"relief":"off"},"actualBytes":1000}"#;
+        let s: Sample = serde_json::from_str(old).expect("old log lines must still parse");
+        assert!(s.stage_seconds.is_empty());
+        assert_eq!(s.at, 0);
     }
 
     #[test]
