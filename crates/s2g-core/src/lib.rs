@@ -9,6 +9,7 @@
 //! - Downloads are resumable, verified against the STAC `file:checksum` multihash, and
 //!   only become visible in the cache after an atomic rename (FR-D1..D4).
 
+pub mod boundaries;
 pub mod cache;
 pub mod contour;
 pub mod datasets;

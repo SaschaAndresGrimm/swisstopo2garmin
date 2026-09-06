@@ -454,6 +454,7 @@ mod tests {
 
 use s2g_core::devices::{self, DeviceProfile};
 use s2g_core::extract::{LayerGroup, CYCLE_LAYERS, DEFAULT_LAYERS, WINTER_LAYERS};
+use s2g_core::boundaries::{self, AdminLevel};
 use s2g_core::estimate::{self, calibration_log_path};
 use s2g_core::library;
 use s2g_core::pipeline::{self, BuildContext, Stage};
@@ -909,6 +910,77 @@ pub fn lv95_line_to_wgs84(points: Vec<[f64; 2]>) -> IpcResult<Vec<[f64; 2]>> {
             [lon, lat]
         })
         .collect())
+}
+
+/// One selectable administrative unit (SPEC.md FR-33).
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUnitInfo {
+    /// `kantonsnummer`, `bezirksnummer` or `bfs_nummer` — stable, unlike the name.
+    pub number: i64,
+    pub name: String,
+    /// Canton, shown because commune names are not unique.
+    pub canton: String,
+    pub population: i64,
+    pub area_km2: f64,
+}
+
+/// Every unit at one level, sorted by name.
+///
+/// The whole level at once — 26 cantons, 135 districts, 2,123 communes — because the
+/// picker filters as the user types and a round trip per keystroke would be worse.
+#[tauri::command]
+pub async fn list_admin_units(level: String) -> IpcResult<Vec<AdminUnitInfo>> {
+    let level = match level.as_str() {
+        "commune" => AdminLevel::Commune,
+        "district" => AdminLevel::District,
+        "canton" => AdminLevel::Canton,
+        other => return Err(format!("unknown administrative level {other:?}")),
+    };
+    let root = Cache::default_root();
+    let units = tokio::task::spawn_blocking(move || boundaries::list_units(&root, level))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    Ok(units
+        .into_iter()
+        .map(|u| AdminUnitInfo {
+            number: u.number,
+            name: u.name,
+            canton: u.canton,
+            population: u.population,
+            area_km2: u.area_km2,
+        })
+        .collect())
+}
+
+/// The LV95 extent of a set of units, grown by the buffer (FR-34).
+///
+/// Resolved once when the units are chosen and stored in the recipe, so the area
+/// readout and size estimate need no file access afterwards.
+#[tauri::command]
+pub async fn admin_extent(
+    level: String,
+    numbers: Vec<i64>,
+    buffer_km: f64,
+) -> IpcResult<[f64; 4]> {
+    let level = match level.as_str() {
+        "commune" => AdminLevel::Commune,
+        "district" => AdminLevel::District,
+        "canton" => AdminLevel::Canton,
+        other => return Err(format!("unknown administrative level {other:?}")),
+    };
+    if numbers.is_empty() {
+        return Err("no administrative units selected".into());
+    }
+    let root = Cache::default_root();
+    let b = tokio::task::spawn_blocking(move || boundaries::extent(&root, level, &numbers))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let m = buffer_km * 1000.0;
+    Ok([b.min_e - m, b.min_n - m, b.max_e + m, b.max_n + m])
 }
 
 /// An imported GPX or FIT track, ready to become a corridor (SPEC.md FR-38..FR-40).

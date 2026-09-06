@@ -23,6 +23,17 @@ pub enum Mask {
     Polygons(PolygonMask),
     /// Everything within `radius_m` of any polyline. Route corridors.
     Corridor(CorridorMask),
+    /// A polygon set grown outwards by a distance (SPEC.md FR-34).
+    ///
+    /// Exact Minkowski growth by a disc, not an approximation: a point is inside if it
+    /// is inside the polygons *or* within the distance of their boundary. That is
+    /// precisely what the two masks above already answer between them, so buffering
+    /// needs no polygon offsetting — which is fiddly to get right on self-touching
+    /// rings, and cantonal boundaries have plenty of those.
+    BufferedPolygons {
+        inside: PolygonMask,
+        edge: CorridorMask,
+    },
 }
 
 impl Mask {
@@ -34,10 +45,26 @@ impl Mask {
         Mask::Corridor(CorridorMask::new(lines, radius_m))
     }
 
+    /// Polygons grown outwards by `buffer_m`. Zero buffer gives a plain polygon mask,
+    /// so a caller need not special-case "no buffer".
+    pub fn polygons_buffered(polygons: Vec<Vec<Ring>>, buffer_m: f64) -> Self {
+        if buffer_m <= 0.0 {
+            return Mask::polygons(polygons);
+        }
+        // Every ring of every polygon becomes a polyline; the corridor around them is
+        // the band straddling the boundary, and the polygon mask fills the interior.
+        let rings: Vec<Vec<Coord>> = polygons.iter().flatten().cloned().collect();
+        Mask::BufferedPolygons {
+            inside: PolygonMask::new(polygons),
+            edge: CorridorMask::new(rings, buffer_m),
+        }
+    }
+
     pub fn contains(&self, p: Coord) -> bool {
         match self {
             Mask::Polygons(m) => m.contains(p),
             Mask::Corridor(m) => m.contains(p),
+            Mask::BufferedPolygons { inside, edge } => inside.contains(p) || edge.contains(p),
         }
     }
 
@@ -46,6 +73,8 @@ impl Mask {
         match self {
             Mask::Polygons(m) => m.bbox,
             Mask::Corridor(m) => m.bbox,
+            // The edge corridor already includes the buffer on all sides.
+            Mask::BufferedPolygons { edge, .. } => edge.bbox,
         }
     }
 
@@ -144,10 +173,25 @@ impl Grid {
 }
 
 /// Union of polygons with a grid over their bounding boxes.
+///
+/// The grid narrows a lookup to the polygons whose box covers the point, but a canton is
+/// *one* polygon with 14,000 vertices, so that alone still walks every edge on every
+/// lookup — 15 µs each, and a build tests every vertex of every feature.
+///
+/// So a second grid indexes the ring segments, and a cell that no segment crosses is
+/// entirely inside or entirely outside. Its verdict is computed once, by the same full
+/// test, and cached; only cells the boundary actually crosses pay the full price. The
+/// answer is identical either way, which `the_edge_cache_agrees_with_the_slow_path`
+/// checks exhaustively.
 pub struct PolygonMask {
     polygons: Vec<Vec<Ring>>,
     bbox: BBox,
     grid: Grid,
+    /// Cells crossed by a ring segment; those cannot be answered from the cache.
+    edges: Grid,
+    /// Per-cell verdict for edge-free cells: 0 unknown, 1 inside, 2 outside. Atomic so
+    /// the mask stays `Sync`, which the build future requires.
+    verdict: Vec<std::sync::atomic::AtomicU8>,
 }
 
 impl PolygonMask {
@@ -187,21 +231,63 @@ impl PolygonMask {
         for (i, b) in boxes.iter().enumerate() {
             grid.insert(b, i as u32);
         }
+
+        // Index the ring segments, so an edge-free cell can be recognised.
+        let mut edges = Grid::new(bbox);
+        for (i, rings) in polygons.iter().enumerate() {
+            for ring in rings {
+                for w in ring.windows(2) {
+                    let sb = BBox::new(
+                        w[0].e.min(w[1].e),
+                        w[0].n.min(w[1].n),
+                        w[0].e.max(w[1].e),
+                        w[0].n.max(w[1].n),
+                    );
+                    edges.insert(&sb, i as u32);
+                }
+            }
+        }
+        let verdict = (0..edges.cols * edges.rows)
+            .map(|_| std::sync::atomic::AtomicU8::new(0))
+            .collect();
+
         Self {
             polygons,
             bbox,
             grid,
+            edges,
+            verdict,
         }
     }
 
     pub fn contains(&self, p: Coord) -> bool {
+        use std::sync::atomic::Ordering;
+
         let Some((cx, cy)) = self.grid.cell_of(p) else {
             return false;
         };
-        self.grid
+        let cell = cy * self.edges.cols + cx;
+        let boundary_here = !self.edges.at(cx, cy).is_empty();
+
+        if !boundary_here {
+            match self.verdict[cell].load(Ordering::Relaxed) {
+                1 => return true,
+                2 => return false,
+                _ => {}
+            }
+        }
+
+        let answer = self
+            .grid
             .at(cx, cy)
             .iter()
-            .any(|i| point_in_polygon(p, &self.polygons[*i as usize]))
+            .any(|i| point_in_polygon(p, &self.polygons[*i as usize]));
+
+        // Only an edge-free cell is uniform, so only that verdict may be cached.
+        if !boundary_here {
+            self.verdict[cell].store(if answer { 1 } else { 2 }, Ordering::Relaxed);
+        }
+        answer
     }
 
     pub fn bbox(&self) -> BBox {
@@ -471,5 +557,193 @@ mod tests {
         }
         assert!(!m.contains(Coord::new(2_579_000.0, 1_170_000.0)));
         assert!(!m.contains(Coord::new(2_641_000.0, 1_170_000.0)));
+    }
+}
+
+#[cfg(test)]
+mod buffer_tests {
+    use super::*;
+
+    fn square(e: f64, n: f64, size: f64) -> Vec<Ring> {
+        vec![vec![
+            Coord::new(e, n),
+            Coord::new(e + size, n),
+            Coord::new(e + size, n + size),
+            Coord::new(e, n + size),
+            Coord::new(e, n),
+        ]]
+    }
+
+    #[test]
+    fn a_buffer_extends_the_shape_outwards_by_the_distance() {
+        let poly = square(2_600_000.0, 1_200_000.0, 10_000.0);
+        let m = Mask::polygons_buffered(vec![poly], 2_000.0);
+
+        // Deep inside stays inside.
+        assert!(m.contains(Coord::new(2_605_000.0, 1_205_000.0)));
+        // Just outside the edge, within the buffer.
+        assert!(m.contains(Coord::new(2_611_900.0, 1_205_000.0)));
+        // Beyond the buffer.
+        assert!(!m.contains(Coord::new(2_612_100.0, 1_205_000.0)));
+        // Diagonally past a corner: the growth is a disc, so the corner is rounded and
+        // 2 km diagonally out is further than 2 km.
+        assert!(!m.contains(Coord::new(2_611_600.0, 1_211_600.0)));
+        assert!(m.contains(Coord::new(2_611_200.0, 1_200_000.0)));
+    }
+
+    #[test]
+    fn a_zero_buffer_is_a_plain_polygon_mask() {
+        let m = Mask::polygons_buffered(vec![square(2_600_000.0, 1_200_000.0, 5_000.0)], 0.0);
+        assert!(matches!(m, Mask::Polygons(_)));
+        assert!(m.contains(Coord::new(2_602_000.0, 1_202_000.0)));
+        assert!(!m.contains(Coord::new(2_606_000.0, 1_202_000.0)));
+    }
+
+    #[test]
+    fn the_buffered_extent_includes_the_buffer() {
+        let m = Mask::polygons_buffered(vec![square(2_600_000.0, 1_200_000.0, 5_000.0)], 1_500.0);
+        let b = m.bbox();
+        assert_eq!(b.min_e, 2_598_500.0);
+        assert_eq!(b.max_e, 2_606_500.0);
+        assert_eq!(b.min_n, 1_198_500.0);
+        assert_eq!(b.max_n, 1_206_500.0);
+    }
+
+    /// A hole must stay a hole, but its rim gets the buffer too — the buffer grows the
+    /// shape outwards everywhere, which around a hole means inwards.
+    #[test]
+    fn a_hole_shrinks_by_the_buffer_rather_than_vanishing() {
+        let mut rings = square(2_600_000.0, 1_200_000.0, 20_000.0);
+        rings.push(vec![
+            Coord::new(2_605_000.0, 1_205_000.0),
+            Coord::new(2_605_000.0, 1_215_000.0),
+            Coord::new(2_615_000.0, 1_215_000.0),
+            Coord::new(2_615_000.0, 1_205_000.0),
+            Coord::new(2_605_000.0, 1_205_000.0),
+        ]);
+        let m = Mask::polygons_buffered(vec![rings], 1_000.0);
+
+        // The middle of the hole is still out.
+        assert!(!m.contains(Coord::new(2_610_000.0, 1_210_000.0)));
+        // Just inside the hole's rim is within the buffer of the boundary, so in.
+        assert!(m.contains(Coord::new(2_605_500.0, 1_210_000.0)));
+    }
+
+    /// Two disjoint units selected together must both be kept, with their buffers.
+    #[test]
+    fn several_polygons_are_buffered_as_one_union() {
+        let m = Mask::polygons_buffered(
+            vec![
+                square(2_600_000.0, 1_200_000.0, 5_000.0),
+                square(2_620_000.0, 1_200_000.0, 5_000.0),
+            ],
+            1_000.0,
+        );
+        assert!(m.contains(Coord::new(2_602_000.0, 1_202_000.0)));
+        assert!(m.contains(Coord::new(2_622_000.0, 1_202_000.0)));
+        // Between them, outside both buffers.
+        assert!(!m.contains(Coord::new(2_612_000.0, 1_202_000.0)));
+        // Just outside the first, inside its buffer.
+        assert!(m.contains(Coord::new(2_605_500.0, 1_202_000.0)));
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    /// The per-cell cache must never change an answer, only the time it takes.
+    ///
+    /// Checked exhaustively against a from-scratch mask on a shape with a concave notch
+    /// and a hole, so cells that are inside the bounding box but outside the polygon,
+    /// and cells inside the hole, are both covered.
+    #[test]
+    fn the_edge_cache_agrees_with_the_slow_path() {
+        let outer = vec![
+            Coord::new(2_600_000.0, 1_200_000.0),
+            Coord::new(2_620_000.0, 1_200_000.0),
+            Coord::new(2_620_000.0, 1_220_000.0),
+            // A deep notch, so part of the bounding box is outside the shape.
+            Coord::new(2_612_000.0, 1_220_000.0),
+            Coord::new(2_612_000.0, 1_206_000.0),
+            Coord::new(2_608_000.0, 1_206_000.0),
+            Coord::new(2_608_000.0, 1_220_000.0),
+            Coord::new(2_600_000.0, 1_220_000.0),
+            Coord::new(2_600_000.0, 1_200_000.0),
+        ];
+        let hole = vec![
+            Coord::new(2_602_000.0, 1_202_000.0),
+            Coord::new(2_602_000.0, 1_205_000.0),
+            Coord::new(2_605_000.0, 1_205_000.0),
+            Coord::new(2_605_000.0, 1_202_000.0),
+            Coord::new(2_602_000.0, 1_202_000.0),
+        ];
+        let polygon = vec![outer, hole];
+
+        let cached = PolygonMask::new(vec![polygon.clone()]);
+        let reference = PolygonMask::new(vec![polygon]);
+
+        // Sample finely enough to land inside cells, on boundaries, and outside.
+        let mut checked = 0;
+        let mut n = 1_199_000.0;
+        while n <= 1_221_000.0 {
+            let mut e = 2_599_000.0;
+            while e <= 2_621_000.0 {
+                let p = Coord::new(e, n);
+                // Ask the cached mask twice: the second call takes the cached path.
+                let first = cached.contains(p);
+                let second = cached.contains(p);
+                let slow = {
+                    // A fresh mask has an empty cache, so this is always the full test.
+                    PolygonMask::new(reference.polygons.clone()).contains(p)
+                };
+                assert_eq!(first, slow, "at {e},{n}");
+                assert_eq!(second, slow, "cached answer differs at {e},{n}");
+                checked += 1;
+                e += 700.0;
+            }
+            n += 700.0;
+        }
+        assert!(checked > 900, "only {checked} points checked");
+    }
+
+    /// The second pass over the same points must be much faster than the first.
+    #[test]
+    fn caching_actually_saves_work_on_a_dense_polygon() {
+        // A circle approximated by many segments, like a real boundary.
+        let ring: Vec<Coord> = (0..=4_000)
+            .map(|i| {
+                let a = i as f64 / 4_000.0 * std::f64::consts::TAU;
+                Coord::new(2_610_000.0 + 9_000.0 * a.cos(), 1_210_000.0 + 9_000.0 * a.sin())
+            })
+            .collect();
+        let mask = PolygonMask::new(vec![vec![ring]]);
+
+        let probe = |mask: &PolygonMask| {
+            let started = std::time::Instant::now();
+            let mut inside = 0;
+            let mut n = 1_201_000.0;
+            while n < 1_219_000.0 {
+                let mut e = 2_601_000.0;
+                while e < 2_619_000.0 {
+                    if mask.contains(Coord::new(e, n)) {
+                        inside += 1;
+                    }
+                    e += 250.0;
+                }
+                n += 250.0;
+            }
+            (inside, started.elapsed())
+        };
+
+        let (first_inside, cold) = probe(&mask);
+        let (second_inside, warm) = probe(&mask);
+
+        assert_eq!(first_inside, second_inside, "the answer must not change");
+        assert!(first_inside > 1_000, "expected many points inside the circle");
+        assert!(
+            warm < cold / 2,
+            "cache saved nothing: cold {cold:?}, warm {warm:?}"
+        );
     }
 }

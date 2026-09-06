@@ -31,18 +31,18 @@ From 16 real builds on an Edge 840, listed in `estimator/training-samples.jsonl`
 | Term | Prior | Fitted | Unit |
 |---|---:|---:|---|
 | intercept | 48 000 | 48 000 | bytes |
-| landCover | 14 | 111.7 | bytes/feature |
-| water | 12 | 97.1 | bytes/feature |
-| transport | 18 | 22.0 | bytes/feature |
-| built | 9 | 7.2 | bytes/feature |
+| landCover | 14 | 109.3 | bytes/feature |
+| water | 12 | 96.2 | bytes/feature |
+| transport | 18 | 22.2 | bytes/feature |
+| built | 9 | 6.6 | bytes/feature |
 | names | 26 | 0.0 | bytes/feature |
-| winter | 16 | 21.1 | bytes/feature |
+| winter | 16 | 13.3 | bytes/feature |
 | cycling | 16 | 0.0 | bytes/feature |
-| contour | 1 900 | 1 879.8 | bytes/km² at 20 m |
-| relief 1″ | 760 | 766.4 | bytes/km² |
-| relief 3″ | 150 | 157.5 | bytes/km² |
+| contour | 1 900 | 1 881.7 | bytes/km² at 20 m |
+| relief 1″ | 760 | 765.7 | bytes/km² |
+| relief 3″ | 150 | 159.3 | bytes/km² |
 
-**In-sample error 5.9 %, leave-one-out error 7.3 %, worst single residual 24.1 %** —
+**In-sample error 5.8 %, leave-one-out error 7.3 %, worst single residual 22.6 %** —
 inside the ±25 % FR-60 asks for, but only just at the worst point.
 
 ## Why ridge regression, and why cross-validation chooses its strength
@@ -59,15 +59,15 @@ regularisation:
 
 | λ | leave-one-out error |
 |---:|---:|
-| 0 | 39.3 % |
-| 10³ | 39.8 % |
-| 10⁴ | 24.7 % |
-| 10⁵ | 13.2 % |
-| 10⁶ | 11.0 % |
+| 0 | 27.6 % |
+| 10³ | 23.4 % |
+| 10⁴ | 16.1 % |
+| 10⁵ | 11.3 % |
+| 10⁶ | 8.5 % |
 | **10⁷** | **7.3 %** |
-| 10⁸ | 9.8 % |
+| 10⁸ | 9.7 % |
 | 10⁹ | 19.3 % |
-| 10¹¹ | 25.8 % |
+| 10¹¹ | 25.7 % |
 
 At the selected λ the coefficients are also physically ordered: 1″ relief costs about
 five times 3″ relief per km², which is what the data should say and what the
@@ -102,3 +102,39 @@ Alpine-calibrated model.
 - **R-tree counts are bbox-overlap counts**, slightly more than the features a build
   keeps. Since the same counts are used for training and for prediction, this biases
   the coefficients rather than the estimates.
+
+---
+
+# Build time
+
+The same 16 builds are timed per stage, which seeds the "time remaining" figure
+(FR-70a, FR-70b). Durations ranged **21 s to 126 s, median 61 s**.
+
+| Stage | Mean share | Min | Max |
+|---|---:|---:|---:|
+| extract | 3.7 % | 0.6 % | 11.1 % |
+| elevation | 32.5 % | 5.6 % | 66.6 % |
+| contours | 43.4 % | 8.3 % | 74.6 % |
+| relief | 0.7 % | 0.0 % | 3.0 % |
+| split | 5.6 % | 1.7 % | 16.4 % |
+| compile | 14.1 % | 5.8 % | 33.8 % |
+| verify | 0.0 % | 0.0 % | 0.1 % |
+
+These are **cold-cache** figures: the elevation cache had been cleared, so every area
+downloaded its own tiles. That is the case worth seeding, because it is the slow one and
+the one a first-time user meets. On a warm cache the shape is completely different —
+three repeat builds of the same area measured contours at 82 % and elevation at 4 % —
+which is why the spread above is so wide and why the estimate does two things rather
+than trusting the seed:
+
+1. It re-extrapolates from elapsed time and the weighted fraction as the build proceeds,
+   so it converges even when the seed is wrong for this machine.
+2. `stage_weights` replaces the seed entirely once the local calibration log has samples,
+   so a user who rebuilds the same areas ends up with warm-cache weights.
+
+The weights are averaged as fractions of each build rather than as raw seconds, so one
+126 s build does not outvote five 25 s ones: they describe shape, not duration.
+
+`the_seed_weights_are_reproducible_from_the_shipped_training_data` recomputes the shipped
+constant from `estimator/training-samples.jsonl`, so the table above cannot drift from
+the constant it documents.

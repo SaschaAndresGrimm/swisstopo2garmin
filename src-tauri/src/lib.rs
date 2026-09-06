@@ -53,6 +53,8 @@ pub fn run() {
             ipc::clear_elevation_cache,
             ipc::clear_build_files,
             ipc::import_track,
+            ipc::list_admin_units,
+            ipc::admin_extent,
             ipc::lv95_line_to_wgs84,
             ipc::start_build,
             ipc::plan_install,

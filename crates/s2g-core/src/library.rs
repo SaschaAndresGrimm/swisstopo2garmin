@@ -111,6 +111,20 @@ pub fn list(dir: &Path) -> Vec<SavedRecipe> {
                     crate::recipe::AreaSelection::Corridor {
                         name, buffer_km, ..
                     } => format!("{name} · ±{buffer_km:.1} km"),
+                    crate::recipe::AreaSelection::AdminUnits {
+                        names, buffer_km, ..
+                    } => {
+                        let listed = match names.len() {
+                            0 => "—".to_string(),
+                            1..=2 => names.join(", "),
+                            n => format!("{}, +{}", names[0], n - 1),
+                        };
+                        if *buffer_km > 0.0 {
+                            format!("{listed} · +{buffer_km:.1} km")
+                        } else {
+                            listed
+                        }
+                    }
                 },
                 area_km2: bbox.area_km2(),
                 name: recipe.name,

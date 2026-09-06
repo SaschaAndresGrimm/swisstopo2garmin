@@ -216,7 +216,7 @@ pub async fn build(
     let mut builder = RegionBuilder::create(&pbf, &bbox)?;
     // A corridor or administrative unit is not a rectangle: the bbox is the cheap
     // first cut and the mask decides what actually survives it.
-    if let Some(mask) = recipe.area.mask() {
+    if let Some(mask) = recipe.area.mask(&ctx.cache_root)? {
         builder = builder.with_mask(mask);
     }
     let excluded = &recipe.excluded_layers;

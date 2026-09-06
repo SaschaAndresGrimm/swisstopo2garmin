@@ -324,38 +324,38 @@ impl CalibrationLog {
 
 /// Fraction of a build's time spent in each stage, in [`crate::pipeline::Stage`] order.
 ///
-/// **Provenance, and its limits.** Measured from three Grindelwald 6 km builds with a
-/// warm elevation cache and relief off (docs/size-model.md), which is all the timed
-/// build data there is so far. That makes them a poor guide to a *first* build of an
-/// area, where fetching elevation tiles dominates and contours do not: on a cold cache
-/// the elevation stage has been observed to take longer than everything else together.
+/// Measured from the 16 builds in `estimator/training-samples.jsonl` — the same set the
+/// size model is fitted on — with a **cold** elevation cache, which is the case worth
+/// seeding: on a warm cache contours dominate instead, and that is the case the estimate
+/// corrects itself into within seconds.
 ///
-/// They are therefore a seed, not a claim. Two things correct for it: the estimate
-/// re-extrapolates from elapsed time as the build proceeds, so it converges even when
-/// these weights are wrong, and [`stage_weights`] replaces them with the user's own
-/// builds as soon as the calibration log has any.
+/// Builds ranged 21 s to 126 s, median 61 s. The spread per stage is wide, which is the
+/// point of refitting from the local log:
 ///
-/// The three runs, in seconds:
-///
-/// | stage | run 1 | run 2 | run 3 |
+/// | stage | mean | min | max |
 /// |---|---:|---:|---:|
-/// | extract | 0.6 | 0.6 | 0.5 |
-/// | elevation | 1.1 | 1.2 | 1.0 |
-/// | contours | 24.7 | 25.5 | 25.2 |
-/// | relief | 0.0 | 0.0 | 0.0 |
-/// | split | 1.0 | 1.1 | 0.9 |
-/// | compile | 2.7 | 2.7 | 2.7 |
-/// | verify | 0.1 | 0.1 | 0.1 |
-/// Averaged as fractions of each run, exactly as [`stage_weights`] averages the
-/// calibration log, so a measured seed and a refitted one mean the same thing.
+/// | extract | 0.037 | 0.006 | 0.111 |
+/// | elevation | 0.325 | 0.056 | 0.666 |
+/// | contours | 0.434 | 0.083 | 0.746 |
+/// | relief | 0.007 | 0.000 | 0.030 |
+/// | split | 0.056 | 0.017 | 0.164 |
+/// | compile | 0.141 | 0.058 | 0.338 |
+/// | verify | 0.000 | 0.000 | 0.001 |
+///
+/// Two things correct for a seed that does not match a given machine: the estimate
+/// re-extrapolates from elapsed time as the build proceeds, and [`stage_weights`]
+/// replaces these entirely once the user's calibration log has samples of its own.
+///
+/// Averaged as fractions of each build, exactly as [`stage_weights`] averages the log,
+/// so a measured seed and a refitted one mean the same thing.
 pub const DEFAULT_STAGE_WEIGHTS: [f64; 7] = [
-    0.0185, // extract
-    0.0359, // elevation
-    0.8214, // contours
-    0.0000, // relief -- off in all three runs, so unmeasured rather than free
-    0.0327, // split
-    0.0883, // compile
-    0.0033, // verify
+    0.0372, // extract
+    0.3254, // elevation
+    0.4336, // contours
+    0.0068, // relief
+    0.0558, // split
+    0.1411, // compile
+    0.0001, // verify
 ];
 
 /// Stage names in the order [`DEFAULT_STAGE_WEIGHTS`] uses.
@@ -831,27 +831,26 @@ mod tests {
         assert!(DEFAULT_STAGE_WEIGHTS.iter().all(|w| *w >= 0.0));
     }
 
-    /// Contours dominate a warm-cache build, which is what the seed was measured on.
-    /// If this ever stops holding, the doc comment's provenance is stale.
+    /// The constant must be exactly what the shipped training data produces.
+    ///
+    /// It is a measurement, so it has to be reproducible from the data it was measured
+    /// from — otherwise the doc comment above becomes a claim nobody can check.
     #[test]
-    fn the_seed_weights_match_the_runs_they_document() {
-        let runs: [[f64; 7]; 3] = [
-            [0.6, 1.1, 24.7, 0.0, 1.0, 2.7, 0.1],
-            [0.6, 1.2, 25.5, 0.0, 1.1, 2.7, 0.1],
-            [0.5, 1.0, 25.2, 0.0, 0.9, 2.7, 0.1],
-        ];
-        let samples: Vec<Sample> = runs
-            .iter()
-            .map(|r| {
-                timed(
-                    &STAGE_NAMES
-                        .iter()
-                        .zip(r.iter())
-                        .map(|(n, v)| (*n, *v))
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .collect();
+    fn the_seed_weights_are_reproducible_from_the_shipped_training_data() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../estimator/training-samples.jsonl");
+        let samples = CalibrationLog::read(&path);
+        assert!(
+            samples.len() >= 16,
+            "expected the shipped training set, found {} samples at {}",
+            samples.len(),
+            path.display()
+        );
+        assert!(
+            samples.iter().all(|s| !s.stage_seconds.is_empty()),
+            "every training sample must carry stage timings"
+        );
+
         let derived = stage_weights(&samples);
         for (i, (a, b)) in derived.iter().zip(DEFAULT_STAGE_WEIGHTS.iter()).enumerate() {
             assert!(

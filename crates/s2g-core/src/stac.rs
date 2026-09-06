@@ -18,6 +18,9 @@ pub const ALTIREGIO: &str = "ch.swisstopo.swissaltiregio";
 pub const WANDERWEGE: &str = "ch.swisstopo.swisstlm3d-wanderwege";
 pub const TLMREGIO: &str = "ch.swisstopo.swisstlmregio";
 
+/// Administrative boundaries: cantons, districts and communes (SPEC.md FR-33).
+pub const BOUNDARIES: &str = "ch.swisstopo.swissboundaries3d";
+
 // Winter sport routes, for the skimo content preset. All three are GeoPackage, so the
 // existing reader handles them with no new parser.
 pub const SKITOUREN: &str = "ch.swisstopo-karto.skitouren";

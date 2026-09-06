@@ -92,6 +92,26 @@ pub enum AreaSelection {
         northing: f64,
     },
 
+    /// One or more administrative units, optionally buffered (SPEC.md FR-33, FR-34).
+    ///
+    /// Stores the unit *numbers*, not their geometry: `bfs_nummer` and `kantonsnummer`
+    /// are stable across releases while names are not, and a canton boundary is 14,000
+    /// points that would bloat every saved recipe. The geometry is resolved from
+    /// swissBOUNDARIES3D at build time. The extent is stored, though, so the area and
+    /// size estimate need no file access while the wizard is open.
+    #[serde(rename_all = "camelCase")]
+    AdminUnits {
+        level: crate::boundaries::AdminLevel,
+        numbers: Vec<i64>,
+        /// For display only; the numbers are the identity.
+        names: Vec<String>,
+        buffer_km: f64,
+        min_e: f64,
+        min_n: f64,
+        max_e: f64,
+        max_n: f64,
+    },
+
     /// A corridor around an imported GPX or FIT track (SPEC.md FR-38, FR-39).
     ///
     /// Points are LV95 and already simplified: a corridor is kilometres wide, so metre
@@ -107,8 +127,11 @@ pub enum AreaSelection {
 
 impl AreaSelection {
     /// The shape features must intersect, when the selection is not a rectangle.
-    pub fn mask(&self) -> Option<crate::mask::Mask> {
-        match self {
+    ///
+    /// Takes the cache root because an administrative selection stores unit numbers
+    /// rather than geometry, and the geometry lives in swissBOUNDARIES3D.
+    pub fn mask(&self, cache_root: &std::path::Path) -> crate::error::Result<Option<crate::mask::Mask>> {
+        Ok(match self {
             AreaSelection::Corridor {
                 buffer_km, points, ..
             } => Some(crate::mask::Mask::corridor(
@@ -118,8 +141,20 @@ impl AreaSelection {
                     .collect()],
                 buffer_km * 1000.0,
             )),
+            AreaSelection::AdminUnits {
+                level,
+                numbers,
+                buffer_km,
+                ..
+            } => {
+                let polys = crate::boundaries::load_geometry(cache_root, *level, numbers)?;
+                Some(crate::mask::Mask::polygons_buffered(
+                    polys,
+                    buffer_km * 1000.0,
+                ))
+            }
             _ => None,
-        }
+        })
     }
 
     pub fn bbox(&self) -> BBox {
@@ -137,10 +172,32 @@ impl AreaSelection {
                 ..
             } => BBox::from_center(*easting, *northing, radius_km * 1000.0),
             // The corridor's own extent already includes the buffer.
-            AreaSelection::Corridor { .. } => self
-                .mask()
-                .map(|m| m.bbox())
-                .unwrap_or_else(|| BBox::new(0.0, 0.0, 0.0, 0.0)),
+            AreaSelection::Corridor {
+                points, buffer_km, ..
+            } => {
+                let m = buffer_km * 1000.0;
+                let (mut e0, mut n0, mut e1, mut n1) =
+                    (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+                for p in points {
+                    e0 = e0.min(p[0]);
+                    n0 = n0.min(p[1]);
+                    e1 = e1.max(p[0]);
+                    n1 = n1.max(p[1]);
+                }
+                if points.is_empty() {
+                    BBox::new(0.0, 0.0, 0.0, 0.0)
+                } else {
+                    BBox::new(e0 - m, n0 - m, e1 + m, n1 + m)
+                }
+            }
+            // Resolved when the units were chosen, so this needs no file access.
+            AreaSelection::AdminUnits {
+                min_e,
+                min_n,
+                max_e,
+                max_n,
+                ..
+            } => BBox::new(*min_e, *min_n, *max_e, *max_n),
         }
     }
 
@@ -150,6 +207,24 @@ impl AreaSelection {
     /// corridor build be served from another's cached stages.
     pub fn shape_digest(&self) -> u64 {
         match self {
+            AreaSelection::AdminUnits {
+                level,
+                numbers,
+                buffer_km,
+                ..
+            } => {
+                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                for b in level.id().bytes().chain(
+                    numbers
+                        .iter()
+                        .flat_map(|n| n.to_le_bytes())
+                        .chain(buffer_km.to_bits().to_le_bytes()),
+                ) {
+                    h ^= b as u64;
+                    h = h.wrapping_mul(0x1000_0000_01b3);
+                }
+                h
+            }
             AreaSelection::Corridor { points, .. } => {
                 // FNV-1a over the coordinate bits. Not cryptographic; it only has to
                 // separate two tracks a user might build on the same day.
