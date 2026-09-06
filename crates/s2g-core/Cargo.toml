@@ -1,0 +1,35 @@
+[package]
+name = "s2g-core"
+description = "swisstopo2garmin: data acquisition and map build pipeline"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+reqwest.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+bytes.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+flate2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+fs4 = "0.13"   # free-space query; std has none and we forbid unsafe
+
+[dev-dependencies]
+# Integration tests in tests/ are separate crates, so cfg(test) does not reach the
+# `testing` module. A self dev-dependency with the feature enabled is Cargo's idiom.
+s2g-core = { path = ".", features = ["testing"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time", "test-util"] }
+tempfile = "3"
+
+[features]
+testing = []

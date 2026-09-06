@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = ["crates/s2g-core", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/SaschaAndresGrimm/swisstopo2garmin"
+
+[workspace.dependencies]
+# HTTP. reqwest is the de-facto standard client and the only one with mature
+# HTTP range + streaming support; rustls avoids an OpenSSL build dependency.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time"] }
+futures-util = "0.3"
+bytes = "1"
+async-trait = "0.1"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+sha2 = "0.10"          # STAC file:checksum is a sha2-256 multihash
+hex = "0.4"
+flate2 = "1"           # streaming raw DEFLATE for zip members
+thiserror = "2"
+tracing = "0.1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+# Deny the lint classes that would let the "stream, never slurp" rule (NFR-2) slip.
+large_stack_arrays = "warn"
+needless_collect = "warn"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
