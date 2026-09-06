@@ -1,0 +1,33 @@
+{
+  "id": "generic-edge",
+  "displayName": "Other Garmin Edge",
+  "family": "edge",
+  "generation": null,
+  "matchModels": [],
+  "storage": {
+    "internalBytes": null,
+    "recommendedMapBudgetBytes": 2000000000,
+    "hasRemovableStorage": false
+  },
+  "mapFile": {
+    "maxImgBytes": 2147483647,
+    "maxTilesPerMapset": 2048,
+    "installPaths": ["/Garmin/"],
+    "requiresExactFilename": true,
+    "supportsMultipleMapsets": false
+  },
+  "rendering": {
+    "supportsTypFile": true,
+    "supportsRoutableMaps": true,
+    "supportsDem": false,
+    "displaysStreetNames": true,
+    "screenClass": "handlebar",
+    "recommendedMaxDetailLevel": "reduced"
+  },
+  "confidence": {
+    "level": "assumed",
+    "sources": [],
+    "lastVerified": null,
+    "notes": "Conservative fallback for an unlisted Edge, so an unknown model is never a dead end (FR-21). Every limit is a deliberate underestimate: 2 GB rather than 4, exact filename required, single mapset, no DEM."
+  }
+}

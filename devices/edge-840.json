@@ -1,0 +1,36 @@
+{
+  "id": "edge-840",
+  "displayName": "Garmin Edge 840 / 840 Solar",
+  "family": "edge",
+  "generation": 2023,
+  "matchModels": ["Edge 840", "Edge 840 Solar"],
+  "storage": {
+    "internalBytes": 32000000000,
+    "recommendedMapBudgetBytes": 4000000000,
+    "hasRemovableStorage": false
+  },
+  "mapFile": {
+    "maxImgBytes": 4294967295,
+    "maxTilesPerMapset": 4096,
+    "installPaths": ["/Garmin/", "/Garmin/Maps/"],
+    "requiresExactFilename": false,
+    "supportsMultipleMapsets": true
+  },
+  "rendering": {
+    "supportsTypFile": true,
+    "supportsRoutableMaps": true,
+    "supportsDem": true,
+    "displaysStreetNames": true,
+    "screenClass": "handlebar",
+    "recommendedMaxDetailLevel": "full"
+  },
+  "confidence": {
+    "level": "community",
+    "sources": [
+      "https://www.dcrainmaker.com/2019/08/how-to-install-free-maps-on-your-garmin-edge.html",
+      "https://community.openstreetmap.org/t/splitting-img-files-into-multiple-smaller-files/95508"
+    ],
+    "lastVerified": "2026-09-06",
+    "notes": "A map built by this project renders on this device (Milestone 0 gate). Rendering, mixed-case labels and Swiss characters are confirmed. maxImgBytes, maxTilesPerMapset and supportsDem are NOT measured: the size and tile ceilings are inferred from Edge 530 reports, and DEM shading is unverified. See docs/device-verification.md section B."
+  }
+}

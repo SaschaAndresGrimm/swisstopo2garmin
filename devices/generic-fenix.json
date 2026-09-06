@@ -1,0 +1,35 @@
+{
+  "id": "generic-fenix",
+  "displayName": "Other Garmin watch (fenix / epix / Forerunner / MARQ)",
+  "family": "wrist",
+  "generation": null,
+  "matchModels": [],
+  "storage": {
+    "internalBytes": null,
+    "recommendedMapBudgetBytes": 1000000000,
+    "hasRemovableStorage": false
+  },
+  "mapFile": {
+    "maxImgBytes": 2147483647,
+    "maxTilesPerMapset": 2048,
+    "installPaths": ["/Garmin/"],
+    "requiresExactFilename": true,
+    "supportsMultipleMapsets": false
+  },
+  "rendering": {
+    "supportsTypFile": true,
+    "supportsRoutableMaps": true,
+    "supportsDem": false,
+    "displaysStreetNames": false,
+    "screenClass": "wrist",
+    "recommendedMaxDetailLevel": "reduced"
+  },
+  "confidence": {
+    "level": "assumed",
+    "sources": [
+      "https://community.openstreetmap.org/t/garmin-osm-maps-for-fenix-tactix-etc/65845"
+    ],
+    "lastVerified": null,
+    "notes": "Conservative fallback for a wrist device. The widely repeated 20 MB limit comes from fenix 3-era hardware and does NOT apply to modern watches, which ship multi-gigabyte TopoActive maps from the factory; it is deliberately not encoded here. screenClass=wrist selects the reduced cartography variant (FR-CART6)."
+  }
+}
