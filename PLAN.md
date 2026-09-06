@@ -435,6 +435,13 @@ and leaves a clean state.
 | 5. Build step | **done** | Seven stages with weighted progress, remaining time and elapsed, bounded live log, cancellation that kills the java children. |
 | 6. Install step | **done** | Device identity, free space, plan shown before writing, overwrite confirmation with backup, eject reminder. |
 | 7. Accessibility and theming | **partial** | Light/dark from the OS, focus rings, selected state carried by border as well as colour, progress bars carry ARIA. No screen-reader pass and no keyboard-only walkthrough yet. |
+| Build manifest (FR-71) | **done** | Written beside every output: releases with checksums, tool versions, stage timings, per-layer counts, output hash, attribution. |
+| Stage caching (FR-72) | **done** | The region PBF is reused when only the device, colour scheme, relief or TYP changed: 33.1 s to 5.3 s on the same area. |
+| Failure presentation (FR-73) | **done** | Recognised failures explained with what to do; unrecognised ones say so rather than guess. Copy-diagnostics included. |
+| Build priority (FR-74) | **partial** | Below-normal via `nice` on Unix. Windows needs a job object and is untouched; the code says so rather than pretending. Configurable thread count not implemented. |
+| Device limit overrides (FR-DEV3) | **done** | Stored in settings, not in the profiles, so an app update cannot discard them. An override replaces the confidence too, since a measurement should not carry a guess's safety margin. |
+| Export to folder (FR-83) | **done** | Always offered, with the folder and exact filename the device expects. |
+| Install verification (FR-82) | **done** | Re-hashed from the device; a mismatch removes the file rather than leaving it to load. |
 | Cartography — winter scheme (FR-CART11) | **done** | Measured from swisstopo's Winter national map, TYP-only, independent of the preset. |
 | Data location (FR-C4, FR-C5) | **done** | Chosen before the first download, with free space, a writability check, and space accounted by bucket. |
 | Build progress and cancellation (FR-70a…c) | **done** | Weighted progress, remaining time, and cancellation that kills the java children. |

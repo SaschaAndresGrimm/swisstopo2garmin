@@ -9,10 +9,12 @@ export type {
   AreaInfo,
   AreaQuery,
   BuildFinished,
+  BuildFailure,
   BuildProgress,
   CacheStatus,
   ConnectedDevice,
   DataLocation,
+  DeviceOverrideInfo,
   DatasetEntry,
   DeviceSummary,
   InstallInstructions,
@@ -85,6 +87,11 @@ export const SOURCES = [
 
 export const api = {
   listDevices: () => invoke<import("./bindings").DeviceSummary[]>("list_devices"),
+  deviceOverride: (deviceId: string) =>
+    invoke<import("./bindings").DeviceOverrideInfo>("device_override", { deviceId }),
+  /** `null` clears the override and restores the shipped limits. */
+  setDeviceOverride: (deviceId: string, value: import("./bindings").DeviceOverrideInfo | null) =>
+    invoke<void>("set_device_override", { deviceId, value }),
   detectDevices: () => invoke<import("./bindings").ConnectedDevice[]>("detect_devices"),
   /** Garmin devices on the USB bus, including ones not mounted as a filesystem. */
   usbDevices: () => invoke<import("./bindings").UsbDeviceInfo[]>("usb_devices"),
@@ -162,12 +169,15 @@ export function onBuildEvents(handlers: {
   progress?: (p: import("./bindings").BuildProgress) => void;
   done?: (d: import("./bindings").BuildFinished) => void;
   error?: (e: TaskError) => void;
+  /** The interpreted failure (FR-73); arrives alongside `error`. */
+  failed?: (f: import("./bindings").BuildFailure) => void;
   onFailure?: (reason: string) => void;
 }): Promise<UnlistenFn[]> {
   return Promise.all([
     listen<import("./bindings").BuildProgress>("build:progress", (e) => handlers.progress?.(e.payload)),
     listen<import("./bindings").BuildFinished>("build:done", (e) => handlers.done?.(e.payload)),
     listen<TaskError>("build:error", (e) => handlers.error?.(e.payload)),
+    listen<import("./bindings").BuildFailure>("build:failed", (e) => handlers.failed?.(e.payload)),
   ]).catch((reason) => {
     const msg = `cannot subscribe to build events: ${String(reason)}`;
     console.error(msg);

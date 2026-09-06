@@ -15,12 +15,46 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
+/// A user's override of a device profile's limits (SPEC.md FR-DEV3).
+///
+/// Every shipped limit carries a confidence level, and most are `community` or
+/// `assumed` — someone who has measured their own device should be able to say so, and
+/// keep saying it across app updates. Overrides live in the settings file, not in
+/// `devices/*.json`, precisely so an update that rewrites the profiles cannot silently
+/// discard them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceOverride {
+    /// Recommended budget for map data, in bytes.
+    #[serde(default)]
+    pub map_budget_bytes: Option<u64>,
+    /// Hard ceiling for a single `.img`.
+    #[serde(default)]
+    pub max_img_bytes: Option<u64>,
+    #[serde(default)]
+    pub max_tiles_per_mapset: Option<usize>,
+    /// Free text: how this was measured, so a number is never anonymous.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+impl DeviceOverride {
+    pub fn is_empty(&self) -> bool {
+        self.map_budget_bytes.is_none()
+            && self.max_img_bytes.is_none()
+            && self.max_tiles_per_mapset.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// Where datasets and build working files live. `None` means the default.
     #[serde(default)]
     pub data_root: Option<PathBuf>,
+    /// Per-device limit overrides, keyed by profile id.
+    #[serde(default)]
+    pub device_overrides: std::collections::BTreeMap<String, DeviceOverride>,
 }
 
 /// Where the settings file itself lives.
@@ -136,6 +170,7 @@ mod tests {
         let path = dir.path().join("nested").join("settings.json");
         let s = Settings {
             data_root: Some(PathBuf::from("/Volumes/Maps/s2g")),
+            ..Default::default()
         };
         s.save_to(&path).unwrap();
         assert_eq!(Settings::load_from(&path), s);
@@ -153,11 +188,13 @@ mod tests {
         let path = dir.path().join("settings.json");
         Settings {
             data_root: Some(PathBuf::from("/first")),
+            ..Default::default()
         }
         .save_to(&path)
         .unwrap();
         Settings {
             data_root: Some(PathBuf::from("/second")),
+            ..Default::default()
         }
         .save_to(&path)
         .unwrap();

@@ -89,6 +89,22 @@ pub struct TaskDone {
     pub path: String,
 }
 
+/// A build failure, interpreted (SPEC.md FR-73).
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct BuildFailure {
+    pub task_id: String,
+    /// One sentence naming what failed.
+    pub summary: String,
+    /// What to do about it, when there is something specific to say.
+    pub suggestion: Option<String>,
+    /// False when the cause was not recognised, so the UI can say so plainly.
+    pub recognised: bool,
+    /// The raw error, for the details pane and for copy-diagnostics.
+    pub detail: String,
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
 #[serde(rename_all = "camelCase")]
@@ -463,6 +479,84 @@ use s2g_core::recipe::{Preset, Recipe, ReliefDetail};
 
 /// Directory holding the app's data files. In development this is the repo; in a
 /// bundle it is the resource directory.
+/// A user's override of one device's limits (SPEC.md FR-DEV3).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceOverrideInfo {
+    #[ts(type = "number | null")]
+    pub map_budget_bytes: Option<u64>,
+    #[ts(type = "number | null")]
+    pub max_img_bytes: Option<u64>,
+    pub max_tiles_per_mapset: Option<usize>,
+    pub note: Option<String>,
+}
+
+#[tauri::command]
+pub fn device_override(device_id: String) -> IpcResult<DeviceOverrideInfo> {
+    let o = s2g_core::settings::Settings::load()
+        .device_overrides
+        .get(&device_id)
+        .cloned()
+        .unwrap_or_default();
+    Ok(DeviceOverrideInfo {
+        map_budget_bytes: o.map_budget_bytes,
+        max_img_bytes: o.max_img_bytes,
+        max_tiles_per_mapset: o.max_tiles_per_mapset,
+        note: o.note,
+    })
+}
+
+/// Record limits the user has measured, or clear them.
+///
+/// Stored in the settings file rather than in `devices/*.json`, so an app update that
+/// ships new profiles cannot silently discard them (FR-DEV3).
+#[tauri::command]
+pub fn set_device_override(
+    device_id: String,
+    value: Option<DeviceOverrideInfo>,
+) -> IpcResult<()> {
+    let mut settings = s2g_core::settings::Settings::load();
+    match value {
+        None => {
+            settings.device_overrides.remove(&device_id);
+        }
+        Some(v) => {
+            let o = s2g_core::settings::DeviceOverride {
+                map_budget_bytes: v.map_budget_bytes,
+                max_img_bytes: v.max_img_bytes,
+                max_tiles_per_mapset: v.max_tiles_per_mapset,
+                note: v.note,
+            };
+            if o.is_empty() {
+                settings.device_overrides.remove(&device_id);
+            } else {
+                settings.device_overrides.insert(device_id, o);
+            }
+        }
+    }
+    settings.save().map_err(|e| e.to_string())
+}
+
+/// Device profiles with the user's measured overrides applied (SPEC.md FR-DEV3).
+///
+/// Every caller goes through here rather than `devices::load_profiles` directly: an
+/// override that applied on one screen and not another would look like a bug in the
+/// override, and be very hard to see.
+fn profiles() -> Result<Vec<DeviceProfile>, String> {
+    let overrides = s2g_core::settings::Settings::load().device_overrides;
+    Ok(
+        devices::load_profiles(&resource_root().join("devices"))
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|p| match overrides.get(&p.id) {
+                Some(o) => p.with_override(o),
+                None => p,
+            })
+            .collect(),
+    )
+}
+
 fn resource_root() -> PathBuf {
     if let Ok(p) = std::env::var("S2G_ROOT") {
         return PathBuf::from(p);
@@ -529,7 +623,7 @@ fn summarise(p: &DeviceProfile, connected: bool) -> DeviceSummary {
 #[tauri::command]
 pub fn list_devices() -> IpcResult<Vec<DeviceSummary>> {
     let profiles =
-        devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
+        profiles()?;
     let detected = devices::detect();
     Ok(profiles
         .iter()
@@ -581,7 +675,7 @@ pub struct UsbDeviceInfo {
 #[tauri::command]
 pub fn usb_devices() -> IpcResult<Vec<UsbDeviceInfo>> {
     let profiles =
-        devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
+        profiles()?;
     let mounted = devices::detect();
     Ok(devices::usb_devices()
         .into_iter()
@@ -623,7 +717,7 @@ fn looks_wrist(model: &str) -> bool {
 #[tauri::command]
 pub fn detect_devices() -> IpcResult<Vec<ConnectedDevice>> {
     let profiles =
-        devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
+        profiles()?;
     Ok(devices::detect()
         .into_iter()
         .map(|d| {
@@ -1308,7 +1402,7 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
     } = query;
     let bbox = BBox::new(min_e, min_n, max_e, max_n);
     let profiles =
-        devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
+        profiles()?;
     let profile = profiles.iter().find(|p| p.id == device_id);
     let budget = profile
         .map(|p| p.effective_budget_bytes())
@@ -1430,7 +1524,7 @@ pub async fn start_build(
     recipe: Recipe,
 ) -> IpcResult<String> {
     let root = resource_root();
-    let profiles = devices::load_profiles(&root.join("devices")).map_err(|e| e.to_string())?;
+    let profiles = profiles()?;
     let profile = profiles
         .iter()
         .find(|p| p.id == recipe.device_id)
@@ -1530,6 +1624,17 @@ pub async fn start_build(
             }
             Err(e) => {
                 eprintln!("build failed: {e}");
+                let d = s2g_core::diagnose::diagnose(&e);
+                let _ = app.emit(
+                    "build:failed",
+                    BuildFailure {
+                        task_id: id.clone(),
+                        summary: d.summary,
+                        suggestion: d.suggestion,
+                        recognised: d.recognised,
+                        detail: e.to_string(),
+                    },
+                );
                 let _ = app.emit(
                     "build:error",
                     TaskError {
@@ -1583,7 +1688,7 @@ pub fn plan_install(
     map_name: String,
 ) -> IpcResult<InstallPlan> {
     let profiles =
-        devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
+        profiles()?;
     let profile = profiles
         .iter()
         .find(|p| p.id == device_id)
@@ -1629,7 +1734,7 @@ pub struct InstallInstructions {
 #[tauri::command]
 pub fn install_instructions(device_id: String, map_name: String) -> IpcResult<InstallInstructions> {
     let profiles =
-        devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
+        profiles()?;
     let profile = profiles
         .iter()
         .find(|p| p.id == device_id)
@@ -1655,7 +1760,7 @@ pub async fn export_map(
     map_name: String,
 ) -> IpcResult<String> {
     let profiles =
-        devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
+        profiles()?;
     let profile = profiles
         .iter()
         .find(|p| p.id == device_id)

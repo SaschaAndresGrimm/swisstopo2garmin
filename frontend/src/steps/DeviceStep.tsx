@@ -3,6 +3,7 @@ import type React from "react";
 import { api, formatBytes } from "../state/api";
 import type { ConnectedDevice, DeviceSummary, UsbDeviceInfo } from "../state/api";
 import { UnmountedDevices } from "../components/UnmountedDevices";
+import { DeviceLimits } from "../components/DeviceLimits";
 import type { T } from "../i18n";
 
 /**
@@ -136,6 +137,10 @@ export function DeviceStep({
           </div>
         );
       })}
+
+      {selected && devices.find((d) => d.id === selected) && (
+        <DeviceLimits t={t} device={devices.find((d) => d.id === selected)!} />
+      )}
 
       {selected && (
         <details className="notes">

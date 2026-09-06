@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type React from "react";
 import { api, formatBytes, formatDuration, onBuildEvents } from "../state/api";
-import type { BuildFinished, BuildProgress, Recipe } from "../state/api";
+import type { BuildFailure, BuildFinished, BuildProgress, Recipe } from "../state/api";
 import type { T } from "../i18n";
 
 /** Build execution with per-stage progress and working cancellation (FR-70..FR-74). */
@@ -23,7 +23,9 @@ export function BuildStep({
   const [taskId, setTaskId] = useState<string | null>(null);
   const [result, setResult] = useState<BuildFinished | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<BuildFailure | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
 
   const append = useCallback((line: string) => {
     // Bounded: a long build would otherwise grow the DOM without limit.
@@ -47,6 +49,7 @@ export function BuildStep({
         setProgress(null);
         setTaskId(null);
       },
+      failed: setFailure,
       onFailure: setError,
     });
     return () => {
@@ -56,6 +59,7 @@ export function BuildStep({
 
   const start = async () => {
     setError(null);
+    setFailure(null);
     setResult(null);
     setLog([]);
     try {
@@ -194,8 +198,41 @@ export function BuildStep({
 
       {error && (
         <div className="notice error-box">
-          <strong>{t("build.failed")}</strong>
-          <p className="small mono">{error}</p>
+          <strong>{failure ? failure.summary : t("build.failed")}</strong>
+          {failure?.suggestion && <p className="small">{failure.suggestion}</p>}
+          {/* Said plainly rather than dressed up as an explanation. */}
+          {failure && !failure.recognised && (
+            <p className="muted small">{t("build.unrecognised")}</p>
+          )}
+          <details className="notes">
+            <summary>{t("build.details")}</summary>
+            <pre className="log">{failure?.detail ?? error}</pre>
+          </details>
+          <div className="row tight">
+            <button
+              type="button"
+              onClick={() => {
+                // Everything a bug report needs, in one paste.
+                const report = [
+                  `swisstopo2garmin build failure`,
+                  `device: ${recipe.deviceId}`,
+                  `preset: ${recipe.preset}  contours: ${recipe.contours.intervalM} m  relief: ${recipe.relief}`,
+                  `palette: ${recipe.palette}  slope: ${recipe.slopeClasses}`,
+                  `area: ${JSON.stringify(recipe.area)}`,
+                  ``,
+                  failure?.detail ?? error,
+                  ``,
+                  ...log.slice(-40),
+                ].join("\n");
+                void navigator.clipboard.writeText(report).then(
+                  () => setCopied(true),
+                  () => setCopied(false),
+                );
+              }}
+            >
+              {copied ? t("build.copied") : t("build.copyDiagnostics")}
+            </button>
+          </div>
         </div>
       )}
 

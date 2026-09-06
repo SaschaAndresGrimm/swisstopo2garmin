@@ -137,6 +137,32 @@ pub struct DeviceProfile {
 
 impl DeviceProfile {
     /// Budget to build against, after the safety margin for unverified limits.
+    /// Apply a user's measured limits to this profile (SPEC.md FR-DEV3).
+    ///
+    /// An override replaces the shipped number *and* its confidence: a user who has
+    /// measured their own device knows it better than the community report we ship, so
+    /// the safety factor for a guess should no longer apply.
+    pub fn with_override(mut self, o: &crate::settings::DeviceOverride) -> Self {
+        if o.is_empty() {
+            return self;
+        }
+        if let Some(v) = o.map_budget_bytes {
+            self.storage.recommended_map_budget_bytes = v;
+        }
+        if let Some(v) = o.max_img_bytes {
+            self.map_file.max_img_bytes = v;
+        }
+        if let Some(v) = o.max_tiles_per_mapset {
+            self.map_file.max_tiles_per_mapset = v;
+        }
+        self.confidence.level = Confidence::Measured;
+        self.confidence.notes = match &o.note {
+            Some(n) if !n.trim().is_empty() => format!("Measured by you: {n}"),
+            _ => "Measured by you.".to_string(),
+        };
+        self
+    }
+
     pub fn effective_budget_bytes(&self) -> u64 {
         (self.storage.recommended_map_budget_bytes as f64 * self.confidence.level.safety_factor())
             as u64

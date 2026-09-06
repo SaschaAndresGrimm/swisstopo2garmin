@@ -15,6 +15,7 @@ pub mod contour;
 pub mod datasets;
 pub mod dem;
 pub mod devices;
+pub mod diagnose;
 pub mod download;
 pub mod elevation;
 pub mod error;

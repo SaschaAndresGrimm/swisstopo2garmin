@@ -129,3 +129,92 @@ fn detection_is_safe_when_nothing_is_connected() {
         assert!(d.mount.exists());
     }
 }
+
+/// A measured override must replace the shipped guess, and its confidence with it.
+#[test]
+fn a_user_override_replaces_the_limit_and_its_confidence() {
+    use s2g_core::settings::DeviceOverride;
+
+    let profiles = load_profiles(&devices_dir()).unwrap();
+    let base = profiles
+        .iter()
+        .find(|p| p.id == "edge-840")
+        .expect("the edge-840 profile")
+        .clone();
+    let shipped_budget = base.effective_budget_bytes();
+
+    let overridden = base.clone().with_override(&DeviceOverride {
+        map_budget_bytes: Some(3_000_000_000),
+        max_img_bytes: None,
+        max_tiles_per_mapset: Some(2_000),
+        note: Some("filled it until the device refused".into()),
+    });
+
+    // A measured number carries no safety factor, so the effective budget is the number
+    // the user gave, not a discounted version of it.
+    assert_eq!(overridden.effective_budget_bytes(), 3_000_000_000);
+    assert_ne!(overridden.effective_budget_bytes(), shipped_budget);
+    assert_eq!(overridden.map_file.max_tiles_per_mapset, 2_000);
+    assert_eq!(overridden.confidence.level, Confidence::Measured);
+    assert!(
+        overridden.confidence.notes.contains("filled it until"),
+        "the note must survive: {}",
+        overridden.confidence.notes
+    );
+
+    // Limits not overridden keep the shipped value.
+    assert_eq!(overridden.map_file.max_img_bytes, base.map_file.max_img_bytes);
+}
+
+#[test]
+fn an_empty_override_changes_nothing_including_the_confidence() {
+    use s2g_core::settings::DeviceOverride;
+
+    let profiles = load_profiles(&devices_dir()).unwrap();
+    let base = profiles.iter().find(|p| p.id == "edge-840").unwrap().clone();
+    let same = base.clone().with_override(&DeviceOverride::default());
+
+    assert_eq!(same.effective_budget_bytes(), base.effective_budget_bytes());
+    assert_eq!(same.confidence.level, base.confidence.level);
+    assert_eq!(same.confidence.notes, base.confidence.notes);
+}
+
+/// Overrides live in the settings file so an app update cannot discard them.
+#[test]
+fn overrides_survive_a_settings_round_trip() {
+    use s2g_core::settings::{DeviceOverride, Settings};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let mut settings = Settings::default();
+    settings.device_overrides.insert(
+        "edge-840".into(),
+        DeviceOverride {
+            map_budget_bytes: Some(3_000_000_000),
+            max_img_bytes: None,
+            max_tiles_per_mapset: None,
+            note: Some("measured".into()),
+        },
+    );
+    settings.save_to(&path).unwrap();
+
+    let back = Settings::load_from(&path);
+    assert_eq!(back, settings);
+    assert_eq!(
+        back.device_overrides["edge-840"].map_budget_bytes,
+        Some(3_000_000_000)
+    );
+}
+
+/// A settings file written before overrides existed must still load.
+#[test]
+fn settings_without_overrides_still_load() {
+    use s2g_core::settings::Settings;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    std::fs::write(&path, br#"{"dataRoot": "/Volumes/Maps"}"#).unwrap();
+    let s = Settings::load_from(&path);
+    assert!(s.device_overrides.is_empty());
+    assert_eq!(s.data_root.unwrap().to_string_lossy(), "/Volumes/Maps");
+}

@@ -243,6 +243,35 @@ pub struct BuildOutput {
     pub bytes: u64,
 }
 
+/// Wrap a command so it runs at below-normal priority (SPEC.md FR-74).
+///
+/// Through `nice` rather than `setpriority`, because the workspace forbids unsafe code
+/// and a whole dependency for one syscall is not worth it. If `nice` is not there the
+/// command runs at normal priority: quietly slower is better than not building at all.
+///
+/// Windows is untouched. Lowering priority there needs a job object, and pretending
+/// otherwise would be worse than the honest gap.
+fn at_low_priority(cmd: Command) -> Command {
+    #[cfg(unix)]
+    {
+        let nice = ["/usr/bin/nice", "/bin/nice"]
+            .into_iter()
+            .find(|p| Path::new(p).is_file());
+        if let Some(nice) = nice {
+            let mut wrapped = Command::new(nice);
+            wrapped.arg("-n").arg("10").arg(cmd.get_program());
+            for a in cmd.get_args() {
+                wrapped.arg(a);
+            }
+            if let Some(dir) = cmd.get_current_dir() {
+                wrapped.current_dir(dir);
+            }
+            return wrapped;
+        }
+    }
+    cmd
+}
+
 /// Run a child process, killing it if the build is cancelled.
 ///
 /// `Command::output` blocks until the child exits, so a build cancelled during
@@ -252,9 +281,10 @@ pub struct BuildOutput {
 ///
 /// Both pipes are drained on their own threads: mkgmap is talkative, and a child whose
 /// stdout pipe fills up blocks forever, which would turn every large build into a hang.
-fn run(mut cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
+fn run(cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
     use std::io::Read;
 
+    let mut cmd = at_low_priority(cmd);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -491,6 +521,27 @@ pub fn compile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Below-normal priority must not change what a command does.
+    #[test]
+    fn low_priority_preserves_the_command_and_its_arguments() {
+        let mut original = Command::new("sh");
+        original.arg("-c").arg("echo hello");
+        let log = run(original, "echo", &Cancel::new()).unwrap();
+        assert!(log.contains("hello"), "{log}");
+
+        // And through the wrapper directly, so the argument order is checked even where
+        // `nice` is absent.
+        let mut c = Command::new("sh");
+        c.arg("-c").arg("echo wrapped");
+        let wrapped = at_low_priority(c);
+        let args: Vec<String> = wrapped
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert!(args.iter().any(|a| a == "echo wrapped"), "{args:?}");
+        assert!(args.iter().any(|a| a == "-c"), "{args:?}");
+    }
 
     /// A shell command, since `Command` builders borrow rather than move.
     fn cmd(script: &str) -> Command {

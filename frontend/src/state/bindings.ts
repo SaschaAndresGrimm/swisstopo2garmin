@@ -59,6 +59,27 @@ export type AreaQuery = { minE: number, minN: number, maxE: number, maxN: number
  */
 preset: string | null, contourM: number | null, relief: string | null, };
 
+/**
+ * A build failure, interpreted (SPEC.md FR-73).
+ */
+export type BuildFailure = { taskId: string, 
+/**
+ * One sentence naming what failed.
+ */
+summary: string, 
+/**
+ * What to do about it, when there is something specific to say.
+ */
+suggestion: string | null, 
+/**
+ * False when the cause was not recognised, so the UI can say so plainly.
+ */
+recognised: boolean, 
+/**
+ * The raw error, for the details pane and for copy-diagnostics.
+ */
+detail: string, };
+
 export type BuildFinished = { taskId: string, gmapsupp: string, bytes: number, tileCount: number, features: number, contourLines: number, hasDem: boolean, warnings: Array<string>, 
 /**
  * The manifest written beside the map (FR-71), when it could be written.
@@ -112,6 +133,13 @@ isDefault: boolean, freeBytes: number | null, usedBytes: number,
 datasetBytes: number, elevationBytes: number, buildBytes: number, otherBytes: number, exists: boolean, };
 
 export type DatasetEntry = { collection: string, item: string, file: string, bytes: number, inflated: boolean, fetchedAt: string | null, };
+
+/**
+ * Directory holding the app's data files. In development this is the repo; in a
+ * bundle it is the resource directory.
+ * A user's override of one device's limits (SPEC.md FR-DEV3).
+ */
+export type DeviceOverrideInfo = { mapBudgetBytes: number | null, maxImgBytes: number | null, maxTilesPerMapset: number | null, note: string | null, };
 
 export type DeviceSummary = { id: string, displayName: string, family: string, screenClass: string, 
 /**

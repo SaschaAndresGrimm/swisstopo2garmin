@@ -36,6 +36,8 @@ pub fn run() {
             ipc::cancel_task,
             ipc::remove_dataset,
             ipc::list_devices,
+            ipc::device_override,
+            ipc::set_device_override,
             ipc::detect_devices,
             ipc::usb_devices,
             ipc::list_presets,
