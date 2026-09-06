@@ -129,3 +129,105 @@ fn stages_are_ordered_and_labelled() {
         assert!(!s.label().is_empty());
     }
 }
+
+/// The wizard sends `kind: "bbox"`; serde's camelCase rule for the variant `BBox`
+/// produces `bBox`, so the tag has to be spelled out. This cost a failed build in the
+/// GUI that no Rust test would have caught, because Rust wrote and read the same name.
+#[test]
+fn an_area_selection_uses_the_tag_the_frontend_and_the_spec_use() {
+    use s2g_core::recipe::AreaSelection;
+
+    let json = r#"{"kind":"bbox","minE":2600000,"minN":1190000,"maxE":2610000,"maxN":1200000}"#;
+    let parsed: AreaSelection = serde_json::from_str(json).expect("the frontend's tag must parse");
+    assert!(matches!(parsed, AreaSelection::BBox { .. }));
+
+    // Round-tripping must produce that same tag, or a saved recipe would not reload.
+    let out = serde_json::to_string(&parsed).unwrap();
+    assert!(out.contains(r#""kind":"bbox""#), "{out}");
+
+    // Recipes written before the fix carry the camelCased tag.
+    let legacy = r#"{"kind":"bBox","minE":0,"minN":0,"maxE":1,"maxN":1}"#;
+    assert!(serde_json::from_str::<AreaSelection>(legacy).is_ok());
+
+    for tag in ["place", "corridor"] {
+        let body = match tag {
+            "place" => r#"{"kind":"place","name":"Bern","radiusKm":8,"easting":2600000,"northing":1200000}"#,
+            _ => r#"{"kind":"corridor","name":"t","bufferKm":5,"points":[[2600000,1200000]]}"#,
+        };
+        let v: AreaSelection = serde_json::from_str(body).expect(tag);
+        assert!(serde_json::to_string(&v).unwrap().contains(&format!(r#""kind":"{tag}""#)));
+    }
+}
+
+/// The full recipe exactly as `App.tsx` builds it.
+///
+/// The frontend's `Recipe` type is hand-written, so nothing but a test like this stops a
+/// Rust field rename from turning into a runtime IPC failure. Every field name below is
+/// copied from the frontend, not derived from the Rust struct.
+#[test]
+fn the_recipe_the_frontend_sends_deserialises_whole() {
+    use s2g_core::recipe::{Preset, Recipe, ReliefDetail};
+
+    let json = r#"{
+      "schemaVersion": 1,
+      "name": "Grindelwald 8 km",
+      "deviceId": "edge-840",
+      "area": {
+        "kind": "place",
+        "name": "Grindelwald",
+        "radiusKm": 8,
+        "easting": 2645921,
+        "northing": 1163748
+      },
+      "preset": "skimo",
+      "contours": { "intervalM": 20, "indexM": 100, "simplifyM": 8.0 },
+      "relief": "gentle",
+      "excludedLayers": ["tlm_bauten_gebaeude_footprint"]
+    }"#;
+
+    let r: Recipe = serde_json::from_str(json).expect("the frontend's recipe must parse");
+    assert_eq!(r.schema_version, 1);
+    assert_eq!(r.device_id, "edge-840");
+    assert_eq!(r.preset, Preset::Skimo);
+    assert_eq!(r.relief, ReliefDetail::Gentle);
+    assert_eq!(r.contours.interval_m, 20);
+    assert_eq!(r.contours.index_m, 100);
+    assert_eq!(r.contours.simplify_m, 8.0);
+    assert_eq!(r.excluded_layers, vec!["tlm_bauten_gebaeude_footprint"]);
+    assert_eq!(r.area.bbox().area_km2(), 256.0);
+
+    // And back out in the same spelling, so a saved recipe reloads.
+    let out: serde_json::Value = serde_json::to_value(&r).unwrap();
+    for key in [
+        "schemaVersion",
+        "name",
+        "deviceId",
+        "area",
+        "preset",
+        "contours",
+        "relief",
+        "excludedLayers",
+    ] {
+        assert!(out.get(key).is_some(), "missing {key} in {out}");
+    }
+    for key in ["intervalM", "indexM", "simplifyM"] {
+        assert!(out["contours"].get(key).is_some(), "missing contours.{key}");
+    }
+    assert_eq!(out["area"]["radiusKm"], 8.0);
+}
+
+/// Every preset and relief value the frontend can send must be a value Rust accepts.
+#[test]
+fn every_preset_and_relief_id_the_ui_offers_parses() {
+    use s2g_core::recipe::{Preset, ReliefDetail};
+
+    // These lists are the frontend's `PresetId` and `ReliefDetail` unions.
+    for id in ["hiking", "cycling", "skimo", "full"] {
+        let p: Preset = serde_json::from_value(serde_json::json!(id)).expect(id);
+        assert_eq!(p.id(), id);
+    }
+    for id in ["off", "gentle", "detailed"] {
+        let r: ReliefDetail = serde_json::from_value(serde_json::json!(id)).expect(id);
+        assert_eq!(serde_json::to_value(r).unwrap(), serde_json::json!(id));
+    }
+}

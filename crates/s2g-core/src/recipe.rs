@@ -69,7 +69,11 @@ impl Preset {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AreaSelection {
     /// An explicit LV95 rectangle, as drawn on the map.
-    #[serde(rename_all = "camelCase")]
+    ///
+    /// The tag is spelled out because `rename_all = "camelCase"` turns `BBox` into
+    /// `bBox`, which is neither what the frontend sends nor what SPEC §11.2 documents.
+    /// The alias keeps recipes saved before this was noticed loadable.
+    #[serde(rename = "bbox", alias = "bBox", rename_all = "camelCase")]
     BBox {
         min_e: f64,
         min_n: f64,
