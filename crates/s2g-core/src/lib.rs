@@ -12,7 +12,10 @@
 pub mod cache;
 pub mod download;
 pub mod error;
+pub mod geom;
+pub mod gpkg;
 pub mod http;
+pub mod proj;
 pub mod stac;
 pub mod zip;
 

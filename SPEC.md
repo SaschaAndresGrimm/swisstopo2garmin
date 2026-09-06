@@ -492,11 +492,18 @@ closed after clipping. Features are deduplicated across cells.
 attributes, and write OSM PBF (mkgmap accepts `.osm`, `.o5m`, `.osm.pbf`; PBF is the fastest
 and smallest). Requirements:
 
-- **FR-P1** Reproject EPSG:2056 → EPSG:4326. A Swiss Oblique Mercator (Hotine variant B)
-  inverse plus the CH1903+ → WGS84 transformation is sufficient: the residual error without
-  the CHENyx06 grid shift is sub-metre, and Garmin's `.img` coordinate resolution is only
-  about 2 m, so the error is not representable in the output. The chosen transform, and this
-  justification, must be documented in code.
+- **FR-P1** Reproject EPSG:2056 → EPSG:4326 using swisstopo's published approximate
+  formulas. **Measured against PROJ** (`crates/s2g-core/tests/proj.rs`): about **1 m in the
+  interior**, degrading to **4.2 m at the corners of the coverage rectangle**, which lie
+  tens of kilometres outside Swiss territory where no swissTLM3D data exists. Garmin's
+  `.img` grid is ~2.4 m, so interior error is not representable in the output; the corner
+  case exceeds it but is both invisible at map scale and far smaller than GPS error.
+  *(An earlier draft of this requirement claimed sub-metre accuracy everywhere. That was
+  wrong and is corrected here.)* If survey-grade accuracy is ever needed, the rigorous
+  Hotine Oblique Mercator inverse plus the CHENyx06 grid shift is the upgrade path.
+  Note that swisstopo's stated coordinates for the projection origin are in the
+  **Bessel/CH1903 datum**, not WGS84 — treating them as WGS84 truth makes a correct
+  implementation look 164 m wrong.
 - **FR-P2** Discard the Z coordinate for map geometry (TLM3D is 3D; Garmin maps are 2D).
   Retain Z only where it is genuinely useful, e.g. as a peak elevation tag.
 - **FR-P3** Deduplicate coordinates into shared nodes so that connected features share

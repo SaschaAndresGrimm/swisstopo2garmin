@@ -26,6 +26,9 @@ hex = "0.4"
 flate2 = "1"           # streaming raw DEFLATE for zip members
 thiserror = "2"
 tracing = "0.1"
+# GeoPackage is plain SQLite; `bundled` compiles SQLite in so there is no system
+# dependency and no version skew across the platforms we ship (SPEC.md NFR-7).
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
