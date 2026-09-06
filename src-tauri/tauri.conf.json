@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "swisstopo2garmin",
+  "version": "0.1.0",
+  "identifier": "ch.swisstopo2garmin.app",
+  "build": {
+    "frontendDist": "../frontend/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm --prefix ../frontend run dev",
+    "beforeBuildCommand": "npm --prefix ../frontend run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "swisstopo2garmin",
+        "width": 1100,
+        "height": 760,
+        "minWidth": 820,
+        "minHeight": 560,
+        "label": "main"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: https://wmts.geo.admin.ch; connect-src 'self' ipc: http://ipc.localhost https://data.geo.admin.ch https://wmts.geo.admin.ch"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "dmg",
+      "msi",
+      "appimage",
+      "deb"
+    ],
+    "copyright": "GPL-3.0-or-later. Map data \u00a9 swisstopo.",
+    "category": "Utility",
+    "shortDescription": "Garmin maps from swisstopo open data",
+    "icon": [
+      "icons/icon.png"
+    ]
+  }
+}

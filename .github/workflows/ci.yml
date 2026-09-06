@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS 14 runners are arm64, macOS 13 are x64: SPEC.md NFR-7 ships both.
+        os: [macos-14, macos-13, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Linux system dependencies for Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libgtk-3-dev
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Excludes tests/live.rs, which is #[ignore]d and needs network: CI must be
+      # offline and deterministic (PLAN.md M1 task 3).
+      - name: Test
+        run: cargo test --workspace
+
+      - name: IPC bindings are up to date
+        shell: bash
+        run: |
+          cargo test -p swisstopo2garmin
+          if ! git diff --quiet -- frontend/src/state/bindings.ts; then
+            echo "::error::frontend/src/state/bindings.ts is stale."
+            echo "Run: cargo test -p swisstopo2garmin && commit the result."
+            git diff -- frontend/src/state/bindings.ts
+            exit 1
+          fi
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run typecheck
+        working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
+  cartography:
+    name: cartography consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # A polygon type emitted by the style but missing from the TYP's [_drawOrder]
+      # is invisible on the device and invisible in the .img -- only this catches it.
+      # See docs/m0-findings.md §4.8.
+      - name: Regenerate TYP from the measured palette
+        run: python3 tools/make_typ.py
+      - name: TYP matches the style
+        run: python3 spikes/s0/checkstyle.py
+      - name: TYP is in sync with palette.json
+        run: |
+          if ! git diff --quiet -- typ/swisstopo.txt; then
+            echo "::error::typ/swisstopo.txt is stale. Run tools/make_typ.py and commit."
+            git diff -- typ/swisstopo.txt
+            exit 1
+          fi

@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the main window. Without a capability file Tauri 2 grants nothing, so `listen()` is denied and no task events reach the UI — while app-defined `invoke` commands still work, which makes the failure look like a frontend bug.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-set-title"
+  ]
+}

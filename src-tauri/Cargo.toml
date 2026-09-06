@@ -1,0 +1,27 @@
+[package]
+name = "swisstopo2garmin"
+description = "Build Garmin maps from swisstopo open data"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "swisstopo2garmin_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+s2g-core = { path = "../crates/s2g-core" }
+tauri = { version = "2", features = [] }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Generates the TypeScript IPC types from the Rust definitions so the two sides
+# cannot drift (PLAN.md M1 task 6); a test writes them and CI checks them in.
+ts-rs = "10"
