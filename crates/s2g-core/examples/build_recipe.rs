@@ -58,15 +58,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache_root = Cache::default_root();
     let gpkg_path = pipeline::find_tlm3d(&cache_root).ok_or("swissTLM3D not in the cache")?;
 
-    // Resolve the place the same way the GUI's find_places command does, so the area
-    // matches what the wizard would have stored.
+    // Either a corridor around an imported track, or a radius around a place.
     let gpkg = Gpkg::open(&gpkg_path)?;
-    let hit = gpkg
-        .find_places(&place)?
-        .into_iter()
-        .next()
-        .ok_or_else(|| format!("no place called {place:?}"))?;
-    println!("place        : {} at {:.0} {:.0}", hit.name, hit.easting, hit.northing);
+    let area = match arg("--gpx") {
+        Some(path) => {
+            let gpx = s2g_core::gpx::Gpx::parse_file(std::path::Path::new(&path))?;
+            let points: Vec<[f64; 2]> = gpx
+                .tracks
+                .iter()
+                .flat_map(|t| t.points.iter())
+                .map(|p| {
+                    let (e, n) = s2g_core::proj::wgs84_to_lv95(p.lon, p.lat);
+                    [e, n]
+                })
+                .collect();
+            let buffer_km: f64 = arg("--buffer-km").unwrap_or_else(|| "3".into()).parse()?;
+            println!(
+                "track        : {} points, buffer {buffer_km} km",
+                points.len()
+            );
+            // --as-bbox builds the corridor's bounding box instead, for comparison.
+            if arg("--as-bbox").is_some() {
+                let es: Vec<f64> = points.iter().map(|p| p[0]).collect();
+                let ns: Vec<f64> = points.iter().map(|p| p[1]).collect();
+                let m = buffer_km * 1000.0;
+                AreaSelection::BBox {
+                    min_e: es.iter().cloned().fold(f64::INFINITY, f64::min) - m,
+                    min_n: ns.iter().cloned().fold(f64::INFINITY, f64::min) - m,
+                    max_e: es.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + m,
+                    max_n: ns.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + m,
+                }
+            } else {
+                AreaSelection::Corridor {
+                    name: gpx.tracks[0].name.clone().unwrap_or_else(|| "track".into()),
+                    buffer_km,
+                    points,
+                }
+            }
+        }
+        None => {
+            let hit = gpkg
+                .find_places(&place)?
+                .into_iter()
+                .next()
+                .ok_or_else(|| format!("no place called {place:?}"))?;
+            println!("place        : {} at {:.0} {:.0}", hit.name, hit.easting, hit.northing);
+            AreaSelection::Place {
+                name: hit.name.clone(),
+                radius_km,
+                easting: hit.easting,
+                northing: hit.northing,
+            }
+        }
+    };
 
     // Comma-separated layer ids to leave out, as the layer panel would (FR-51).
     let excluded: Vec<String> = arg("--exclude")
@@ -76,17 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let recipe = Recipe {
         relief,
         excluded_layers: excluded,
-        ..Recipe::new(
-            format!("{place} {}", preset.id()),
-            &device_id,
-            AreaSelection::Place {
-                name: hit.name.clone(),
-                radius_km,
-                easting: hit.easting,
-                northing: hit.northing,
-            },
-        )
-        .with_preset(preset)
+        ..Recipe::new(format!("{place} {}", preset.id()), &device_id, area).with_preset(preset)
     };
     println!("recipe key   : {}", recipe.cache_key());
 

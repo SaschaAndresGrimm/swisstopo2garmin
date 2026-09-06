@@ -19,6 +19,7 @@ export type {
   PresetInfo,
   ReleaseInfo,
   SavedRecipeInfo,
+  TrackImport,
   TaskProgress,
 } from "./bindings";
 
@@ -26,7 +27,8 @@ export type {
  *  tagged area union in a shape TypeScript narrows well. */
 export type AreaSelection =
   | { kind: "bbox"; minE: number; minN: number; maxE: number; maxN: number }
-  | { kind: "place"; name: string; radiusKm: number; easting: number; northing: number };
+  | { kind: "place"; name: string; radiusKm: number; easting: number; northing: number }
+  | { kind: "corridor"; name: string; bufferKm: number; points: [number, number][] };
 
 export type PresetId = "hiking" | "cycling" | "skimo" | "full";
 export type ReliefDetail = "off" | "gentle" | "detailed";
@@ -45,10 +47,21 @@ export interface Recipe {
 export const TLM3D = "ch.swisstopo.swisstlm3d";
 export const WANDERWEGE = "ch.swisstopo.swisstlm3d-wanderwege";
 
-/** Sources the Data screen manages, in the order they are shown. */
+/**
+ * Sources the Data screen manages, in the order they are shown.
+ *
+ * `group` decides which presets a source unlocks, which is what the content step's
+ * "needs winter route data" message points at.
+ */
 export const SOURCES = [
-  { id: TLM3D, key: "source.tlm3d" },
-  { id: WANDERWEGE, key: "source.wanderwege" },
+  { id: TLM3D, key: "source.tlm3d", group: "base" },
+  { id: WANDERWEGE, key: "source.wanderwege", group: "base" },
+  { id: "ch.swisstopo-karto.skitouren", key: "source.skitouren", group: "winter" },
+  { id: "ch.astra.schneeschuhwanderwege", key: "source.schneeschuh", group: "winter" },
+  { id: "ch.astra.winterwanderwege", key: "source.winterwandern", group: "winter" },
+  { id: "ch.astra.veloland", key: "source.veloland", group: "cycling" },
+  { id: "ch.astra.mountainbikeland", key: "source.mountainbikeland", group: "cycling" },
+  { id: "ch.astra.wanderland", key: "source.wanderland", group: "cycling" },
 ] as const;
 
 export const api = {
@@ -65,6 +78,15 @@ export const api = {
    *  in Rust so there is one implementation, not two to keep in agreement. */
   /** Full swissTLM3D coverage in LV95, for the whole-Switzerland action (FR-35). */
   coverageBbox: () => invoke<[number, number, number, number]>("coverage_bbox"),
+  /** Project a polyline for display. Kept in Rust so there is one projection. */
+  lv95LineToWgs84: (points: [number, number][]) =>
+    invoke<[number, number][]>("lv95_line_to_wgs84", { points }),
+  /** Parse a GPX or FIT file the frontend has already read (FR-38). */
+  importTrack: (name: string, bytes: Uint8Array) =>
+    invoke<import("./bindings").TrackImport>("import_track", {
+      name,
+      bytes: Array.from(bytes),
+    }),
   wgs84BboxToLv95: (west: number, south: number, east: number, north: number) =>
     invoke<[number, number, number, number]>("wgs84_bbox_to_lv95", { west, south, east, north }),
   describeArea: (query: import("./bindings").AreaQuery) =>

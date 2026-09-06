@@ -4,6 +4,7 @@ import type { AreaSelection, PlaceMatch } from "../state/api";
 import { useAreaInfo } from "../state/useAreaInfo";
 import { AreaMap, type DrawnBox } from "../map/AreaMap";
 import { SizeEstimate } from "../components/SizeEstimate";
+import { TrackImport } from "../components/TrackImport";
 import type { T } from "../i18n";
 
 /**
@@ -43,6 +44,24 @@ export function AreaStep({
   const [error, setError] = useState<string | null>(null);
 
   const { info, error: infoError } = useAreaInfo(area, deviceId, preset, contourM, relief);
+
+  // The corridor centreline for the map, projected by the backend so the projection
+  // has one implementation rather than two to keep in agreement.
+  const [trackLine, setTrackLine] = useState<[number, number][] | null>(null);
+  useEffect(() => {
+    if (area?.kind !== "corridor") {
+      setTrackLine(null);
+      return;
+    }
+    let live = true;
+    api
+      .lv95LineToWgs84(area.points as [number, number][])
+      .then((line) => live && setTrackLine(line))
+      .catch(() => live && setTrackLine(null));
+    return () => {
+      live = false;
+    };
+  }, [area]);
 
   // Frame whatever the estimate reports, so a place search moves the map too.
   useEffect(() => {
@@ -100,6 +119,8 @@ export function AreaStep({
             </button>
           </div>
         </div>
+        <TrackImport t={t} area={area} onArea={onArea} />
+
         <div className="field">
           <label htmlFor="whole">{t("area.whole")}</label>
           <div className="row tight" id="whole">
@@ -163,6 +184,7 @@ export function AreaStep({
 
       <AreaMap
         t={t}
+        track={trackLine}
         box={box}
         onBox={(b) => {
           setBox(b);

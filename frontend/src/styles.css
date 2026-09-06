@@ -246,3 +246,11 @@ button.saved {
 .estimate .fill { height: 100%; background: #1a7f37; border-radius: 999px; }
 .estimate .fill.over { background: var(--accent); }
 .estimate > p { margin: 0.5rem 0 0; }
+
+/* --------------------------------------------------------------- track import */
+input[type="file"] { font: inherit; max-width: 100%; }
+input[type="file"]::file-selector-button {
+  font: inherit; margin-right: 0.6rem; padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--fg); cursor: pointer;
+}

@@ -152,6 +152,11 @@ pub async fn build(
     // ---- extract vectors -------------------------------------------------
     let pbf = ctx.work_dir.join("region.osm.pbf");
     let mut builder = RegionBuilder::create(&pbf, &bbox)?;
+    // A corridor or administrative unit is not a rectangle: the bbox is the cheap
+    // first cut and the mask decides what actually survives it.
+    if let Some(mask) = recipe.area.mask() {
+        builder = builder.with_mask(mask);
+    }
     let excluded = &recipe.excluded_layers;
     let keep = |name: &str| !excluded.iter().any(|x| x == name);
 
@@ -168,31 +173,24 @@ pub async fn build(
     }
 
     if recipe.preset.needs_winter() {
-        let dir = ctx.cache_root.join("winter");
-        let mut found = 0usize;
-        if let Ok(rd) = std::fs::read_dir(&dir) {
-            for e in rd.flatten() {
-                let p = e.path();
-                if p.extension().map(|x| x != "gpkg").unwrap_or(true) {
-                    continue;
-                }
-                on_stage(StageUpdate {
-                    stage: Stage::Extract,
-                    fraction: None,
-                    detail: format!(
-                        "winter routes: {}",
-                        p.file_name().unwrap().to_string_lossy()
-                    ),
-                });
-                let src = Gpkg::open(&p)?;
-                let specs: Vec<_> = WINTER_LAYERS.iter().filter(|l| keep(l.layer)).collect();
-                for spec in specs {
-                    builder.add_vectors(&src, std::slice::from_ref(spec), cancel, |_, _| {})?;
-                }
-                found += 1;
+        let sources = crate::datasets::winter_geopackages(&ctx.cache_root);
+        for p in &sources {
+            cancel.check_cancelled()?;
+            on_stage(StageUpdate {
+                stage: Stage::Extract,
+                fraction: None,
+                detail: format!(
+                    "winter routes: {}",
+                    p.file_name().unwrap_or_default().to_string_lossy()
+                ),
+            });
+            let src = Gpkg::open(p)?;
+            let specs: Vec<_> = WINTER_LAYERS.iter().filter(|l| keep(l.layer)).collect();
+            for spec in specs {
+                builder.add_vectors(&src, std::slice::from_ref(spec), cancel, |_, _| {})?;
             }
         }
-        if found == 0 {
+        if sources.is_empty() {
             warnings.push(
                 "winter route data is not downloaded, so the ski touring layers are missing".into(),
             );
@@ -200,54 +198,40 @@ pub async fn build(
     }
 
     if recipe.preset.needs_cycle() {
-        let mut stack = vec![ctx.cache_root.join("routes")];
-        let mut found = 0usize;
-        while let Some(dir) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&dir) else {
+        let sources = crate::datasets::route_shapefiles(&ctx.cache_root);
+        let mut used = 0usize;
+        for p in &sources {
+            cancel.check_cancelled()?;
+            let stem = p
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let Some(spec) = CYCLE_LAYERS.iter().find(|l| l.layer == stem) else {
                 continue;
             };
-            for e in rd.flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    stack.push(p);
-                    continue;
-                }
-                if p.extension().map(|x| x != "shp").unwrap_or(true) {
-                    continue;
-                }
-                let stem = p
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                let Some(spec) = CYCLE_LAYERS.iter().find(|l| l.layer == stem) else {
-                    continue;
-                };
-                if !keep(&stem) {
-                    continue;
-                }
-                // All three datasets ship a Route.shp, so qualify by dataset.
-                let dataset = p
-                    .parent()
-                    .and_then(|d| d.parent())
-                    .and_then(|d| d.file_name())
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                let tag = if stem == "Route" {
-                    format!("{dataset}_Route")
-                } else {
-                    stem.clone()
-                };
-                on_stage(StageUpdate {
-                    stage: Stage::Extract,
-                    fraction: None,
-                    detail: format!("routes: {tag}"),
-                });
-                let shp = Shapefile::open(&p)?;
-                builder.add_shapefile_as(&shp, spec, &tag, cancel)?;
-                found += 1;
+            if !keep(&stem) {
+                continue;
             }
+            // All three ASTRA datasets ship a Route.shp, so the layer tag is qualified
+            // by dataset: otherwise a hiking route renders as a cycle route.
+            // wanderland's Route.shp is kept: the style draws it as a signposted
+            // hiking route (0x10101), not as a cycle route.
+            let dataset = crate::datasets::route_dataset_of(p).unwrap_or_default();
+            let tag = if stem == "Route" {
+                format!("{dataset}_{stem}")
+            } else {
+                stem.clone()
+            };
+            on_stage(StageUpdate {
+                stage: Stage::Extract,
+                fraction: None,
+                detail: format!("routes: {tag}"),
+            });
+            let shp = Shapefile::open(p)?;
+            builder.add_shapefile_as(&shp, spec, &tag, cancel)?;
+            used += 1;
         }
-        if found == 0 {
+        if used == 0 {
             warnings.push(
                 "cycle route data is not downloaded, so the cycling layers are missing".into(),
             );

@@ -119,3 +119,20 @@ export type TaskDone = { taskId: string, path: string, };
 export type TaskError = { taskId: string, message: string, };
 
 export type TaskProgress = { taskId: string, read: number, total: number | null, written: number, retries: number, };
+
+/**
+ * An imported GPX or FIT track, ready to become a corridor (SPEC.md FR-38..FR-40).
+ */
+export type TrackImport = { name: string, 
+/**
+ * LV95 `[easting, northing]` pairs, simplified.
+ */
+points: Array<[number, number]>, lengthKm: number, ascentM: number, 
+/**
+ * Points before simplification, so the UI can say what was dropped.
+ */
+originalPoints: number, 
+/**
+ * False when part of the track falls outside the swisstopo coverage area.
+ */
+fullyWithinSwitzerland: boolean, };

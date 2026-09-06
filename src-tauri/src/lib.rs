@@ -45,6 +45,8 @@ pub fn run() {
             ipc::describe_area,
             ipc::wgs84_bbox_to_lv95,
             ipc::coverage_bbox,
+            ipc::import_track,
+            ipc::lv95_line_to_wgs84,
             ipc::start_build,
             ipc::plan_install,
             ipc::install_map,

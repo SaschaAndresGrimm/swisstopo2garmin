@@ -4,6 +4,19 @@ import type { AreaInfo, AreaSelection } from "./api";
 
 /** The LV95 rectangle an area selection covers. */
 export function bboxOf(a: AreaSelection) {
+  if (a.kind === "corridor") {
+    // The corridor's extent is the track's bounds grown by the buffer, which is the
+    // same rule the backend applies.
+    const m = a.bufferKm * 1000;
+    const es = a.points.map((p) => p[0]);
+    const ns = a.points.map((p) => p[1]);
+    return {
+      minE: Math.min(...es) - m,
+      minN: Math.min(...ns) - m,
+      maxE: Math.max(...es) + m,
+      maxN: Math.max(...ns) + m,
+    };
+  }
   return a.kind === "bbox"
     ? { minE: a.minE, minN: a.minN, maxE: a.maxE, maxN: a.maxN }
     : {

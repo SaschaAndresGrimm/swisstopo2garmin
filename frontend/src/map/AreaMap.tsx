@@ -13,6 +13,7 @@ export interface DrawnBox {
 }
 
 const RECT_SOURCE = "s2g-rect";
+const TRACK_SOURCE = "s2g-track";
 
 /**
  * swisstopo basemap with a drag-to-draw rectangle (FR-30, FR-31).
@@ -24,10 +25,13 @@ export function AreaMap({
   t,
   box,
   onBox,
+  track,
 }: {
   t: T;
   box: DrawnBox | null;
   onBox: (b: DrawnBox) => void;
+  /** Imported track centreline in WGS84 `[lon, lat]`, drawn over the rectangle. */
+  track?: [number, number][] | null;
 }) {
   const container = useRef<HTMLDivElement | null>(null);
   const map = useRef<MlMap | null>(null);
@@ -103,6 +107,17 @@ export function AreaMap({
         source: RECT_SOURCE,
         paint: { "line-color": "#da291c", "line-width": 2 },
       });
+      m.addSource(TRACK_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      m.addLayer({
+        id: "s2g-track-line",
+        type: "line",
+        source: TRACK_SOURCE,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#1b3fa0", "line-width": 3 },
+      });
     });
 
     map.current = m;
@@ -130,6 +145,29 @@ export function AreaMap({
     if (m.isStyleLoaded()) apply();
     else m.once("load", apply);
   }, [box, rectGeoJson]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const apply = () => {
+      const src = m.getSource(TRACK_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      src?.setData({
+        type: "FeatureCollection",
+        features:
+          track && track.length > 1
+            ? [
+                {
+                  type: "Feature",
+                  properties: {},
+                  geometry: { type: "LineString", coordinates: track },
+                },
+              ]
+            : [],
+      } as never);
+    };
+    if (m.isStyleLoaded()) apply();
+    else m.once("load", apply);
+  }, [track]);
 
   // Drag to draw. Panning is disabled only while the draw tool is armed, so the map
   // stays normally navigable.

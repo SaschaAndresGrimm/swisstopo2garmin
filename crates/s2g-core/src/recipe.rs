@@ -87,9 +87,37 @@ pub enum AreaSelection {
         easting: f64,
         northing: f64,
     },
+
+    /// A corridor around an imported GPX or FIT track (SPEC.md FR-38, FR-39).
+    ///
+    /// Points are LV95 and already simplified: a corridor is kilometres wide, so metre
+    /// detail in its centreline changes nothing and would bloat every saved recipe.
+    #[serde(rename_all = "camelCase")]
+    Corridor {
+        name: String,
+        buffer_km: f64,
+        /// `[easting, northing]` pairs, in order.
+        points: Vec<[f64; 2]>,
+    },
 }
 
 impl AreaSelection {
+    /// The shape features must intersect, when the selection is not a rectangle.
+    pub fn mask(&self) -> Option<crate::mask::Mask> {
+        match self {
+            AreaSelection::Corridor {
+                buffer_km, points, ..
+            } => Some(crate::mask::Mask::corridor(
+                vec![points
+                    .iter()
+                    .map(|p| crate::geom::Coord::new(p[0], p[1]))
+                    .collect()],
+                buffer_km * 1000.0,
+            )),
+            _ => None,
+        }
+    }
+
     pub fn bbox(&self) -> BBox {
         match self {
             AreaSelection::BBox {
@@ -104,6 +132,35 @@ impl AreaSelection {
                 northing,
                 ..
             } => BBox::from_center(*easting, *northing, radius_km * 1000.0),
+            // The corridor's own extent already includes the buffer.
+            AreaSelection::Corridor { .. } => self
+                .mask()
+                .map(|m| m.bbox())
+                .unwrap_or_else(|| BBox::new(0.0, 0.0, 0.0, 0.0)),
+        }
+    }
+
+    /// A short stable digest of the selection's shape, for the cache key.
+    ///
+    /// Two different tracks can share a bounding box, so the bbox alone would let one
+    /// corridor build be served from another's cached stages.
+    pub fn shape_digest(&self) -> u64 {
+        match self {
+            AreaSelection::Corridor { points, .. } => {
+                // FNV-1a over the coordinate bits. Not cryptographic; it only has to
+                // separate two tracks a user might build on the same day.
+                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                for p in points {
+                    for v in [p[0], p[1]] {
+                        for b in v.to_bits().to_le_bytes() {
+                            h ^= b as u64;
+                            h = h.wrapping_mul(0x1000_0000_01b3);
+                        }
+                    }
+                }
+                h
+            }
+            _ => 0,
         }
     }
 }
@@ -192,12 +249,13 @@ impl Recipe {
     pub fn cache_key(&self) -> String {
         let b = self.area.bbox();
         format!(
-            "{}|{:.0},{:.0},{:.0},{:.0}|{}|{}|{}|{:?}|{}",
+            "{}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{:?}|{}",
             self.device_id,
             b.min_e,
             b.min_n,
             b.max_e,
             b.max_n,
+            self.area.shape_digest(),
             self.preset.id(),
             self.contours.interval_m,
             self.contours.index_m,

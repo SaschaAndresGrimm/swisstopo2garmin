@@ -367,80 +367,49 @@ pub fn count_groups(
     };
 
     if recipe.preset.needs_winter() {
-        if let Ok(rd) = std::fs::read_dir(root.join("winter")) {
-            for e in rd.flatten() {
-                let path = e.path();
-                if path.extension().map(|x| x != "gpkg").unwrap_or(true) {
-                    continue;
-                }
-                let Ok(src) = crate::gpkg::Gpkg::open(&path) else {
-                    continue;
-                };
-                let Ok(layers) = src.layers() else { continue };
-                for layer in layers.iter().filter(|l| l.is_spatial()) {
-                    // Layer names carry the release year, so match the spec by prefix.
-                    let Some(spec) = crate::extract::WINTER_LAYERS
-                        .iter()
-                        .find(|sp| layer.name.starts_with(sp.layer))
-                    else {
-                        continue;
-                    };
-                    if !keep(spec.layer) {
-                        continue;
-                    }
-                    let n = src.count_in_bbox(&layer.name, &bbox).unwrap_or(0).max(0) as u64;
-                    *out.entry(spec.group.id().to_string()).or_default() += n;
-                }
-            }
-        }
-    }
-
-    if recipe.preset.needs_cycle() {
-        let mut stack = vec![root.join("routes")];
-        while let Some(dir) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&dir) else {
+        for path in crate::datasets::winter_geopackages(root) {
+            let Ok(src) = crate::gpkg::Gpkg::open(&path) else {
                 continue;
             };
-            for e in rd.flatten() {
-                let path = e.path();
-                if path.is_dir() {
-                    stack.push(path);
-                    continue;
-                }
-                if path.extension().map(|x| x != "shp").unwrap_or(true) {
-                    continue;
-                }
-                let stem = path
-                    .file_stem()
-                    .map(|x| x.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                let Some(spec) = crate::extract::CYCLE_LAYERS.iter().find(|sp| sp.layer == stem)
+            let Ok(layers) = src.layers() else { continue };
+            for layer in layers.iter().filter(|l| l.is_spatial()) {
+                // Layer names carry the release year, so match the spec by prefix.
+                let Some(spec) = crate::extract::WINTER_LAYERS
+                    .iter()
+                    .find(|sp| layer.name.starts_with(sp.layer))
                 else {
                     continue;
                 };
                 if !keep(spec.layer) {
                     continue;
                 }
-                // All three ASTRA datasets ship a Route.shp; only the cycle ones count.
-                let dataset = path
-                    .parent()
-                    .and_then(|d| d.parent())
-                    .and_then(|d| d.file_name())
-                    .map(|x| x.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                if stem == "Route" && dataset == "wanderland" {
-                    continue;
-                }
-                let Ok(shp) = crate::shapefile::Shapefile::open(&path) else {
-                    continue;
-                };
-                let mut n = 0u64;
-                let _ = shp.for_each_in_bbox(&bbox, &[], |_| {
-                    n += 1;
-                    true
-                });
+                let n = src.count_in_bbox(&layer.name, &bbox).unwrap_or(0).max(0) as u64;
                 *out.entry(spec.group.id().to_string()).or_default() += n;
             }
+        }
+    }
+
+    if recipe.preset.needs_cycle() {
+        for path in crate::datasets::route_shapefiles(root) {
+            let stem = path
+                .file_stem()
+                .map(|x| x.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let Some(spec) = crate::extract::CYCLE_LAYERS.iter().find(|sp| sp.layer == stem) else {
+                continue;
+            };
+            if !keep(spec.layer) {
+                continue;
+            }
+            let Ok(shp) = crate::shapefile::Shapefile::open(&path) else {
+                continue;
+            };
+            let mut n = 0u64;
+            let _ = shp.for_each_in_bbox(&bbox, &[], |_| {
+                n += 1;
+                true
+            });
+            *out.entry(spec.group.id().to_string()).or_default() += n;
         }
     }
 

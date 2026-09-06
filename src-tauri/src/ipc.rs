@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use s2g_core::cache::{available_bytes, Cache, Provenance};
-use s2g_core::download::{download_zip_member_inflated, Cancel, Progress};
+use s2g_core::download::{download_zip_all, download_zip_member_inflated, Cancel, Progress};
 use s2g_core::http::ReqwestHttp;
 use s2g_core::stac::Stac;
 use serde::{Deserialize, Serialize};
@@ -191,8 +191,18 @@ pub async fn acquire_dataset(
     let http = ReqwestHttp::new().map_err(|e| e.to_string())?;
     let stac = Stac::new(&http);
     let item = stac.latest(&collection).await.map_err(|e| e.to_string())?;
+    // Only swissTLM3D is streamed and inflated as it downloads. It is the one archive
+    // where that matters — 4.5 GB compressed to 10.0 GB inflated, so keeping both would
+    // need 15 GB of disk — and the one archive that really holds a single member.
+    //
+    // Everything else is downloaded whole and extracted. The ASTRA route networks ship
+    // a dozen shapefile components, and the SAC skitouren archive holds *two*
+    // GeoPackages: taking only the first would silently drop the ski network, which
+    // carries the skiable / carrying / caution classification.
+    let stream_inflate = collection == s2g_core::stac::TLM3D;
     let asset = item
         .asset_ending(".gpkg.zip")
+        .or_else(|_| item.asset_ending(".shp.zip"))
         .map_err(|e| e.to_string())?
         .clone();
 
@@ -256,15 +266,45 @@ pub async fn acquire_dataset(
             );
         };
 
-        let result = download_zip_member_inflated(
-            &http,
-            &asset.href,
-            &dest,
-            asset.checksum.as_ref(),
-            &cancel,
-            &mut on_progress,
-        )
-        .await;
+        let result = if !stream_inflate {
+            download_zip_all(
+                &http,
+                &asset.href,
+                &dir,
+                asset.checksum.as_ref(),
+                &cancel,
+                &mut on_progress,
+            )
+            .await
+            // Report the first extracted file, with the archive's own size: a
+            // multi-file dataset has no single member to name.
+            .map(|files| {
+                let bytes = files
+                    .iter()
+                    .filter_map(|f| std::fs::metadata(f).ok().map(|m| m.len()))
+                    .sum();
+                (
+                    files.first().cloned().unwrap_or_else(|| dir.clone()),
+                    s2g_core::zip::Member {
+                        name: asset.name.clone(),
+                        data_start: 0,
+                        compressed_size: 0,
+                        uncompressed_size: bytes,
+                        method: 8,
+                    },
+                )
+            })
+        } else {
+            download_zip_member_inflated(
+                &http,
+                &asset.href,
+                &dest,
+                asset.checksum.as_ref(),
+                &cancel,
+                &mut on_progress,
+            )
+            .await
+        };
 
         match result {
             Ok((path, member)) => {
@@ -822,6 +862,134 @@ pub struct AreaQuery {
     pub preset: Option<String>,
     pub contour_m: Option<i32>,
     pub relief: Option<String>,
+}
+
+/// Project a polyline to WGS84 for display.
+///
+/// The frontend needs the track in map coordinates, and the projection lives only in
+/// Rust so there is one implementation whose accuracy envelope is the documented one
+/// (FR-P1).
+#[tauri::command]
+pub fn lv95_line_to_wgs84(points: Vec<[f64; 2]>) -> IpcResult<Vec<[f64; 2]>> {
+    Ok(points
+        .iter()
+        .map(|p| {
+            let (lon, lat) = lv95_to_wgs84(p[0], p[1]);
+            [lon, lat]
+        })
+        .collect())
+}
+
+/// An imported GPX or FIT track, ready to become a corridor (SPEC.md FR-38..FR-40).
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct TrackImport {
+    pub name: String,
+    /// LV95 `[easting, northing]` pairs, simplified.
+    pub points: Vec<[f64; 2]>,
+    pub length_km: f64,
+    pub ascent_m: f64,
+    /// Points before simplification, so the UI can say what was dropped.
+    pub original_points: usize,
+    /// False when part of the track falls outside the swisstopo coverage area.
+    pub fully_within_switzerland: bool,
+}
+
+/// Import a track from file bytes rather than a path.
+///
+/// The frontend reads the file itself and sends the bytes, so no native file dialog
+/// and no filesystem permission are needed for what is a read-only import.
+#[tauri::command]
+pub fn import_track(name: String, bytes: Vec<u8>) -> IpcResult<TrackImport> {
+    use s2g_core::geom::Coord;
+    use s2g_core::proj::wgs84_to_lv95;
+
+    /// One imported position: longitude, latitude, and elevation where the file has one.
+    type Wgs84Point = (f64, f64, Option<f64>);
+
+    let lower = name.to_lowercase();
+    let (title, wgs84): (Option<String>, Vec<Wgs84Point>) = if lower.ends_with(".fit") {
+        let course = s2g_core::fit::parse(&bytes).map_err(|e| e.to_string())?;
+        (
+            course.name,
+            course
+                .points
+                .iter()
+                .map(|p| (p.lon, p.lat, p.ele_m))
+                .collect(),
+        )
+    } else {
+        let text = String::from_utf8_lossy(&bytes);
+        let gpx = s2g_core::gpx::parse(&text);
+        // Segments stay separate in the parse, but a corridor is one buffered path;
+        // joining them here only affects the buffer, never rendered geometry.
+        let title = gpx.tracks.iter().find_map(|t| t.name.clone());
+        let points: Vec<(f64, f64, Option<f64>)> = gpx
+            .tracks
+            .iter()
+            .flat_map(|t| t.points.iter())
+            .map(|p| (p.lon, p.lat, p.ele_m))
+            .collect();
+        (title, points)
+    };
+
+    if wgs84.is_empty() {
+        return Err(format!("{name} contains no track positions"));
+    }
+
+    // Ascent from the source elevations, before any simplification drops points.
+    let mut ascent = 0.0;
+    let mut last: Option<f64> = None;
+    for (_, _, e) in &wgs84 {
+        if let Some(e) = e {
+            if let Some(prev) = last {
+                if *e > prev {
+                    ascent += e - prev;
+                }
+            }
+            last = Some(*e);
+        }
+    }
+
+    let projected: Vec<Coord> = wgs84
+        .iter()
+        .map(|(lon, lat, _)| {
+            let (e, n) = wgs84_to_lv95(*lon, *lat);
+            Coord::new(e, n)
+        })
+        .collect();
+    let length_m: f64 = projected.windows(2).map(|w| w[0].distance(&w[1])).sum();
+
+    // 50 m tolerance: a corridor is kilometres wide, so finer detail in its centreline
+    // changes nothing and would bloat every saved recipe.
+    let simplified = s2g_core::geom::simplify(&projected, 50.0);
+    let ch = BBox::new(
+        s2g_core::proj::LV95_BOUNDS.0,
+        s2g_core::proj::LV95_BOUNDS.1,
+        s2g_core::proj::LV95_BOUNDS.2,
+        s2g_core::proj::LV95_BOUNDS.3,
+    );
+    let fully_within = projected
+        .iter()
+        .all(|c| c.e >= ch.min_e && c.e <= ch.max_e && c.n >= ch.min_n && c.n <= ch.max_n);
+
+    Ok(TrackImport {
+        name: title.unwrap_or_else(|| {
+            // Fall back to the file name without its extension.
+            name.rsplit('/')
+                .next()
+                .unwrap_or(&name)
+                .rsplit_once('.')
+                .map(|(stem, _)| stem.to_string())
+                .unwrap_or_else(|| name.clone())
+        }),
+        points: simplified.iter().map(|c| [c.e, c.n]).collect(),
+        length_km: length_m / 1000.0,
+        ascent_m: ascent,
+        original_points: projected.len(),
+        fully_within_switzerland: fully_within,
+    })
 }
 
 /// The full swissTLM3D coverage extent in LV95 (SPEC.md FR-35).

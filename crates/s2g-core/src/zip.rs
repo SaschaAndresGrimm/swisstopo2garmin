@@ -70,6 +70,167 @@ fn rfind(hay: &[u8], needle: &[u8]) -> Option<usize> {
         .find(|&i| &hay[i..i + needle.len()] == needle)
 }
 
+/// Extract every member of a local archive into `dest`.
+///
+/// The remote path below is for one huge DEFLATE member that must be inflated while
+/// downloading. The ASTRA route datasets are the opposite case: tens of megabytes
+/// holding a dozen shapefile components, where downloading the whole archive first and
+/// extracting locally is both simpler and correct.
+///
+/// Sizes are taken from the **central directory**, never from local file headers. Real
+/// archives — the ASTRA ones included — are written as a stream, which leaves the local
+/// header's sizes zero and puts the real ones in a trailing data descriptor. Walking
+/// local headers works on archives this project writes and fails on the ones it has to
+/// read.
+///
+/// Member paths are flattened to their file name, so a crafted archive cannot write
+/// outside `dest`.
+pub fn extract_all(
+    archive: &std::path::Path,
+    dest: &std::path::Path,
+) -> Result<Vec<std::path::PathBuf>> {
+    use std::io::Read;
+
+    let bytes = std::fs::read(archive).map_err(|e| Error::io(archive, e))?;
+    if bytes.len() < 22 {
+        return Err(Error::Zip(
+            "archive is too small to hold a zip directory".into(),
+        ));
+    }
+    std::fs::create_dir_all(dest).map_err(|e| Error::io(dest, e))?;
+
+    let (cd_offset, entries) = central_directory(&bytes)?;
+
+    let mut out = Vec::new();
+    let mut p = cd_offset;
+    for _ in 0..entries {
+        if p + 46 > bytes.len() || &bytes[p..p + 4] != CDH_SIG {
+            return Err(Error::Zip("malformed central directory entry".into()));
+        }
+        let method = u16le(&bytes, p + 10);
+        let mut comp = u32le(&bytes, p + 20) as u64;
+        let mut uncomp = u32le(&bytes, p + 24) as u64;
+        let name_len = u16le(&bytes, p + 28) as usize;
+        let extra_len = u16le(&bytes, p + 30) as usize;
+        let comment_len = u16le(&bytes, p + 32) as usize;
+        let mut local_offset = u32le(&bytes, p + 42) as u64;
+        let name_at = p + 46;
+        if name_at + name_len + extra_len + comment_len > bytes.len() {
+            return Err(Error::Zip("truncated central directory entry".into()));
+        }
+        let name = String::from_utf8_lossy(&bytes[name_at..name_at + name_len]).to_string();
+
+        // ZIP64 extended information replaces whichever 32-bit fields are saturated,
+        // in a fixed order and only for those that are.
+        if comp == u32::MAX as u64 || uncomp == u32::MAX as u64 || local_offset == u32::MAX as u64 {
+            let extra = &bytes[name_at + name_len..name_at + name_len + extra_len];
+            let mut k = 0usize;
+            while k + 4 <= extra.len() {
+                let tag = u16le(extra, k);
+                let size = u16le(extra, k + 2) as usize;
+                if tag == 0x0001 {
+                    let mut o = k + 4;
+                    if uncomp == u32::MAX as u64 && o + 8 <= extra.len() {
+                        uncomp = u64le(extra, o);
+                        o += 8;
+                    }
+                    if comp == u32::MAX as u64 && o + 8 <= extra.len() {
+                        comp = u64le(extra, o);
+                        o += 8;
+                    }
+                    if local_offset == u32::MAX as u64 && o + 8 <= extra.len() {
+                        local_offset = u64le(extra, o);
+                    }
+                    break;
+                }
+                k += 4 + size;
+            }
+        }
+        p = name_at + name_len + extra_len + comment_len;
+
+        if name.ends_with('/') {
+            continue;
+        }
+        let file_name = name.rsplit(['/', '\\']).next().unwrap_or(&name).to_string();
+        if file_name.is_empty() || file_name == "." || file_name == ".." {
+            continue;
+        }
+
+        // The local header's name and extra lengths can differ from the central
+        // directory's, so the payload offset must be read from the local header.
+        let lo = local_offset as usize;
+        if lo + 30 > bytes.len() || &bytes[lo..lo + 4] != LFH_SIG {
+            return Err(Error::Zip(format!(
+                "member {name} has no local header at offset {local_offset}"
+            )));
+        }
+        let data_start = lo + 30 + u16le(&bytes, lo + 26) as usize + u16le(&bytes, lo + 28) as usize;
+        let data_end = data_start + comp as usize;
+        if data_end > bytes.len() {
+            return Err(Error::Zip(format!(
+                "member {name} runs past the end of the archive"
+            )));
+        }
+
+        let payload = &bytes[data_start..data_end];
+        let data = match method {
+            METHOD_STORED => payload.to_vec(),
+            METHOD_DEFLATE => {
+                let mut d = flate2::read::DeflateDecoder::new(payload);
+                let mut v = Vec::with_capacity(uncomp as usize);
+                d.read_to_end(&mut v)
+                    .map_err(|e| Error::Inflate(format!("{file_name}: {e}")))?;
+                v
+            }
+            other => {
+                return Err(Error::Zip(format!(
+                    "member {name} uses compression method {other}, which is not supported"
+                )))
+            }
+        };
+        let path = dest.join(&file_name);
+        std::fs::write(&path, &data).map_err(|e| Error::io(&path, e))?;
+        out.push(path);
+    }
+
+    if out.is_empty() {
+        return Err(Error::Zip("archive contains no files".into()));
+    }
+    Ok(out)
+}
+
+/// Offset and entry count of the central directory, following a ZIP64 record when one
+/// is present.
+fn central_directory(bytes: &[u8]) -> Result<(usize, usize)> {
+    // The EOCD is at the end, after a comment of up to 64 KiB.
+    let tail_from = bytes.len().saturating_sub(66_560);
+    let eocd = rfind(&bytes[tail_from..], EOCD_SIG)
+        .map(|i| i + tail_from)
+        .ok_or_else(|| Error::Zip("no end-of-central-directory record; not a zip archive".into()))?;
+    if eocd + 22 > bytes.len() {
+        return Err(Error::Zip("truncated end-of-central-directory record".into()));
+    }
+    let mut entries = u16le(bytes, eocd + 10) as usize;
+    let mut offset = u32le(bytes, eocd + 16) as usize;
+
+    if entries == u16::MAX as usize || offset == u32::MAX as usize {
+        let loc = rfind(&bytes[tail_from..eocd], EOCD64_LOCATOR_SIG)
+            .map(|i| i + tail_from)
+            .ok_or_else(|| Error::Zip("zip64 archive without an end-of-directory locator".into()))?;
+        let eocd64 = u64le(bytes, loc + 8) as usize;
+        if eocd64 + 56 > bytes.len() || &bytes[eocd64..eocd64 + 4] != EOCD64_SIG {
+            return Err(Error::Zip("zip64 end-of-directory record is missing".into()));
+        }
+        entries = u64le(bytes, eocd64 + 32) as usize;
+        offset = u64le(bytes, eocd64 + 48) as usize;
+    }
+
+    if offset > bytes.len() {
+        return Err(Error::Zip("central directory offset is past the end of the archive".into()));
+    }
+    Ok((offset, entries))
+}
+
 /// Read the central directory of a single-member archive and resolve that member.
 pub async fn first_member(http: &dyn Http, url: &str, total: u64) -> Result<Member> {
     if total < 22 {

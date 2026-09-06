@@ -108,6 +108,9 @@ pub fn list(dir: &Path) -> Vec<SavedRecipe> {
                         (bbox.max_e - bbox.min_e) / 1000.0,
                         (bbox.max_n - bbox.min_n) / 1000.0
                     ),
+                    crate::recipe::AreaSelection::Corridor {
+                        name, buffer_km, ..
+                    } => format!("{name} · ±{buffer_km:.1} km"),
                 },
                 area_km2: bbox.area_km2(),
                 name: recipe.name,

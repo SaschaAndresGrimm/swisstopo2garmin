@@ -92,21 +92,26 @@ export function DataScreen({ t }: { t: T }) {
 
       <p className="muted small">{t("data.inflateNote")}</p>
 
-      <div className="sources">
-        {SOURCES.map((s) => (
-          <SourceRow
-            key={s.id}
-            t={t}
-            collection={s.id}
-            label={t(s.key)}
-            progress={progress}
-            activeTask={taskId}
-            onStarted={setTaskId}
-            onCacheChanged={() => void refreshCache()}
-            refreshToken={refreshToken}
-          />
-        ))}
-      </div>
+      {(["base", "winter", "cycling"] as const).map((group) => (
+        <div key={group}>
+          <h3 className="grouphead">{t(`sources.group.${group}`)}</h3>
+          <div className="sources">
+            {SOURCES.filter((s) => s.group === group).map((s) => (
+              <SourceRow
+                key={s.id}
+                t={t}
+                collection={s.id}
+                label={t(s.key)}
+                progress={progress}
+                activeTask={taskId}
+                onStarted={setTaskId}
+                onCacheChanged={() => void refreshCache()}
+                refreshToken={refreshToken}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
 
       {error && <p className="error">{t("data.error", { message: error })}</p>}
     </section>

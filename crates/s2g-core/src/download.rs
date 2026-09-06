@@ -203,6 +203,37 @@ pub async fn download(
     Ok(dest.to_path_buf())
 }
 
+/// Download a multi-file archive and extract every member into `dest_dir`.
+///
+/// Used for the ASTRA route datasets, which ship a dozen shapefile components rather
+/// than the single huge GeoPackage the streaming path above is built for. The archive
+/// is verified before anything is extracted, so a corrupt download cannot leave
+/// half-written shapefiles that later look like valid data.
+pub async fn download_zip_all(
+    http: &dyn Http,
+    url: &str,
+    dest_dir: &Path,
+    expected: Option<&Digest>,
+    cancel: &Cancel,
+    progress: ProgressFn<'_>,
+) -> Result<Vec<PathBuf>> {
+    tokio::fs::create_dir_all(dest_dir)
+        .await
+        .map_err(|e| Error::io(dest_dir, e))?;
+    let archive = dest_dir.join(".download.zip");
+    // `download` verifies the checksum and cleans up its own partial file.
+    download(http, url, &archive, expected, cancel, progress).await?;
+
+    let dest = dest_dir.to_path_buf();
+    let path = archive.clone();
+    // Extraction is CPU-bound and synchronous; keep it off the async runtime's thread.
+    let files = tokio::task::spawn_blocking(move || crate::zip::extract_all(&path, &dest))
+        .await
+        .map_err(|e| Error::Zip(format!("extraction task failed: {e}")))?;
+    let _ = tokio::fs::remove_file(&archive).await;
+    files
+}
+
 /// Stream a ZIP's single DEFLATE member and inflate it directly to `dest`.
 ///
 /// The whole archive is streamed once: every byte feeds the hasher (so the STAC
