@@ -502,6 +502,56 @@ LineWidth=1
 [end]
 
 [_line]
+Type=0x10107
+String1=0x04,Skitour
+Xpm="0 0 2 0"
+"1 c #7B3FA0"
+"2 c #FFFFFF"
+LineWidth=2
+BorderWidth=1
+[end]
+
+[_line]
+Type=0x10108
+String1=0x04,Skitour tragen
+Xpm="0 0 2 0"
+"1 c #7B3FA0"
+"2 c #E8DCF0"
+LineWidth=2
+BorderWidth=1
+[end]
+
+[_line]
+Type=0x10109
+String1=0x04,Skitour Vorsicht
+Xpm="0 0 2 0"
+"1 c #B02020"
+"2 c #FFFFFF"
+LineWidth=2
+BorderWidth=1
+[end]
+
+[_line]
+Type=0x1010a
+String1=0x04,Schneeschuhtrail
+Xpm="0 0 2 0"
+"1 c #E6007E"
+"2 c #FFFFFF"
+LineWidth=2
+BorderWidth=1
+[end]
+
+[_line]
+Type=0x1010b
+String1=0x04,Winterwanderweg
+Xpm="0 0 2 0"
+"1 c #F075B0"
+"2 c #FFFFFF"
+LineWidth=2
+BorderWidth=1
+[end]
+
+[_line]
 Type=0x1a
 String1=0x04,Faehre
 Xpm="0 0 1 0"

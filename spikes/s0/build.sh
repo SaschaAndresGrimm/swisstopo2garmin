@@ -30,6 +30,9 @@ source "$REPO/vendor/toolchain.env"
 WORK="${S2G_WORK:-$REPO/work}/$PLACE"
 OUT="$REPO/out"
 mkdir -p "$WORK" "$OUT"
+# Intermediates from the retired Python extract stages. Leaving them in place
+# once caused a build to silently use stale data.
+rm -f "$WORK/vector.osm" "$WORK/contours.osm"
 
 # The TYP is generated from the measured swisstopo palette; never edit it by hand.
 python3 "$REPO/tools/make_typ.py"
@@ -37,26 +40,29 @@ python3 "$REPO/tools/make_wrist_style.py"
 python3 "$REPO/spikes/s0/checkstyle.py" >/dev/null || {
   echo "style/TYP mismatch -- polygons would be invisible on the device"; exit 1; }
 
-echo "=== 1/6  clip swissTLM3D around $PLACE (${RADIUS} km)"
-python3 "$REPO/spikes/s0/tlm2osm.py" --place "$PLACE" --radius-km "$RADIUS" \
-        -o "$WORK/vector.osm" --bbox-out "$WORK/bbox.txt"
+# Winter routes (ski touring, snowshoe, winter hiking) when S2G_WINTER=1.
+WINTER_FLAG=""
+[ "${S2G_WINTER:-0}" = "1" ] && WINTER_FLAG="--winter"
 
-BBOX="$(cat "$WORK/bbox.txt")"
+echo "=== 1/5  extract region (vectors, contours, winter) with the Rust pipeline"
+cargo build --release -q -p s2g-core --example extract_region
+./target/release/examples/extract_region \
+    --place "$PLACE" --radius-km "$RADIUS" --contour "$INTERVAL" \
+    $WINTER_FLAG --out "$WORK/region.osm.pbf" | tee "$WORK/extract.log"
 
-echo "=== 2/6  contours at ${INTERVAL} m from swissALTI3D"
-GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR GDAL_HTTP_MULTIPLEX=YES VSI_CACHE=TRUE \
-python3 "$REPO/spikes/s0/contours.py" --bbox-lv95 $BBOX --interval "$INTERVAL" \
-        --simplify 8 --reuse --workdir "$WORK/alti" -o "$WORK/contours.osm"
+BBOX="$(grep -oE 'LV95 [-0-9]+ [-0-9]+ [-0-9]+ [-0-9]+' "$WORK/extract.log" \
+        | head -1 | sed 's/^LV95 //')"
+[ -n "$BBOX" ] || { echo "could not read the bbox from the extractor"; exit 1; }
 
-echo "=== 3/6  DEM tiles for relief shading"
+echo "=== 2/5  DEM tiles for relief shading"
 GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR VSI_CACHE=TRUE \
 python3 "$REPO/spikes/s0/make_dem.py" --bbox-lv95 $BBOX --arcsec "$ARCSEC" \
         --out "$WORK/dem-${ARCSEC}"
 
-echo "=== 4/6  splitter"
+echo "=== 3/5  splitter"
 rm -rf "$WORK/tiles"; mkdir -p "$WORK/tiles"
 "$JAVA_BIN" -Xmx4g -jar "$SPLITTER_JAR" --output-dir="$WORK/tiles" \
-   --max-nodes=700000 --mapid="${S2G_FID:-6324}0001" "$WORK/vector.osm" "$WORK/contours.osm" >/dev/null
+   --max-nodes=700000 --mapid="${S2G_FID:-6324}0001" "$WORK/region.osm.pbf" >/dev/null
 
 # Two passes are required. A single `--gmapsupp` run writes the overview map as a
 # separate file and ships a gmapsupp containing only the detail tiles, which a Garmin
@@ -64,7 +70,7 @@ rm -rf "$WORK/tiles"; mkdir -p "$WORK/tiles"
 FID="${S2G_FID:-6324}"
 OVNUM="${FID}0000"
 
-echo "=== 5/6  mkgmap: tiles + overview map"
+echo "=== 4/5  mkgmap: tiles + overview map"
 rm -rf "$WORK/img"; mkdir -p "$WORK/img"; cd "$WORK/img"
 "$JAVA_BIN" -Xmx4g -jar "$MKGMAP_JAR" \
   --style-file="$STYLE_DIR" \
@@ -78,7 +84,7 @@ rm -rf "$WORK/img"; mkdir -p "$WORK/img"; cd "$WORK/img"
   --dem="$WORK/dem-${ARCSEC}" --dem-dists="$DEM_DISTS" \
   "$WORK/tiles"/*.osm.pbf "$TYP_FILE" | grep -iE "^ *(error|.*Exception:)" || true
 
-echo "=== 6/6  mkgmap: combine into gmapsupp"
+echo "=== 5/5  mkgmap: combine into gmapsupp"
 "$JAVA_BIN" -Xmx4g -jar "$MKGMAP_JAR" --gmapsupp --index \
   --family-id="$FID" --product-id=1 \
   ${FID}*.img ovm.img *.typ | grep -iE "^ *(error|.*Exception:)" || true

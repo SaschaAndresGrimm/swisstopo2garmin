@@ -926,7 +926,10 @@ across releases to catch regressions.
 |---|---|---|
 | v2 | **Routing** | Build a routable graph from swissTLM3D: node connectivity, oneway, access classes, bridge/tunnel levels, turn restrictions where derivable, `mkgmap --route`. Highest-value follow-up, and the reason v1's converter must already deduplicate shared nodes (FR-P3). |
 | v2 | Address & POI search | swissNAMES3D-driven searchable index on device |
-| v3 | Ski touring edition | SAC ski route dataset, slope-angle classification derived from swissALTI3D, avalanche terrain shading |
+| **v1** | **Ski touring (skimo) preset** | **Implemented.** SAC ski routes with the skiable / carrying / caution distinction, snowshoe and winter hiking trails, and swissTLM3D lifts and cableways. |
+| v2 | Cycle routes | `ch.astra.veloland` and `ch.astra.mountainbikeland`, plus `ch.astra.wanderland` for official hiking route numbers. Needs a shapefile reader: these publish no GeoPackage, and swissTLM3D contains no cycle data at all (docs/m0-findings.md §4.19). |
+| v2 | Raster overlay experiment | Both the Edge 840 and fēnix 5 Plus advertise `Garmin/CustomMaps`. Deferred past v1 by decision: Custom Maps are capped near 100 tiles of 1 MP, render only in a narrow zoom band, and support neither search nor routing, so the vector map is better in every respect except literal appearance. |
+| v3 | Ski touring, extended | Slope-angle classification derived from swissALTI3D, avalanche terrain shading |
 | v3 | Hillshade | Shaded-relief-derived features within Garmin's vector constraints |
 | v3 | CLI | Headless build from a recipe file, for scripting and CI |
 | v4 | Other countries | Generalize the source abstraction to other national OGD vector models (Austria, France IGN, Germany) |

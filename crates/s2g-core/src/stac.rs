@@ -18,6 +18,20 @@ pub const ALTIREGIO: &str = "ch.swisstopo.swissaltiregio";
 pub const WANDERWEGE: &str = "ch.swisstopo.swisstlm3d-wanderwege";
 pub const TLMREGIO: &str = "ch.swisstopo.swisstlmregio";
 
+// Winter sport routes, for the skimo content preset. All three are GeoPackage, so the
+// existing reader handles them with no new parser.
+pub const SKITOUREN: &str = "ch.swisstopo-karto.skitouren";
+pub const SCHNEESCHUH: &str = "ch.astra.schneeschuhwanderwege";
+pub const WINTERWANDERN: &str = "ch.astra.winterwanderwege";
+
+/// Cycle and hiking route networks.
+///
+/// **Shapefile and File Geodatabase only** — no GeoPackage is published, so these need
+/// a shapefile reader before they can be used (see PLAN.md).
+pub const VELOLAND: &str = "ch.astra.veloland";
+pub const MOUNTAINBIKELAND: &str = "ch.astra.mountainbikeland";
+pub const WANDERLAND: &str = "ch.astra.wanderland";
+
 /// Multihash codes we accept. swisstopo currently emits sha2-256 (0x12).
 const MULTIHASH_SHA2_256: u8 = 0x12;
 

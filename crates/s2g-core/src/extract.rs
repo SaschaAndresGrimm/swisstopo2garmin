@@ -18,10 +18,18 @@ use crate::proj::{lv95_to_wgs84, BBox};
 
 /// A source layer and the attributes worth carrying into the map.
 pub struct LayerSpec {
+    /// Layer name, or a prefix of one.
+    ///
+    /// Some swisstopo layers carry the release year in their name
+    /// (`ski_routes_2056`), so an exact match would break on the next release. The
+    /// name is resolved exactly first, then by prefix.
     pub layer: &'static str,
     pub attributes: &'static [&'static str],
     /// Simplification tolerance in metres; 0 disables it.
     pub simplify_m: f64,
+    /// Tag namespace. swissTLM3D uses `tlm`; other sources use their own so a style
+    /// rule cannot accidentally match the wrong dataset's attribute.
+    pub prefix: &'static str,
 }
 
 /// Default extraction set.
@@ -45,31 +53,37 @@ pub const DEFAULT_LAYERS: &[LayerSpec] = &[
             "strassenname",
         ],
         simplify_m: 1.0,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_bb_bodenbedeckung",
         attributes: &["objektart"],
         simplify_m: 2.0,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_gewaesser_fliessgewaesser",
         attributes: &["objektart", "name", "verlauf"],
         simplify_m: 1.0,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_gewaesser_stehendes_gewaesser",
         attributes: &["objektart", "name"],
         simplify_m: 2.0,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_bauten_gebaeude_footprint",
         attributes: &["objektart"],
         simplify_m: 0.5,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_oev_eisenbahn",
         attributes: &["objektart", "name"],
         simplify_m: 1.0,
+        prefix: "tlm",
     },
     // Lifts and cableways: 2,903 features nationally, and essential context on a
     // Swiss hiking or ski map. Present in swissTLM3D all along but never extracted.
@@ -77,36 +91,93 @@ pub const DEFAULT_LAYERS: &[LayerSpec] = &[
         layer: "tlm_oev_uebrige_bahn",
         attributes: &["objektart", "name"],
         simplify_m: 1.0,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_areale_nutzungsareal",
         attributes: &["objektart", "name"],
         simplify_m: 2.0,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_areale_freizeitareal",
         attributes: &["objektart", "name"],
         simplify_m: 2.0,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_areale_verkehrsareal",
         attributes: &["objektart", "name"],
         simplify_m: 2.0,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_namen_flurname",
         attributes: &["objektart", "name"],
         simplify_m: 0.0,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_namen_siedlungsname_zentrum",
         attributes: &["objektart", "name", "einwohnerkategorie"],
         simplify_m: 0.0,
+        prefix: "tlm",
     },
     LayerSpec {
         layer: "tlm_eo_einzelobjekt",
         attributes: &["objektart", "name"],
         simplify_m: 0.0,
+        prefix: "tlm",
+    },
+];
+
+/// Winter sport routes, from three separate swisstopo/ASTRA GeoPackages.
+///
+/// Layer names, attributes and value domains all verified against the real files:
+/// `ski_routes` carries 10,789 SAC tours, `ski_network` a 19,915-segment connectivity
+/// graph with an access classification, and the two ASTRA sets 280 snowshoe and 507
+/// winter hiking routes.
+///
+/// `Datenstand_Kantone` is deliberately absent from every set: it records which cantons
+/// have supplied current data and is metadata, not map content.
+pub const WINTER_LAYERS: &[LayerSpec] = &[
+    // The SAC ski tour network. `access` distinguishes skiable from carrying and
+    // caution sections, which is the distinction that matters in the field.
+    LayerSpec {
+        layer: "ski_network",
+        attributes: &["discipline", "access", "direction", "route_info"],
+        simplify_m: 2.0,
+        prefix: "sac",
+    },
+    // Named tours with SAC difficulty, ascent and target.
+    LayerSpec {
+        layer: "ski_routes",
+        attributes: &[
+            "discipline",
+            "name",
+            "difficulty",
+            "ascent_altitude",
+            "ascent_time_label",
+            "target_name",
+            "target_altitude",
+            "route_nr",
+        ],
+        simplify_m: 2.0,
+        prefix: "sac",
+    },
+    // ASTRA / SchweizMobil signposted snowshoe trails.
+    LayerSpec {
+        layer: "Schneeschuhwanderwege",
+        attributes: &["NameR", "NrR", "TechnikR", "KonditionR", "Routenart"],
+        simplify_m: 2.0,
+        prefix: "swm",
+    },
+    // ASTRA / SchweizMobil signposted winter hiking trails.
+    LayerSpec {
+        layer: "Winterwanderwege",
+        attributes: &["NameR", "NrR", "KonditionR", "Routenart"],
+        simplify_m: 2.0,
+        prefix: "swm",
     },
 ];
 
@@ -241,13 +312,15 @@ impl RegionBuilder {
             if cancel.is_cancelled() {
                 return Err(crate::Error::Cancelled);
             }
-            if !available.iter().any(|a| a == spec.layer) {
+            // Resolved by prefix as well as exact name, because some layers carry
+            // the release year (ski_routes_2056).
+            let Some(layer_name) = resolve_layer(&available, spec.layer) else {
                 stats.missing_layers.push(spec.layer.to_string());
                 continue;
-            }
+            };
 
             let mut count = 0u64;
-            gpkg.for_each_in_bbox(spec.layer, bbox, spec.attributes, |f| {
+            gpkg.for_each_in_bbox(&layer_name, bbox, spec.attributes, |f| {
                 if cancel.is_cancelled() {
                     return false;
                 }
@@ -272,27 +345,38 @@ impl RegionBuilder {
     }
 }
 
+/// Exact layer name, or the first one starting with `wanted`.
+fn resolve_layer(available: &[String], wanted: &str) -> Option<String> {
+    available
+        .iter()
+        .find(|a| a.as_str() == wanted)
+        .or_else(|| available.iter().find(|a| a.starts_with(wanted)))
+        .cloned()
+}
+
 fn build_tags(spec: &LayerSpec, f: &Feature) -> Vec<(String, String)> {
     let mut tags = Vec::with_capacity(spec.attributes.len() + 1);
-    tags.push(("tlm:layer".to_string(), spec.layer.to_string()));
+    let p = spec.prefix;
+    tags.push((format!("{p}:layer"), spec.layer.to_string()));
     for a in spec.attributes {
         // `attr` filters NULL and the k_W / "Keine Angabe" sentinels, so a style rule
         // can never match a no-data value.
-        if let Some(v) = f.attr(a) {
-            if *a == "name" || *a == "strassenname" {
+        // `tag` rather than `attr`: numeric attributes must not be dropped.
+        if let Some(v) = f.tag(a) {
+            if *a == "name" || *a == "strassenname" || *a == "NameR" {
                 // Multilingual names arrive pipe-separated. Rendered verbatim the
                 // device would show "Bern | Berna | Berna | Berne", so only the
                 // primary variant becomes the label; the rest are kept searchable
                 // under alt_name (FR-P5).
-                let variants = crate::gpkg::split_names(v);
+                let variants = crate::gpkg::split_names(&v);
                 if let Some(primary) = variants.first() {
-                    tags.push((format!("tlm:{a}"), (*primary).to_string()));
+                    tags.push((format!("{p}:{a}"), (*primary).to_string()));
                 }
                 if variants.len() > 1 {
                     tags.push(("alt_name".to_string(), variants[1..].join(";")));
                 }
             } else {
-                tags.push((format!("tlm:{a}"), v.to_string()));
+                tags.push((format!("{p}:{a}"), v.to_string()));
             }
         }
     }

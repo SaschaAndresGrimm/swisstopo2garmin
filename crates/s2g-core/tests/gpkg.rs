@@ -346,3 +346,29 @@ fn splits_multilingual_names_and_picks_the_local_one() {
     assert_eq!(split_names("  |  "), Vec::<&str>::new());
     assert_eq!(primary_name("| Solo |"), "Solo");
 }
+
+#[test]
+fn numeric_attributes_are_emitted_as_tags() {
+    use s2g_core::gpkg::Value;
+
+    // as_meaningful_str yields text only, which silently dropped every numeric
+    // attribute. ski_network.access (0/1/2) is INTEGER, so the skiable / carrying /
+    // caution distinction vanished with no error at all.
+    assert_eq!(Value::Int(2).as_meaningful_str(), None);
+    assert_eq!(Value::Int(2).as_tag_value().as_deref(), Some("2"));
+    assert_eq!(Value::Int(0).as_tag_value().as_deref(), Some("0"));
+
+    // A whole number stored as REAL must not become "457.0", or a rule written
+    // against the integer form fails.
+    assert_eq!(Value::Real(457.0).as_tag_value().as_deref(), Some("457"));
+    assert_eq!(Value::Real(1.5).as_tag_value().as_deref(), Some("1.5"));
+    assert_eq!(Value::Real(f64::NAN).as_tag_value(), None);
+
+    // Text still passes through the no-data filter.
+    assert_eq!(Value::Text("k_W".into()).as_tag_value(), None);
+    assert_eq!(
+        Value::Text("Skilift".into()).as_tag_value().as_deref(),
+        Some("Skilift")
+    );
+    assert_eq!(Value::Null.as_tag_value(), None);
+}

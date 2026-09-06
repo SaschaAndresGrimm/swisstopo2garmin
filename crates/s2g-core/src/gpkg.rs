@@ -89,6 +89,28 @@ impl Value {
             _ => None,
         }
     }
+
+    /// The value rendered as a tag string, including numbers.
+    ///
+    /// [`Value::as_meaningful_str`] only yields text, which silently dropped every
+    /// numeric attribute: `ski_network.access` (0 skiable / 1 carrying / 2 caution),
+    /// `ski_routes.difficulty` and the altitude fields are all INTEGER, so any style
+    /// rule keyed on them could never match and the map lost the distinction without
+    /// any error.
+    pub fn as_tag_value(&self) -> Option<String> {
+        match self {
+            Value::Text(s) if !NO_DATA.contains(&s.as_str()) => Some(s.clone()),
+            Value::Int(i) => Some(i.to_string()),
+            // Whole numbers stored as REAL must not become "457.0", or a style rule
+            // written against the integer form fails.
+            Value::Real(f) if f.is_finite() => Some(if f.fract() == 0.0 {
+                format!("{}", *f as i64)
+            } else {
+                format!("{f}")
+            }),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -99,9 +121,17 @@ pub struct Feature {
 }
 
 impl Feature {
-    /// Attribute value, filtered through the no-data sentinels.
+    /// Attribute value as text, filtered through the no-data sentinels.
+    ///
+    /// Text only. Use [`Feature::tag`] when emitting tags, so numeric attributes are
+    /// not silently lost.
     pub fn attr(&self, key: &str) -> Option<&str> {
         self.attributes.get(key).and_then(Value::as_meaningful_str)
+    }
+
+    /// Attribute value for tag emission, including numeric attributes.
+    pub fn tag(&self, key: &str) -> Option<String> {
+        self.attributes.get(key).and_then(Value::as_tag_value)
     }
 }
 

@@ -157,5 +157,30 @@
   "lift_surface": {
     "day": "#3D3D3D",
     "note": "Skilift / Foerderband / Transportseil"
+  },
+  "ski_tour": {
+    "day": "#7B3FA0",
+    "casing": "#FFFFFF",
+    "note": "SAC ski tour, skiable section"
+  },
+  "ski_carry": {
+    "day": "#7B3FA0",
+    "casing": "#E8DCF0",
+    "note": "SAC ski tour, foot/carrying section"
+  },
+  "ski_caution": {
+    "day": "#B02020",
+    "casing": "#FFFFFF",
+    "note": "SAC ski tour, caution section"
+  },
+  "snowshoe": {
+    "day": "#E6007E",
+    "casing": "#FFFFFF",
+    "note": "Schneeschuhtrail; Swiss winter signage is magenta"
+  },
+  "winter_hiking": {
+    "day": "#F075B0",
+    "casing": "#FFFFFF",
+    "note": "Winterwanderweg; magenta signage, lighter than snowshoe"
   }
 }

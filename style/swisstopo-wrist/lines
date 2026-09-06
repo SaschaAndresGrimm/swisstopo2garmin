@@ -105,3 +105,23 @@ contour=elevation & contour_ext=elevation_major
     { name '${ele}' }                 [0x22 resolution 19]
 contour=elevation & contour_ext=elevation_medium [0x21 resolution 22]
 contour=elevation & contour_ext=elevation_minor  [0x20 resolution 24]
+
+# ---------------------------------------------------------------------------
+# Winter routes (skimo preset). Sources and value domains verified against the
+# real GeoPackages -- see docs/winter-schema.md.
+#
+# ski_network.access: 0 = skiable, 1 = on foot / carrying skis, 2 = caution.
+# That distinction is the one that matters in the field, so it drives the styling.
+# ---------------------------------------------------------------------------
+sac:layer~'ski_network.*' & sac:discipline=ski_tour & sac:access=2  [0x10109 resolution 21]
+sac:layer~'ski_network.*' & sac:discipline=ski_tour & sac:access=1  [0x10108 resolution 21]
+sac:layer~'ski_network.*' & sac:discipline=ski_tour                 [0x10107 resolution 20]
+sac:layer~'ski_network.*' & sac:discipline=ski_snowshoe_tour        [0x1010a resolution 21]
+
+# Named SAC tours carry the label; the network above carries the geometry, so the
+# route layer is drawn at the same weight and only adds names.
+sac:layer~'ski_routes.*' { name '${sac:name}' }                     [0x10107 resolution 20]
+
+# ASTRA / SchweizMobil signposted winter trails.
+swm:layer=Schneeschuhwanderwege { name '${swm:NameR}' }             [0x1010a resolution 21]
+swm:layer=Winterwanderwege      { name '${swm:NameR}' }             [0x1010b resolution 21]

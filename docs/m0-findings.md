@@ -266,6 +266,34 @@ no raster map support at all. The directory existing does not prove KMZ overlays
 but given that visual fidelity to the swisstopo raster is a headline requirement, it is
 worth testing before accepting the vector-only conclusion.
 
+**Finding 4.17 — text-only attribute access silently dropped every numeric tag.**
+`Value::as_meaningful_str` returned only `Value::Text`, so INTEGER and REAL columns
+never became tags. `ski_network.access` (0 skiable / 1 carrying / 2 caution),
+`ski_routes.difficulty` and every altitude field are INTEGER, so the style rules keyed
+on them could not match and the map lost the distinction **with no error anywhere** —
+the rules were correct, the data was present, and the output was simply poorer.
+`Feature::tag` now renders numbers, and formats whole REALs without a `.0` so a rule
+written against the integer form still matches.
+
+**Finding 4.18 — winter route datasets are all GeoPackage; cycle datasets are not.**
+`ch.swisstopo-karto.skitouren` (10,789 SAC tours plus a 19,915-segment network),
+`ch.astra.schneeschuhwanderwege` (280) and `ch.astra.winterwanderwege` (507) are
+GeoPackage, so the existing reader handles them. `ch.astra.veloland`,
+`ch.astra.mountainbikeland` and `ch.astra.wanderland` publish **shapefile and File
+Geodatabase only** — no GeoPackage — so cycle routes need a shapefile reader first.
+The generic `veloland.zip` asset contains only PDFs.
+
+**Finding 4.19 — swissTLM3D has no cycle route data at all.**
+`tlm_strassen_strassenroute` looks like a route network but is motorway numbering
+(`Nationalstrasse`, `Hauptstrasse A/B/C`, `HLS`). The road layer carries `wanderwege`
+for hiking but nothing equivalent for cycling, so bike routes cannot come from
+swissTLM3D.
+
+**Finding 4.20 — layer names can carry the release year.** `ski_routes_2056` and
+`ski_network_2056` embed the coordinate-system code, and other swisstopo layers embed
+dates, so an exact-match layer lookup breaks on the next release. Layers are resolved
+by exact name first, then by prefix.
+
 **Finding 4.4 — IMG header offsets** (for the Stage 6 verifier): `DSKIMG` at **0x10**,
 `GARMIN` at 0x41, description at 0x49, block-size exponents E1/E2 at 0x61/0x62, FAT at
 0x600. Several online references place `DSKIMG` elsewhere; the above is measured.

@@ -128,6 +128,13 @@ LINES = [
     # omission for a Swiss hiking or ski map.
     ("0x10105", "Luftseilbahn",   "lift_aerial",    2, 0),
     ("0x10106", "Skilift",        "lift_surface",   2, 0),
+    # Winter routes. Only drawn when the skimo content preset is selected, but the
+    # types are always defined so one TYP serves every preset.
+    ("0x10107", "Skitour",         "ski_tour",       4, 1),
+    ("0x10108", "Skitour tragen",  "ski_carry",      3, 1),
+    ("0x10109", "Skitour Vorsicht", "ski_caution",   4, 1),
+    ("0x1010a", "Schneeschuhtrail", "snowshoe",      4, 1),
+    ("0x1010b", "Winterwanderweg", "winter_hiking",  4, 1),
     ("0x1a",    "Faehre",         "water_line",     2, 0),
     ("0x18",    "Bach",           "water_line",     2, 0),
     ("0x1f",    "Fluss",          "water_line",     4, 0),
