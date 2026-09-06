@@ -45,114 +45,131 @@ Type=0x10216,13
 [_polygon]
 Type=0x4a
 String1=0x04,Hintergrund
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #FFFFFF"
+"2 c #1A1A1A"
 [end]
 
 [_polygon]
 Type=0x4b
 String1=0x04,Hintergrund
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #FFFFFF"
+"2 c #1A1A1A"
 [end]
 
 [_polygon]
 Type=0x10203
 String1=0x04,Gletscher
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #C5E2F0"
+"2 c #373D3D"
 [end]
 
 [_polygon]
 Type=0x10204
 String1=0x04,Schneefeld
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #D6F2FF"
+"2 c #2B3232"
 [end]
 
 [_polygon]
 Type=0x10205
 String1=0x04,Wald
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #C3F3EE"
+"2 c #2A4921"
 [end]
 
 [_polygon]
 Type=0x10206
 String1=0x04,Gehoelz
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #CBF6F6"
+"2 c #27441F"
 [end]
 
 [_polygon]
 Type=0x10207
 String1=0x04,Gebueschwald
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #D5F9FF"
+"2 c #253D1C"
 [end]
 
 [_polygon]
 Type=0x10208
 String1=0x04,Wald offen
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #D1F8FD"
+"2 c #25401D"
 [end]
 
 [_polygon]
 Type=0x1020b
 String1=0x04,Obstanlage
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #ADE0CF"
+"2 c #3A5434"
 [end]
 
 [_polygon]
 Type=0x1020c
 String1=0x04,Nutzungsareal
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #E8F3FF"
+"2 c #2E2921"
 [end]
 
 [_polygon]
 Type=0x1020d
 String1=0x04,Verkehrsareal
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #E0EAF5"
+"2 c #342F28"
 [end]
 
 [_polygon]
 Type=0x1020e
 String1=0x04,Freizeitareal
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #D5F4F5"
+"2 c #2F3D24"
 [end]
 
 [_polygon]
 Type=0x1020f
 String1=0x04,See
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #D3EDFC"
+"2 c #0C2F45"
 [end]
 
 [_polygon]
 Type=0x10210
 String1=0x04,Fliessgewaesser
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #D3EDFC"
+"2 c #0C2F45"
 [end]
 
 [_polygon]
 Type=0x10211
 String1=0x04,Gebaeude
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #000000"
+"2 c #C7C7C7"
 [end]
 
 [_polygon]
 Type=0x10201
 String1=0x04,Fels
-Xpm="32 32 2 1"
-". c #FFFFFF"
+Xpm="32 32 4 1"
 "# c #60696A"
+". c #FFFFFF"
+"3 c #7E7C7B"
+"4 c #1A1A1A"
 "........................#......."
 ".......#.......#.......#........"
 "......#.......#.......#.......#."
@@ -190,9 +207,11 @@ Xpm="32 32 2 1"
 [_polygon]
 Type=0x10202
 String1=0x04,Lockergestein
-Xpm="32 32 2 1"
-". c #FFFFFF"
+Xpm="32 32 4 1"
 "# c #8A9291"
+". c #FFFFFF"
+"3 c #696663"
+"4 c #1A1A1A"
 "#............................#.."
 ".....#.........................."
 "..........#....................."
@@ -230,9 +249,11 @@ Xpm="32 32 2 1"
 [_polygon]
 Type=0x10209
 String1=0x04,Feuchtgebiet
-Xpm="32 32 2 1"
-". c #FFFFFF"
+Xpm="32 32 4 1"
 "# c #78BFD5"
+". c #FFFFFF"
+"3 c #4A7065"
+"4 c #1A1A1A"
 "######..........######.........."
 "................................"
 "................................"
@@ -270,9 +291,11 @@ Xpm="32 32 2 1"
 [_polygon]
 Type=0x1020a
 String1=0x04,Reben
-Xpm="32 32 2 1"
-". c #ADE0CF"
+Xpm="32 32 4 1"
 "# c #78BFD5"
+". c #ADE0CF"
+"3 c #4A7065"
+"4 c #3A5434"
 "#.......#...............#......."
 "#.......#...............#......."
 "#.......#...............#......."
@@ -310,9 +333,11 @@ Xpm="32 32 2 1"
 [_polygon]
 Type=0x10212
 String1=0x04,Hangneigung 30
-Xpm="32 32 2 1"
-". c none"
+Xpm="32 32 4 1"
 "# c #F2E50A"
+". c none"
+"3 c #F6EA23"
+"4 c none"
 "##..##..##..##..##..##..##..##.."
 "#..##..##..##..##..##..##..##..#"
 "..##..##..##..##..##..##..##..##"
@@ -350,9 +375,11 @@ Xpm="32 32 2 1"
 [_polygon]
 Type=0x10213
 String1=0x04,Hangneigung 35
-Xpm="32 32 2 1"
-". c none"
+Xpm="32 32 4 1"
 "# c #F46F24"
+". c none"
+"3 c #F46F24"
+"4 c none"
 "##..##..##..##..##..##..##..##.."
 "#..##..##..##..##..##..##..##..#"
 "..##..##..##..##..##..##..##..##"
@@ -390,9 +417,11 @@ Xpm="32 32 2 1"
 [_polygon]
 Type=0x10214
 String1=0x04,Hangneigung 40
-Xpm="32 32 2 1"
-". c none"
+Xpm="32 32 4 1"
 "# c #DE055B"
+". c none"
+"3 c #FA1F76"
+"4 c none"
 "##..##..##..##..##..##..##..##.."
 "#..##..##..##..##..##..##..##..#"
 "..##..##..##..##..##..##..##..##"
@@ -430,9 +459,11 @@ Xpm="32 32 2 1"
 [_polygon]
 Type=0x10215
 String1=0x04,Hangneigung 45
-Xpm="32 32 2 1"
-". c none"
+Xpm="32 32 4 1"
 "# c #C889BB"
+". c none"
+"3 c #C889BB"
+"4 c none"
 "##..##..##..##..##..##..##..##.."
 "#..##..##..##..##..##..##..##..#"
 "..##..##..##..##..##..##..##..##"
@@ -470,9 +501,11 @@ Xpm="32 32 2 1"
 [_polygon]
 Type=0x10216
 String1=0x04,Hangneigung 50
-Xpm="32 32 2 1"
-". c none"
+Xpm="32 32 4 1"
 "# c #4B4B4B"
+". c none"
+"3 c #8C8C8C"
+"4 c none"
 "##..##..##..##..##..##..##..##.."
 "#..##..##..##..##..##..##..##..#"
 "..##..##..##..##..##..##..##..##"
@@ -527,6 +560,14 @@ DayXpm="5 5 2 1"
 "#####"
 "#####"
 "     "
+NightXpm="5 5 2 1"
+"  c none"
+"# c #C7C7C7"
+"     "
+"#####"
+"#####"
+"#####"
+"     "
 FontStyle=SmallFont
 [end]
 
@@ -536,6 +577,14 @@ String1=0x04,Weiler
 DayXpm="5 5 2 1"
 "  c none"
 "# c #000000"
+"     "
+"#####"
+"#####"
+"#####"
+"     "
+NightXpm="5 5 2 1"
+"  c none"
+"# c #C7C7C7"
 "     "
 "#####"
 "#####"
@@ -555,6 +604,14 @@ DayXpm="5 5 2 1"
 "#####"
 "#####"
 "#####"
+NightXpm="5 5 2 1"
+"  c none"
+"# c #FF1A34"
+"  #  "
+" ### "
+"#####"
+"#####"
+"#####"
 FontStyle=SmallFont
 [end]
 
@@ -564,6 +621,14 @@ String1=0x04,Bergrestaurant
 DayXpm="5 5 2 1"
 "  c none"
 "# c #E2001A"
+"  #  "
+" ### "
+"#####"
+"#####"
+"#####"
+NightXpm="5 5 2 1"
+"  c none"
+"# c #FF1A34"
 "  #  "
 " ### "
 "#####"
@@ -583,6 +648,14 @@ DayXpm="5 5 2 1"
 "#   #"
 "#   #"
 "#####"
+NightXpm="5 5 2 1"
+"  c none"
+"# c #AAAAAA"
+"#####"
+"#   #"
+"#   #"
+"#   #"
+"#####"
 FontStyle=SmallFont
 [end]
 
@@ -592,6 +665,14 @@ String1=0x04,Bahnhof
 DayXpm="5 5 2 1"
 "  c none"
 "# c #2B2B2B"
+"#####"
+"#   #"
+"#   #"
+"#   #"
+"#####"
+NightXpm="5 5 2 1"
+"  c none"
+"# c #AAAAAA"
 "#####"
 "#   #"
 "#   #"
@@ -611,15 +692,25 @@ DayXpm="5 5 2 1"
 "#   #"
 "#   #"
 "#####"
+NightXpm="5 5 2 1"
+"  c none"
+"# c #AAAAAA"
+"#####"
+"#   #"
+"#   #"
+"#   #"
+"#####"
 FontStyle=SmallFont
 [end]
 
 [_line]
 Type=0x10101
 String1=0x04,Wanderweg
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #FFD100"
 "2 c #7A6500"
+"3 c #FFD61A"
+"4 c #E2CA59"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -627,9 +718,11 @@ BorderWidth=1
 [_line]
 Type=0x10102
 String1=0x04,Bergwanderweg
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #E2001A"
 "2 c #FFFFFF"
+"3 c #FF1A34"
+"4 c #1A1A1A"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -637,9 +730,11 @@ BorderWidth=1
 [_line]
 Type=0x10103
 String1=0x04,Alpinwanderweg
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #0067B2"
 "2 c #FFFFFF"
+"3 c #1A9EFF"
+"4 c #1A1A1A"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -647,9 +742,11 @@ BorderWidth=1
 [_line]
 Type=0x10104
 String1=0x04,Klettersteig
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #1A1A1A"
 "2 c #E2001A"
+"3 c #8C8C8C"
+"4 c #D02538"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -657,9 +754,11 @@ BorderWidth=1
 [_line]
 Type=0x01
 String1=0x04,Autobahn
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #E8823C"
 "2 c #8A4A18"
+"3 c #9B592D"
+"4 c #C78959"
 LineWidth=4
 BorderWidth=1
 [end]
@@ -667,9 +766,11 @@ BorderWidth=1
 [_line]
 Type=0x02
 String1=0x04,Autostrasse
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #EE9A55"
 "2 c #8A4A18"
+"3 c #945928"
+"4 c #C78959"
 LineWidth=4
 BorderWidth=1
 [end]
@@ -677,9 +778,11 @@ BorderWidth=1
 [_line]
 Type=0x03
 String1=0x04,Hauptstrasse
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #F5B461"
 "2 c #7A5626"
+"3 c #8B5D21"
+"4 c #B99668"
 LineWidth=4
 BorderWidth=1
 [end]
@@ -687,9 +790,11 @@ BorderWidth=1
 [_line]
 Type=0x04
 String1=0x04,Verbindungsstrasse
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #FBD98B"
 "2 c #7A6532"
+"3 c #81621B"
+"4 c #AE9A6B"
 LineWidth=3
 BorderWidth=1
 [end]
@@ -697,9 +802,11 @@ BorderWidth=1
 [_line]
 Type=0x05
 String1=0x04,Strasse 6m
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #FDECBE"
 "2 c #7A6E4E"
+"3 c #7E631B"
+"4 c #968C70"
 LineWidth=3
 BorderWidth=1
 [end]
@@ -707,9 +814,11 @@ BorderWidth=1
 [_line]
 Type=0x06
 String1=0x04,Strasse
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #FFFFFF"
 "2 c #4D4D4D"
+"3 c #1A1A1A"
+"4 c #939393"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -717,9 +826,11 @@ BorderWidth=1
 [_line]
 Type=0x07
 String1=0x04,Zufahrt
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #FFFFFF"
 "2 c #8C8C8C"
+"3 c #1A1A1A"
+"4 c #686868"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -727,9 +838,11 @@ BorderWidth=1
 [_line]
 Type=0x08
 String1=0x04,Ein-/Ausfahrt
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #F5B461"
 "2 c #7A5626"
+"3 c #8B5D21"
+"4 c #B99668"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -737,9 +850,11 @@ BorderWidth=1
 [_line]
 Type=0x0a
 String1=0x04,Fahrweg
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #FFFFFF"
 "2 c #9A8A72"
+"3 c #1A1A1A"
+"4 c #786E5F"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -747,17 +862,20 @@ BorderWidth=1
 [_line]
 Type=0x16
 String1=0x04,Fussweg
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #4D4640"
+"2 c #9E9690"
 LineWidth=1
 [end]
 
 [_line]
 Type=0x14
 String1=0x04,Eisenbahn
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #2B2B2B"
 "2 c #FFFFFF"
+"3 c #AAAAAA"
+"4 c #1A1A1A"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -765,25 +883,29 @@ BorderWidth=1
 [_line]
 Type=0x10105
 String1=0x04,Luftseilbahn
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #1A1A1A"
+"2 c #B5B5B5"
 LineWidth=1
 [end]
 
 [_line]
 Type=0x10106
 String1=0x04,Skilift
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #3D3D3D"
+"2 c #9D9D9D"
 LineWidth=1
 [end]
 
 [_line]
 Type=0x10107
 String1=0x04,Skitour
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #7B3FA0"
 "2 c #FFFFFF"
+"3 c #985ABE"
+"4 c #1A1A1A"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -791,9 +913,11 @@ BorderWidth=1
 [_line]
 Type=0x10108
 String1=0x04,Skitour tragen
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #7B3FA0"
 "2 c #E8DCF0"
+"3 c #985ABE"
+"4 c #2D1F36"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -801,9 +925,11 @@ BorderWidth=1
 [_line]
 Type=0x10109
 String1=0x04,Skitour Vorsicht
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #B02020"
 "2 c #FFFFFF"
+"3 c #DC3D3D"
+"4 c #1A1A1A"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -811,9 +937,11 @@ BorderWidth=1
 [_line]
 Type=0x1010a
 String1=0x04,Schneeschuhtrail
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #E6007E"
 "2 c #FFFFFF"
+"3 c #FF1A97"
+"4 c #1A1A1A"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -821,9 +949,11 @@ BorderWidth=1
 [_line]
 Type=0x1010b
 String1=0x04,Winterwanderweg
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #F075B0"
 "2 c #FFFFFF"
+"3 c #F075B0"
+"4 c #1A1A1A"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -831,9 +961,11 @@ BorderWidth=1
 [_line]
 Type=0x1010c
 String1=0x04,Veloroute
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #0090D0"
 "2 c #FFFFFF"
+"3 c #1AB8FF"
+"4 c #1A1A1A"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -841,9 +973,11 @@ BorderWidth=1
 [_line]
 Type=0x1010d
 String1=0x04,Mountainbikeroute
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #5AAA46"
 "2 c #FFFFFF"
+"3 c #70BC5C"
+"4 c #1A1A1A"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -851,9 +985,11 @@ BorderWidth=1
 [_line]
 Type=0x1010e
 String1=0x04,Singletrail
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "1 c #2E7D32"
 "2 c #FFFFFF"
+"3 c #57C15D"
+"4 c #1A1A1A"
 LineWidth=2
 BorderWidth=1
 [end]
@@ -861,55 +997,62 @@ BorderWidth=1
 [_line]
 Type=0x1a
 String1=0x04,Faehre
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #5FADD9"
+"2 c #366C8C"
 LineWidth=1
 [end]
 
 [_line]
 Type=0x18
 String1=0x04,Bach
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #5FADD9"
+"2 c #366C8C"
 LineWidth=1
 [end]
 
 [_line]
 Type=0x1f
 String1=0x04,Fluss
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #5FADD9"
+"2 c #366C8C"
 LineWidth=2
 [end]
 
 [_line]
 Type=0x20
 String1=0x04,Hoehenkurve
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #C9A277"
+"2 c #7D6244"
 LineWidth=1
 [end]
 
 [_line]
 Type=0x21
 String1=0x04,Hoehenkurve
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #BC8F5E"
+"2 c #856849"
 LineWidth=1
 [end]
 
 [_line]
 Type=0x22
 String1=0x04,Hoehenkurve
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #A87642"
+"2 c #9C7853"
 LineWidth=1
 [end]
 
 [_line]
 Type=0x23
 String1=0x04,Hoehenkurve Eis
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "1 c #8FB7C9"
+"2 c #496B7D"
 LineWidth=1
 [end]

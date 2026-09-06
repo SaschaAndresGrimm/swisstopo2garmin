@@ -154,8 +154,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|v| v.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect())
         .unwrap_or_default();
 
+    let palette = match arg("--palette").unwrap_or_else(|| "summer".into()).as_str() {
+        "winter" => s2g_core::recipe::Palette::Winter,
+        _ => s2g_core::recipe::Palette::Summer,
+    };
+
     let recipe = Recipe {
         relief,
+        palette,
         slope_classes: arg("--slope").is_some() || std::env::args().any(|a| a == "--slope"),
         excluded_layers: excluded,
         ..Recipe::new(format!("{place} {}", preset.id()), &device_id, area).with_preset(preset)

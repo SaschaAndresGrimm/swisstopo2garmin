@@ -11,7 +11,8 @@
     "night": "#1A1A1A",
     "note": "map background",
     "winter": "#FFFFFF",
-    "winter_kept": true
+    "winter_kept": true,
+    "night_derived": "chosen directly as the night ground"
   },
   "forest": {
     "day": "#CAECC1",
@@ -22,25 +23,33 @@
       -7,
       7,
       45
-    ]
+    ],
+    "night": "#2A4921",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "forest_open": {
     "day": "#D8F1D0",
     "derived_from": "forest",
     "winter": "#D1F8FD",
-    "winter_derived_from": "forest"
+    "winter_derived_from": "forest",
+    "night": "#25401D",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "copse": {
     "day": "#D2EFC9",
     "derived_from": "forest",
     "winter": "#CBF6F6",
-    "winter_derived_from": "forest"
+    "winter_derived_from": "forest",
+    "night": "#27441F",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "scrub": {
     "day": "#DCF2D4",
     "derived_from": "forest",
     "winter": "#D5F9FF",
-    "winter_derived_from": "forest"
+    "winter_derived_from": "forest",
+    "night": "#253D1C",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "rock_ink": {
     "day": "#706E6C",
@@ -52,13 +61,17 @@
       -16,
       -5,
       -2
-    ]
+    ],
+    "night": "#7E7C7B",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "scree_ink": {
     "day": "#9A9793",
     "derived_from": "rock_ink",
     "winter": "#8A9291",
-    "winter_derived_from": "rock_ink"
+    "winter_derived_from": "rock_ink",
+    "night": "#696663",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "glacier": {
     "day": "#CCD3D3",
@@ -69,13 +82,17 @@
       -7,
       15,
       29
-    ]
+    ],
+    "night": "#373D3D",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "firn": {
     "day": "#DDE3E3",
     "derived_from": "glacier",
     "winter": "#D6F2FF",
-    "winter_derived_from": "glacier"
+    "winter_derived_from": "glacier",
+    "night": "#2B3232",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "water": {
     "day": "#D3EEFF",
@@ -86,18 +103,24 @@
       0,
       -1,
       -3
-    ]
+    ],
+    "night": "#0C2F45",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "water_line": {
     "day": "#5FAEDC",
     "note": "stream/river linework",
     "winter": "#5FADD9",
-    "winter_derived_from": "water"
+    "winter_derived_from": "water",
+    "night": "#366C8C",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "wetland_ink": {
     "day": "#7FB8A8",
     "winter": "#78BFD5",
-    "winter_derived_from": "forest"
+    "winter_derived_from": "forest",
+    "night": "#4A7065",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "green_open": {
     "day": "#CEE3CE",
@@ -109,21 +132,27 @@
       -7,
       10,
       36
-    ]
+    ],
+    "night": "#2A3E2A",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "green_mid": {
     "day": "#B4D6AB",
     "measured": true,
     "note": "orchard/garden",
     "winter": "#ADE0CF",
-    "winter_derived_from": "green_open"
+    "winter_derived_from": "green_open",
+    "night": "#3A5434",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "building": {
     "day": "#000000",
     "measured": true,
     "note": "LK25 draws buildings solid black",
     "winter": "#000000",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#C7C7C7",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "builtup": {
     "day": "#EFECE6",
@@ -133,192 +162,275 @@
       -7,
       7,
       32
-    ]
+    ],
+    "night": "#2E2921",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "transport_area": {
     "day": "#E7E3DC",
     "winter": "#E0EAF5",
-    "winter_derived_from": "builtup"
+    "winter_derived_from": "builtup",
+    "night": "#342F28",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "leisure_area": {
     "day": "#DCEAD1",
     "winter": "#D5F4F5",
-    "winter_derived_from": "green_open"
+    "winter_derived_from": "green_open",
+    "night": "#2F3D24",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "road_motorway": {
     "day": "#E8823C",
     "casing": "#8A4A18",
     "winter": "#E8823C",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#9B592D",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced",
+    "casing_night": "#C78959"
   },
   "road_trunk": {
     "day": "#EE9A55",
     "casing": "#8A4A18",
     "winter": "#EE9A55",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#945928",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced",
+    "casing_night": "#C78959"
   },
   "road_primary": {
     "day": "#F5B461",
     "casing": "#7A5626",
     "winter": "#F5B461",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#8B5D21",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced",
+    "casing_night": "#B99668"
   },
   "road_secondary": {
     "day": "#FBD98B",
     "casing": "#7A6532",
     "winter": "#FBD98B",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#81621B",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced",
+    "casing_night": "#AE9A6B"
   },
   "road_tertiary": {
     "day": "#FDECBE",
     "casing": "#7A6E4E",
     "winter": "#FDECBE",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#7E631B",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced",
+    "casing_night": "#968C70"
   },
   "road_minor": {
     "day": "#FFFFFF",
     "casing": "#4D4D4D",
     "winter": "#FFFFFF",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#1A1A1A",
+    "night_derived": "the ground showing through, as on paper; the casing carries it",
+    "casing_night": "#939393"
   },
   "road_access": {
     "day": "#FFFFFF",
     "casing": "#8C8C8C",
     "winter": "#FFFFFF",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#1A1A1A",
+    "night_derived": "the ground showing through, as on paper; the casing carries it",
+    "casing_night": "#686868"
   },
   "track": {
     "day": "#FFFFFF",
     "casing": "#9A8A72",
     "winter": "#FFFFFF",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#1A1A1A",
+    "night_derived": "the ground showing through, as on paper; the casing carries it",
+    "casing_night": "#786E5F"
   },
   "path": {
     "day": "#4D4640",
     "winter": "#4D4640",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#9E9690",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "rail": {
     "day": "#2B2B2B",
     "casing": "#FFFFFF",
     "winter": "#2B2B2B",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#AAAAAA",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced",
+    "casing_night": "#1A1A1A"
   },
   "hike_yellow": {
     "day": "#FFD100",
     "casing": "#7A6500",
     "note": "Wanderweg",
     "winter": "#FFD100",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#FFD61A",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#E2CA59"
   },
   "hike_red": {
     "day": "#E2001A",
     "casing": "#FFFFFF",
     "note": "Bergwanderweg",
     "winter": "#E2001A",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#FF1A34",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#1A1A1A"
   },
   "hike_blue": {
     "day": "#0067B2",
     "casing": "#FFFFFF",
     "note": "Alpinwanderweg",
     "winter": "#0067B2",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#1A9EFF",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#1A1A1A"
   },
   "via_ferrata": {
     "day": "#1A1A1A",
     "casing": "#E2001A",
     "winter": "#1A1A1A",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#8C8C8C",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#D02538"
   },
   "contour_minor": {
     "day": "#C9A277",
     "winter": "#C9A277",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#7D6244",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "contour_medium": {
     "day": "#BC8F5E",
     "winter": "#BC8F5E",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#856849",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "contour_major": {
     "day": "#A87642",
     "winter": "#A87642",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#9C7853",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "contour_ice": {
     "day": "#8FB8CC",
     "note": "LK draws contours blue over ice",
     "winter": "#8FB7C9",
-    "winter_derived_from": "water"
+    "winter_derived_from": "water",
+    "night": "#496B7D",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "lift_aerial": {
     "day": "#1A1A1A",
     "note": "Luftseilbahn / Gondelbahn / Sesselbahn",
     "winter": "#1A1A1A",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#B5B5B5",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "lift_surface": {
     "day": "#3D3D3D",
     "note": "Skilift / Foerderband / Transportseil",
     "winter": "#3D3D3D",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#9D9D9D",
+    "night_derived": "lightness inverted into a comfortable band, saturation reduced"
   },
   "ski_tour": {
     "day": "#7B3FA0",
     "casing": "#FFFFFF",
     "note": "SAC ski tour, skiable section",
     "winter": "#7B3FA0",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#985ABE",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#1A1A1A"
   },
   "ski_carry": {
     "day": "#7B3FA0",
     "casing": "#E8DCF0",
     "note": "SAC ski tour, foot/carrying section",
     "winter": "#7B3FA0",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#985ABE",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#2D1F36"
   },
   "ski_caution": {
     "day": "#B02020",
     "casing": "#FFFFFF",
     "note": "SAC ski tour, caution section",
     "winter": "#B02020",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#DC3D3D",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#1A1A1A"
   },
   "snowshoe": {
     "day": "#E6007E",
     "casing": "#FFFFFF",
     "note": "Schneeschuhtrail; Swiss winter signage is magenta",
     "winter": "#E6007E",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#FF1A97",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#1A1A1A"
   },
   "winter_hiking": {
     "day": "#F075B0",
     "casing": "#FFFFFF",
     "note": "Winterwanderweg; magenta signage, lighter than snowshoe",
     "winter": "#F075B0",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#F075B0",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#1A1A1A"
   },
   "cycle_route": {
     "day": "#0090D0",
     "casing": "#FFFFFF",
     "note": "Veloland; SchweizMobil cycle signage is light blue",
     "winter": "#0090D0",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#1AB8FF",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#1A1A1A"
   },
   "mtb_route": {
     "day": "#5AAA46",
     "casing": "#FFFFFF",
     "note": "Mountainbikeland. SchweizMobil signs it light blue like Veloland and distinguishes it only by pictogram, which a Garmin cannot render, so green is a deliberate deviation for legibility",
     "winter": "#5AAA46",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#70BC5C",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#1A1A1A"
   },
   "mtb_singletrail": {
     "day": "#2E7D32",
     "casing": "#FFFFFF",
     "note": "MTBWeg.IsSTrail = 1",
     "winter": "#2E7D32",
-    "winter_kept": true
+    "winter_kept": true,
+    "night": "#57C15D",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable",
+    "casing_night": "#1A1A1A"
   },
   "_winter": {
     "source": "ch.swisstopo.pixelkarte-farbe-winter against ch.swisstopo.pixelkarte-farbe",
@@ -390,7 +502,9 @@
       "valley floor, Grindelwald": 90.1,
       "moderate flank, Aletsch": 22.6,
       "near-vertical, Eiger north face": 0.9
-    }
+    },
+    "night": "#F6EA23",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable"
   },
   "slope_35": {
     "day": "#F46F24",
@@ -403,7 +517,9 @@
       "valley floor, Grindelwald": 8.4,
       "moderate flank, Aletsch": 32.1,
       "near-vertical, Eiger north face": 4.7
-    }
+    },
+    "night": "#F46F24",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable"
   },
   "slope_40": {
     "day": "#DE055B",
@@ -416,7 +532,9 @@
       "valley floor, Grindelwald": 1.5,
       "moderate flank, Aletsch": 16.8,
       "near-vertical, Eiger north face": 19.2
-    }
+    },
+    "night": "#FA1F76",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable"
   },
   "slope_45": {
     "day": "#C889BB",
@@ -428,7 +546,9 @@
     "observed_share_percent": {
       "moderate flank, Aletsch": 11.0,
       "near-vertical, Eiger north face": 16.5
-    }
+    },
+    "night": "#C889BB",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable"
   },
   "slope_50": {
     "day": "#4B4B4B",
@@ -440,7 +560,9 @@
     "observed_share_percent": {
       "moderate flank, Aletsch": 17.6,
       "near-vertical, Eiger north face": 58.8
-    }
+    },
+    "night": "#8C8C8C",
+    "night_derived": "overlay: hue and saturation kept, lightened to stay findable"
   },
   "_slope": {
     "source": "ch.swisstopo.hangneigung-ueber_30",
@@ -466,5 +588,51 @@
       "45": "#C889BB",
       "50": "#4B4B4B"
     }
+  },
+  "_night": {
+    "measured": false,
+    "method": "Derived from the day palette, not measured: swisstopo publishes no night map and Garmin's night mode is a rendering mode whose colours the TYP author chooses. Lightness is inverted into a band clear of both extremes and saturation reduced, so hue is preserved and the map stays recognisable. Route overlays keep hue and saturation and are only lightened.",
+    "ground": "#1A1A1A",
+    "lightness_band": [
+      0.1,
+      0.78
+    ],
+    "overlay_min_lightness": 0.55,
+    "overlays": [
+      "cycle_route",
+      "hike_blue",
+      "hike_red",
+      "hike_yellow",
+      "mtb_route",
+      "mtb_singletrail",
+      "ski_carry",
+      "ski_caution",
+      "ski_tour",
+      "slope_30",
+      "slope_35",
+      "slope_40",
+      "slope_45",
+      "slope_50",
+      "snowshoe",
+      "via_ferrata",
+      "winter_hiking"
+    ],
+    "worst_contrast_against_ground": {
+      "entry": "water_line",
+      "ratio": 3.05
+    },
+    "ink_min_contrast": 3.0,
+    "fill_max_contrast": 3.0,
+    "lightened_to_meet_the_floor": [
+      "scree_ink",
+      "water_line",
+      "road_trunk",
+      "road_primary",
+      "road_secondary",
+      "road_tertiary",
+      "contour_minor",
+      "contour_ice"
+    ],
+    "paper_like": "Entries whose day colour is the paper colour become the night ground, and are scored on their casing: what makes a white road a road is its outline, and that relationship should invert rather than break."
   }
 }

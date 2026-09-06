@@ -1,0 +1,16 @@
+{
+  "grindelwald-summer": {
+    "build": [
+      "--place",
+      "Grindelwald",
+      "--radius-km",
+      "2",
+      "--preset",
+      "hiking",
+      "--relief",
+      "off"
+    ],
+    "release": "swisstlm3d_2026-02",
+    "render": []
+  }
+}

@@ -222,8 +222,10 @@ def build(wrist: bool, winter: bool = False) -> str:
         w("[_polygon]")
         w(f"Type={t}")
         w(f"String1=0x04,{lab}")
-        w('Xpm="0 0 1 0"')
+        # Two colours: the device switches to the second in night mode (FR-CART2).
+        w('Xpm="0 0 2 0"')
         w(f'"1 c {c(fill, key)}"')
+        w(f'"2 c {c(fill, "night")}"')
         w("[end]")
         w("")
 
@@ -233,10 +235,15 @@ def build(wrist: bool, winter: bool = False) -> str:
         w("[_polygon]")
         w(f"Type={t}")
         w(f"String1=0x04,{lab}")
-        w('Xpm="32 32 2 1"')
+        # Four colours: day ink, day ground, night ink, night ground. mkgmap's
+        # typ-compiler documents this order, and the device swaps to the night pair
+        # by itself -- the pixmap is drawn only in the day colours.
+        w('Xpm="32 32 4 1"')
+        w(f'"# c {c(ink, key)}"')
         # A None background is transparent, so the map underneath still shows through.
         w('". c none"' if bg is None else f'". c {c(bg, key)}"')
-        w(f'"# c {c(ink, key)}"')
+        w(f'"3 c {c(ink, "night")}"')
+        w('"4 c none"' if bg is None else f'"4 c {c(bg, "night")}"')
         for r in rows:
             w(f'"{r}"')
         w("[end]")
@@ -270,6 +277,23 @@ def build(wrist: bool, winter: bool = False) -> str:
                     edge = row == 0 or row == size - 1
                     on = [not edge for _ in range(size)]
                 w('"' + "".join("#" if v else " " for v in on) + '"')
+        if icon is not None:
+            # Same size, night ink: the compiler requires matching dimensions.
+            size = 5 if wrist else 7
+            ink = {"dot": "building", "hut": "hike_red", "stop": "rail"}[icon]
+            w(f'NightXpm="{size} {size} 2 1"')
+            w('"  c none"')
+            w(f'"# c {c(ink, "night")}"')
+            for row in range(size):
+                if icon == "hut":
+                    half = size // 2
+                    on = [abs(col - half) <= row for col in range(size)]
+                elif icon == "stop":
+                    on = [row in (0, size - 1) or col in (0, size - 1) for col in range(size)]
+                else:
+                    edge = row == 0 or row == size - 1
+                    on = [not edge for _ in range(size)]
+                w('"' + "".join("#" if v else " " for v in on) + '"')
         w("FontStyle=SmallFont" if wrist else "FontStyle=NormalFont")
         w("[end]")
         w("")
@@ -283,16 +307,20 @@ def build(wrist: bool, winter: bool = False) -> str:
         w(f"Type={t}")
         w(f"String1=0x04,{lab}")
         if border and "casing" in entry:
-            w('Xpm="0 0 2 0"')
+            # Day line, day casing, night line, night casing.
+            w('Xpm="0 0 4 0"')
             w(f'"1 c {entry[key]}"')
             # Casings are dark outlines whose job is separation, not tint, so the
             # winter sheet keeps them.
             w(f'"2 c {entry["casing"]}"')
+            w(f'"3 c {entry["night"]}"')
+            w(f'"4 c {entry.get("casing_night", entry["casing"])}"')
             w(f"LineWidth={width}")
             w(f"BorderWidth={border}")
         else:
-            w('Xpm="0 0 1 0"')
+            w('Xpm="0 0 2 0"')
             w(f'"1 c {entry[key]}"')
+            w(f'"2 c {entry["night"]}"')
             w(f"LineWidth={width}")
         w("[end]")
         w("")
