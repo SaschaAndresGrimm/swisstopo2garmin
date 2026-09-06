@@ -91,6 +91,23 @@ pub struct Asset {
     pub checksum: Option<Digest>,
 }
 
+/// What kind of file a STAC asset is, and therefore how to acquire it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssetKind {
+    /// A zip holding one or more GeoPackages.
+    ZippedGeoPackage,
+    /// A zip holding shapefile components.
+    ZippedShapefiles,
+    /// A GeoPackage published directly, with no archive around it.
+    PlainGeoPackage,
+}
+
+impl AssetKind {
+    pub fn is_archive(&self) -> bool {
+        !matches!(self, AssetKind::PlainGeoPackage)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     pub id: String,
@@ -100,6 +117,31 @@ pub struct Item {
 }
 
 impl Item {
+    /// How a collection's data is packaged, which decides how it is acquired.
+    ///
+    /// swisstopo and ASTRA publish the same kind of thing four different ways, and the
+    /// difference is not visible from the collection id.
+    pub fn primary_asset(&self) -> Result<(&Asset, AssetKind)> {
+        // Order matters: a GeoPackage is preferred over a shapefile because it needs no
+        // dBASE decoding, and the zipped form is listed first because most collections
+        // publish only that.
+        const PREFERENCE: [(&str, AssetKind); 3] = [
+            (".gpkg.zip", AssetKind::ZippedGeoPackage),
+            (".shp.zip", AssetKind::ZippedShapefiles),
+            (".gpkg", AssetKind::PlainGeoPackage),
+        ];
+        for (suffix, kind) in PREFERENCE {
+            if let Some(a) = self.assets.iter().find(|a| a.name.ends_with(suffix)) {
+                return Ok((a, kind));
+            }
+        }
+        Err(Error::NotFound(format!(
+            "item {} publishes no GeoPackage or shapefile asset; available: {:?}",
+            self.id,
+            self.assets.iter().map(|a| &a.name).collect::<Vec<_>>()
+        )))
+    }
+
     /// The asset whose name ends with `suffix`, e.g. `.gpkg.zip`.
     pub fn asset_ending(&self, suffix: &str) -> Result<&Asset> {
         self.assets
@@ -113,6 +155,13 @@ impl Item {
                 ))
             })
     }
+}
+
+/// Item parsing, exposed so tests can build items from real catalog documents rather
+/// than from hand-constructed structs.
+#[doc(hidden)]
+pub fn parse_items_for_test(doc: &serde_json::Value) -> Vec<Item> {
+    parse_items(doc)
 }
 
 fn parse_items(doc: &serde_json::Value) -> Vec<Item> {

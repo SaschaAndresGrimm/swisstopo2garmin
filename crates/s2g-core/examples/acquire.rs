@@ -7,7 +7,7 @@
 //! GeoPackage the streaming downloader was built for.
 
 use s2g_core::cache::Cache;
-use s2g_core::download::{download_zip_all, download_zip_member_inflated, Cancel};
+use s2g_core::download::{download, download_zip_all, download_zip_member_inflated, Cancel};
 use s2g_core::http::ReqwestHttp;
 use s2g_core::stac::Stac;
 
@@ -20,10 +20,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let http = ReqwestHttp::new()?;
     let stac = Stac::new(&http);
     let item = stac.latest(&collection).await?;
-    let multi_file = item.asset_ending(".gpkg.zip").is_err();
-    let asset = item
-        .asset_ending(if multi_file { ".shp.zip" } else { ".gpkg.zip" })?
-        .clone();
+    let (asset, kind) = item.primary_asset()?;
+    let (asset, kind) = (asset.clone(), kind);
+    let stream_inflate = collection == s2g_core::stac::TLM3D;
 
     println!("collection   : {collection}");
     println!(
@@ -32,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         item.datetime.as_deref().unwrap_or("no date")
     );
     println!("asset        : {}", asset.name);
-    println!("multi-file   : {multi_file}");
+    println!("packaging    : {kind:?}");
 
     let cache = Cache::new(Cache::default_root());
     let dir = cache.ensure_dir(&collection, &item.id).await?;
@@ -50,7 +49,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    if multi_file {
+    if !kind.is_archive() {
+        let dest = dir.join(&asset.name);
+        let path = download(
+            &http,
+            &asset.href,
+            &dest,
+            asset.checksum.as_ref(),
+            &cancel,
+            &mut on_progress,
+        )
+        .await?;
+        println!(
+            "\nwrote {} ({} B)",
+            path.display(),
+            std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+        );
+    } else if !stream_inflate {
         let files = download_zip_all(
             &http,
             &asset.href,

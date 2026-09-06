@@ -320,7 +320,7 @@ pub async fn build(
     let identity = MapIdentity::for_recipe(&recipe.cache_key(), &recipe.name);
     let tiles_dir = ctx.work_dir.join("tiles");
     let _ = std::fs::remove_dir_all(&tiles_dir);
-    let tiles = split(&ctx.toolchain, &pbf, &tiles_dir, &identity, 700_000, 4096)?;
+    let tiles = split(&ctx.toolchain, &pbf, &tiles_dir, &identity, 700_000, 4096, cancel)?;
     if tiles.len() > profile.map_file.max_tiles_per_mapset {
         return Err(Error::Zip(format!(
             "{} tiles exceeds the {} this device accepts; choose a smaller area",
@@ -349,7 +349,7 @@ pub async fn build(
     }
     let img_dir = ctx.work_dir.join("img");
     let _ = std::fs::remove_dir_all(&img_dir);
-    let out = compile(&ctx.toolchain, &tiles, &img_dir, &opts)?;
+    let out = compile(&ctx.toolchain, &tiles, &img_dir, &opts, cancel)?;
 
     // ---- verify ----------------------------------------------------------
     on_stage(StageUpdate {

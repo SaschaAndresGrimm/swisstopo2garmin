@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use s2g_core::cache::{available_bytes, Cache, Provenance};
-use s2g_core::download::{download_zip_all, download_zip_member_inflated, Cancel, Progress};
+use s2g_core::download::{
+    download, download_zip_all, download_zip_member_inflated, Cancel, Progress,
+};
 use s2g_core::http::ReqwestHttp;
 use s2g_core::stac::Stac;
 use serde::{Deserialize, Serialize};
@@ -141,24 +143,26 @@ pub async fn latest_release(collection: String) -> IpcResult<ReleaseInfo> {
     let stac = Stac::new(&http);
     let item = stac.latest(&collection).await.map_err(|e| e.to_string())?;
     // Clone so `item` is free to be consumed below.
-    let asset = item
-        .asset_ending(".gpkg.zip")
-        .map_err(|e| e.to_string())?
-        .clone();
+    let (asset, kind) = item.primary_asset().map_err(|e| e.to_string())?;
+    let (asset, kind) = (asset.clone(), kind);
 
     // Probe the archive so the UI can state both the download size and the far larger
     // on-disk size before the user commits (SPEC.md FR-C1).
     let (archive_bytes, member_bytes, member_name) = {
         use s2g_core::http::Http;
-        match http.head(&asset.href).await {
-            Ok(h) => match h.len {
-                Some(total) => match s2g_core::zip::first_member(&http, &asset.href, total).await {
+        let total = http.head(&asset.href).await.ok().and_then(|h| h.len);
+        match (total, kind.is_archive()) {
+            // A bare GeoPackage is its own member: nothing to probe, and probing it as
+            // a zip is what made the Data screen show an error for it.
+            (Some(total), false) => (Some(total), Some(total), Some(asset.name.clone())),
+            (Some(total), true) => {
+                match s2g_core::zip::first_member(&http, &asset.href, total).await {
                     Ok(m) => (Some(total), Some(m.uncompressed_size), Some(m.name)),
+                    // A multi-member archive still reports its download size honestly.
                     Err(_) => (Some(total), None, None),
-                },
-                None => (None, None, None),
-            },
-            Err(_) => (None, None, None),
+                }
+            }
+            (None, _) => (None, None, None),
         }
     };
 
@@ -191,6 +195,13 @@ pub async fn acquire_dataset(
     let http = ReqwestHttp::new().map_err(|e| e.to_string())?;
     let stac = Stac::new(&http);
     let item = stac.latest(&collection).await.map_err(|e| e.to_string())?;
+    // How the data is packaged decides how it is acquired. The collection id does not:
+    // the six winter and route collections publish three different packagings between
+    // them, and asking every one of them for a `.gpkg.zip` is what broke the Data
+    // screen for half of them.
+    let (asset, kind) = item.primary_asset().map_err(|e| e.to_string())?;
+    let (asset, kind) = (asset.clone(), kind);
+
     // Only swissTLM3D is streamed and inflated as it downloads. It is the one archive
     // where that matters — 4.5 GB compressed to 10.0 GB inflated, so keeping both would
     // need 15 GB of disk — and the one archive that really holds a single member.
@@ -200,11 +211,6 @@ pub async fn acquire_dataset(
     // GeoPackages: taking only the first would silently drop the ski network, which
     // carries the skiable / carrying / caution classification.
     let stream_inflate = collection == s2g_core::stac::TLM3D;
-    let asset = item
-        .asset_ending(".gpkg.zip")
-        .or_else(|_| item.asset_ending(".shp.zip"))
-        .map_err(|e| e.to_string())?
-        .clone();
 
     let task_id = format!("{}:{}", collection, item.id);
     let cancel = Cancel::new();
@@ -266,7 +272,32 @@ pub async fn acquire_dataset(
             );
         };
 
-        let result = if !stream_inflate {
+        let result = if !kind.is_archive() {
+            // Published as a plain GeoPackage: download it as it is.
+            let dest = dir.join(&asset.name);
+            download(
+                &http,
+                &asset.href,
+                &dest,
+                asset.checksum.as_ref(),
+                &cancel,
+                &mut on_progress,
+            )
+            .await
+            .map(|path| {
+                let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                (
+                    path,
+                    s2g_core::zip::Member {
+                        name: asset.name.clone(),
+                        data_start: 0,
+                        compressed_size: bytes,
+                        uncompressed_size: bytes,
+                        method: 0,
+                    },
+                )
+            })
+        } else if !stream_inflate {
             download_zip_all(
                 &http,
                 &asset.href,

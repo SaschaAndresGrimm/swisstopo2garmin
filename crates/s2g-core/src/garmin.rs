@@ -15,6 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::download::Cancel;
 use crate::error::{Error, Result};
 
 /// Located toolchain: a Java runtime plus the two JARs.
@@ -212,17 +213,61 @@ pub struct BuildOutput {
     pub bytes: u64,
 }
 
-fn run(mut cmd: Command, what: &str) -> Result<String> {
-    let out = cmd
+/// Run a child process, killing it if the build is cancelled.
+///
+/// `Command::output` blocks until the child exits, so a build cancelled during
+/// splitting or compiling — the two longest stages, minutes on a large area — would
+/// keep running to completion and only then notice. The child is polled instead, and
+/// killed on cancellation.
+///
+/// Both pipes are drained on their own threads: mkgmap is talkative, and a child whose
+/// stdout pipe fills up blocks forever, which would turn every large build into a hang.
+fn run(mut cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
+    use std::io::Read;
+
+    let mut child = cmd
         .stdin(Stdio::null())
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| Error::io(Path::new(what), e))?;
+
+    fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<String> {
+        std::thread::spawn(move || {
+            let mut buf = String::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_string(&mut buf);
+            }
+            buf
+        })
+    }
+    let out_thread = drain(child.stdout.take());
+    let err_thread = drain(child.stderr.take());
+
+    let status = loop {
+        match child.try_wait().map_err(|e| Error::io(Path::new(what), e))? {
+            Some(status) => break status,
+            None => {
+                if cancel.is_cancelled() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(Error::Cancelled);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    };
+
     let log = format!(
         "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
+        out_thread.join().unwrap_or_default(),
+        err_thread.join().unwrap_or_default()
     );
-    if !out.status.success() {
+    if !status.success() {
+        // A killed child looks like a failure; report it as the cancellation it is.
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
         let tail: String = log.lines().rev().take(25).collect::<Vec<_>>().join("\n");
         return Err(Error::Zip(format!("{what} failed:\n{tail}")));
     }
@@ -249,6 +294,7 @@ pub fn split(
     identity: &MapIdentity,
     max_nodes: u32,
     max_heap_mb: u32,
+    cancel: &Cancel,
 ) -> Result<Vec<PathBuf>> {
     std::fs::create_dir_all(out_dir).map_err(|e| Error::io(out_dir, e))?;
     let mut cmd = Command::new(&tc.java);
@@ -259,7 +305,7 @@ pub fn split(
         .arg(format!("--max-nodes={max_nodes}"))
         .arg(format!("--mapid={}", identity.tile_mapnumber(0)))
         .arg(pbf);
-    run(cmd, "splitter")?;
+    run(cmd, "splitter", cancel)?;
 
     let mut tiles: Vec<PathBuf> = std::fs::read_dir(out_dir)
         .map_err(|e| Error::io(out_dir, e))?
@@ -285,6 +331,7 @@ pub fn compile(
     tiles: &[PathBuf],
     out_dir: &Path,
     opts: &BuildOptions,
+    cancel: &Cancel,
 ) -> Result<BuildOutput> {
     std::fs::create_dir_all(out_dir).map_err(|e| Error::io(out_dir, e))?;
     let id = &opts.identity;
@@ -329,7 +376,7 @@ pub fn compile(
         cmd.arg(t);
     }
     cmd.arg(&opts.typ_file);
-    run(cmd, "mkgmap (tiles and overview)")?;
+    run(cmd, "mkgmap (tiles and overview)", cancel)?;
 
     let imgs = |dir: &Path, prefix: &str| -> Vec<PathBuf> {
         let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -387,7 +434,7 @@ pub fn compile(
             cmd.arg(p);
         }
     }
-    run(cmd, "mkgmap (gmapsupp)")?;
+    run(cmd, "mkgmap (gmapsupp)", cancel)?;
 
     let gmapsupp = out_dir.join("gmapsupp.img");
     if !gmapsupp.exists() {
@@ -404,4 +451,77 @@ pub fn compile(
         overview_img: overview,
         bytes,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A shell command, since `Command` builders borrow rather than move.
+    fn cmd(script: &str) -> Command {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(script);
+        c
+    }
+
+    /// A cancelled build must stop the child process, not wait for it.
+    ///
+    /// `Command::output` blocks until the child exits, so before this the Cancel button
+    /// did nothing during splitting and compiling — the two stages that take minutes —
+    /// and the build ran to completion after the UI said it had stopped.
+    #[test]
+    fn cancelling_kills_a_running_child_instead_of_waiting_for_it() {
+        let cancel = Cancel::new();
+        let c = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            c.cancel();
+        });
+
+        let started = std::time::Instant::now();
+        let err = run(cmd("sleep 30"), "sleep", &cancel).unwrap_err();
+        let elapsed = started.elapsed();
+
+        assert!(matches!(err, Error::Cancelled), "got {err:?}");
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "waited {elapsed:?} for a child that should have been killed"
+        );
+    }
+
+    /// Cancelling before the child is even spawned must still stop the build.
+    #[test]
+    fn an_already_cancelled_build_does_not_run_to_completion() {
+        let cancel = Cancel::new();
+        cancel.cancel();
+        let started = std::time::Instant::now();
+        let err = run(cmd("sleep 30"), "sleep", &cancel).unwrap_err();
+        assert!(matches!(err, Error::Cancelled), "got {err:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    /// A child that fails on its own is still reported as a failure, with its output.
+    #[test]
+    fn a_failing_child_reports_its_own_error_not_a_cancellation() {
+        let err = run(cmd("echo boom >&2; exit 3"), "thing", &Cancel::new()).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("thing failed"), "{msg}");
+        assert!(msg.contains("boom"), "{msg}");
+    }
+
+    /// Both pipes are drained on threads: a child that writes more than a pipe buffer
+    /// holds would otherwise block forever, hanging every large build.
+    #[test]
+    fn a_child_that_floods_both_pipes_does_not_deadlock() {
+        // 512 KiB on each pipe, well past the 64 KiB typical buffer.
+        let log = run(
+            cmd("yes stdoutline | head -c 524288; yes errline | head -c 524288 >&2"),
+            "flood",
+            &Cancel::new(),
+        )
+        .unwrap();
+        assert!(log.len() >= 1_048_576, "captured only {} bytes", log.len());
+        assert!(log.contains("stdoutline"));
+        assert!(log.contains("errline"));
+    }
 }

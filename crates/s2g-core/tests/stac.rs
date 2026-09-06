@@ -100,3 +100,61 @@ async fn missing_assets_do_not_panic_on_malformed_features() {
     assert_eq!(items.len(), 2);
     assert!(items[0].assets.is_empty());
 }
+
+/// Every packaging swisstopo and ASTRA actually publish, taken from the real catalog.
+///
+/// These four shapes cost a broken Data screen: acquisition asked for `.gpkg.zip` and
+/// three of the six route and winter collections do not publish one.
+#[test]
+fn the_primary_asset_is_chosen_by_packaging_not_by_collection() {
+    use s2g_core::stac::{AssetKind, Item};
+
+    fn item(id: &str, assets: &[&str]) -> Item {
+        let map: serde_json::Map<String, serde_json::Value> = assets
+            .iter()
+            .map(|n| {
+                (
+                    (*n).to_string(),
+                    serde_json::json!({ "href": format!("https://example.test/{n}") }),
+                )
+            })
+            .collect();
+        let doc = serde_json::json!({
+            "features": [{ "id": id, "assets": map }]
+        });
+        s2g_core::stac::parse_items_for_test(&doc).remove(0)
+    }
+
+    // swissTLM3D and the SAC ski tours: a zipped GeoPackage.
+    let tlm = item("swisstlm3d_2026-02", &["swisstlm3d_2026-02_2056_5728.gpkg.zip"]);
+    let (a, kind) = tlm.primary_asset().unwrap();
+    assert_eq!(kind, AssetKind::ZippedGeoPackage);
+    assert!(a.name.ends_with(".gpkg.zip"));
+
+    // The ASTRA snowshoe and winter hiking trails: a bare GeoPackage, no archive.
+    let snow = item("schneeschuhwanderwege", &["schneeschuhwanderwege_2056.gpkg"]);
+    let (a, kind) = snow.primary_asset().unwrap();
+    assert_eq!(kind, AssetKind::PlainGeoPackage);
+    assert_eq!(a.name, "schneeschuhwanderwege_2056.gpkg");
+    assert!(!kind.is_archive());
+
+    // The ASTRA route networks: shapefiles, plus a file geodatabase and a bare .zip
+    // that must not be mistaken for either.
+    let velo = item(
+        "veloland",
+        &["veloland.zip", "veloland_2056.gdb.zip", "veloland_2056.shp.zip"],
+    );
+    let (a, kind) = velo.primary_asset().unwrap();
+    assert_eq!(kind, AssetKind::ZippedShapefiles);
+    assert_eq!(a.name, "veloland_2056.shp.zip");
+
+    // A GeoPackage wins when both are offered.
+    let both = item("both", &["x_2056.shp.zip", "x_2056.gpkg.zip"]);
+    assert_eq!(both.primary_asset().unwrap().1, AssetKind::ZippedGeoPackage);
+
+    // Nothing usable is an error naming what was there, not a silent empty download.
+    let none = item("meta-only", &["additional-files.zip", "readme.pdf"]);
+    let err = none.primary_asset().unwrap_err().to_string();
+    assert!(err.contains("meta-only"), "{err}");
+    assert!(err.contains("readme.pdf"), "{err}");
+}

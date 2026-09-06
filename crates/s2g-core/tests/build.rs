@@ -216,6 +216,7 @@ fn builds_a_verified_gmapsupp_from_the_fixture() {
         &identity,
         200_000,
         2048,
+        &Cancel::new(),
     )
     .unwrap();
     assert!(!tile_pbfs.is_empty());
@@ -226,7 +227,7 @@ fn builds_a_verified_gmapsupp_from_the_fixture() {
         repo_root().join("style/swisstopo"),
         repo_root().join("typ/swisstopo.txt"),
     );
-    let out = compile(&tc, &tile_pbfs, &dir.path().join("img"), &opts).unwrap();
+    let out = compile(&tc, &tile_pbfs, &dir.path().join("img"), &opts, &Cancel::new()).unwrap();
     assert!(
         out.overview_img.is_some(),
         "the two-pass build must write an overview map"
