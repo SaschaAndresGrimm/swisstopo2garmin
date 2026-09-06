@@ -6,9 +6,42 @@ export type AreaInfo = { areaKm2: number,
  */
 wgs84: [number, number, number, number], withinSwitzerland: boolean, 
 /**
- * Rough output size, from area alone until the estimator is calibrated (FR-60).
+ * Predicted output size from the calibrated model (FR-60).
  */
-estimatedBytes: number, overBudget: boolean, };
+estimatedBytes: number, 
+/**
+ * The device budget the estimate is measured against, and the hard ceiling
+ * above it. Shown together with the estimate (FR-63).
+ */
+budgetBytes: number, hardLimitBytes: number, overBudget: boolean, 
+/**
+ * True once the model has been refit from the user's own builds.
+ */
+calibrated: boolean, 
+/**
+ * How many real builds the model has seen.
+ */
+modelSamples: number, 
+/**
+ * False when swissTLM3D is absent, so feature counts could not be read and the
+ * estimate is area-only. The UI says so rather than implying precision.
+ */
+countedFeatures: boolean, };
+
+/**
+ * Geometry facts plus a calibrated size estimate for a candidate area.
+ *
+ * The content parameters are optional so the area step can ask before content has
+ * been chosen; they default to the hiking preset's settings, which is what the
+ * wizard starts with.
+ * The area and content parameters an estimate depends on, as one value: a command
+ * with eight positional arguments is easy to call wrongly from the frontend.
+ */
+export type AreaQuery = { minE: number, minN: number, maxE: number, maxN: number, deviceId: string, 
+/**
+ * Absent until the content step has been visited.
+ */
+preset: string | null, contourM: number | null, relief: string | null, };
 
 export type BuildFinished = { taskId: string, gmapsupp: string, bytes: number, tileCount: number, features: number, contourLines: number, hasDem: boolean, warnings: Array<string>, };
 

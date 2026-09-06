@@ -14,6 +14,7 @@ use crate::devices::DeviceProfile;
 use crate::download::Cancel;
 use crate::elevation::{fetch_tiles, load_grid};
 use crate::error::{Error, Result};
+use crate::estimate;
 use crate::extract::{RegionBuilder, CYCLE_LAYERS, DEFAULT_LAYERS, WINTER_LAYERS};
 use crate::garmin::{compile, split, style_level_count, BuildOptions, MapIdentity, Toolchain};
 use crate::geom::point_in_polygon;
@@ -78,6 +79,9 @@ pub struct BuildContext<'a> {
     pub cache_root: PathBuf,
     pub work_dir: PathBuf,
     pub http: &'a dyn Http,
+    /// Where to record (predictors -> actual size) after a successful build (FR-62).
+    /// `None` disables recording, which tests want.
+    pub calibration_log: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -387,6 +391,29 @@ pub async fn build(
     );
     if !device.ok() {
         return Err(Error::Zip(device.problems.join("; ")));
+    }
+
+    // ---- record for the size estimator (FR-62) ---------------------------
+    // The predictors are recomputed here, the same way the estimator computes them
+    // before a build, so training features and prediction features are identical.
+    if let Some(log) = &ctx.calibration_log {
+        let sample = estimate::Sample {
+            predictors: estimate::Predictors {
+                group_counts: estimate::count_groups(&gpkg, recipe, Some(&ctx.cache_root)),
+                area_km2: bbox.area_km2(),
+                contour_interval_m: recipe.contours.interval_m,
+                relief: recipe.relief,
+            },
+            actual_bytes: out.bytes,
+            at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        };
+        // A calibration failure must never fail a finished build.
+        if let Err(e) = estimate::CalibrationLog::append(log, &sample) {
+            warnings.push(format!("could not record size calibration: {e}"));
+        }
     }
 
     Ok(BuildReport {

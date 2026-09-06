@@ -383,10 +383,11 @@ mod tests {
 
 use s2g_core::devices::{self, DeviceProfile};
 use s2g_core::extract::{LayerGroup, CYCLE_LAYERS, DEFAULT_LAYERS, WINTER_LAYERS};
+use s2g_core::estimate::{self, calibration_log_path};
 use s2g_core::library;
 use s2g_core::pipeline::{self, BuildContext, Stage};
 use s2g_core::proj::{lv95_to_wgs84, BBox};
-use s2g_core::recipe::{Preset, Recipe};
+use s2g_core::recipe::{Preset, Recipe, ReliefDetail};
 
 /// Directory holding the app's data files. In development this is the repo; in a
 /// bundle it is the resource directory.
@@ -756,15 +757,24 @@ pub struct AreaInfo {
     /// [west, south, east, north] in WGS84, for the map view.
     pub wgs84: [f64; 4],
     pub within_switzerland: bool,
-    /// Rough output size, from area alone until the estimator is calibrated (FR-60).
+    /// Predicted output size from the calibrated model (FR-60).
     #[ts(type = "number")]
     pub estimated_bytes: u64,
+    /// The device budget the estimate is measured against, and the hard ceiling
+    /// above it. Shown together with the estimate (FR-63).
+    #[ts(type = "number")]
+    pub budget_bytes: u64,
+    #[ts(type = "number")]
+    pub hard_limit_bytes: u64,
     pub over_budget: bool,
+    /// True once the model has been refit from the user's own builds.
+    pub calibrated: bool,
+    /// How many real builds the model has seen.
+    pub model_samples: usize,
+    /// False when swissTLM3D is absent, so feature counts could not be read and the
+    /// estimate is area-only. The UI says so rather than implying precision.
+    pub counted_features: bool,
 }
-
-/// Measured on the Grindelwald builds: about 1.17 MB per 144 km² with 20 m contours,
-/// i.e. ~8.1 KB/km². Crude but honest, and replaced by the calibrated estimator.
-const BYTES_PER_KM2: f64 = 8_100.0;
 
 /// LV95 bounding box for a WGS84 rectangle drawn on the map.
 ///
@@ -792,29 +802,121 @@ pub fn wgs84_bbox_to_lv95(west: f64, south: f64, east: f64, north: f64) -> IpcRe
     ])
 }
 
+/// Geometry facts plus a calibrated size estimate for a candidate area.
+///
+/// The content parameters are optional so the area step can ask before content has
+/// been chosen; they default to the hiking preset's settings, which is what the
+/// wizard starts with.
+/// The area and content parameters an estimate depends on, as one value: a command
+/// with eight positional arguments is easy to call wrongly from the frontend.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct AreaQuery {
+    pub min_e: f64,
+    pub min_n: f64,
+    pub max_e: f64,
+    pub max_n: f64,
+    pub device_id: String,
+    /// Absent until the content step has been visited.
+    pub preset: Option<String>,
+    pub contour_m: Option<i32>,
+    pub relief: Option<String>,
+}
+
+/// The full swissTLM3D coverage extent in LV95 (SPEC.md FR-35).
+///
+/// Read from the one place that defines it, so the "whole Switzerland" action cannot
+/// drift away from the coverage check that validates it.
 #[tauri::command]
-pub fn describe_area(
-    min_e: f64,
-    min_n: f64,
-    max_e: f64,
-    max_n: f64,
-    device_id: String,
-) -> IpcResult<AreaInfo> {
+pub fn coverage_bbox() -> IpcResult<[f64; 4]> {
+    let b = s2g_core::proj::LV95_BOUNDS;
+    Ok([b.0, b.1, b.2, b.3])
+}
+
+#[tauri::command]
+pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
+    let AreaQuery {
+        min_e,
+        min_n,
+        max_e,
+        max_n,
+        device_id,
+        preset,
+        contour_m,
+        relief,
+    } = query;
     let bbox = BBox::new(min_e, min_n, max_e, max_n);
     let profiles =
         devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
-    let budget = profiles
-        .iter()
-        .find(|p| p.id == device_id)
+    let profile = profiles.iter().find(|p| p.id == device_id);
+    let budget = profile
         .map(|p| p.effective_budget_bytes())
         .unwrap_or(u64::MAX);
-    let estimated = (bbox.area_km2() * BYTES_PER_KM2) as u64;
+    let hard_limit = profile
+        .map(|p| p.effective_max_img_bytes())
+        .unwrap_or(u64::MAX);
+
+    let preset = preset
+        .and_then(|p| Preset::all().iter().find(|x| x.id() == p).copied())
+        .unwrap_or(Preset::Hiking);
+    let relief = match relief.as_deref() {
+        Some("detailed") => ReliefDetail::Detailed,
+        Some("off") => ReliefDetail::Off,
+        _ => ReliefDetail::Gentle,
+    };
+
+    // A throwaway recipe, so the estimator counts exactly the layers a build would.
+    let mut probe = Recipe::new(
+        "estimate",
+        &device_id,
+        s2g_core::recipe::AreaSelection::BBox {
+            min_e,
+            min_n,
+            max_e,
+            max_n,
+        },
+    )
+    .with_preset(preset);
+    probe.relief = relief;
+    if let Some(m) = contour_m {
+        probe.contours.interval_m = m;
+    }
+
+    let cache_root = Cache::default_root();
+    let (group_counts, counted) = match pipeline::find_tlm3d(&cache_root)
+        .and_then(|p| s2g_core::gpkg::Gpkg::open(p).ok())
+    {
+        Some(gpkg) => (
+            estimate::count_groups(&gpkg, &probe, Some(&cache_root)),
+            true,
+        ),
+        None => (Default::default(), false),
+    };
+
+    let model = estimate::current_model(
+        &resource_root().join("estimator").join("size-model.json"),
+        &calibration_log_path(),
+    );
+    let predictors = estimate::Predictors {
+        group_counts,
+        area_km2: bbox.area_km2(),
+        contour_interval_m: probe.contours.interval_m,
+        relief,
+    };
+    let estimated = model.predict(&predictors);
+
     Ok(AreaInfo {
         area_km2: bbox.area_km2(),
         wgs84: bbox.to_wgs84(),
         within_switzerland: bbox.within_switzerland(),
         estimated_bytes: estimated,
+        budget_bytes: budget,
+        hard_limit_bytes: hard_limit,
         over_budget: estimated > budget,
+        calibrated: model.samples > 0,
+        model_samples: model.samples,
+        counted_features: counted,
     })
 }
 
@@ -896,6 +998,7 @@ pub async fn start_build(
                 .join("builds")
                 .join(safe_name(&recipe.name)),
             http: &http,
+            calibration_log: Some(calibration_log_path()),
         };
 
         let emit = app.clone();

@@ -147,6 +147,9 @@ export default function App() {
           <AreaStep
             t={t}
             deviceId={deviceId}
+            preset={preset}
+            contourM={contourM}
+            relief={relief}
             area={area}
             onArea={setArea}
             onNext={() => go("content")}
@@ -168,6 +171,8 @@ export default function App() {
             relief={relief}
             onRelief={setRelief}
             supportsDem={supportsDem}
+            area={area}
+            deviceId={deviceId ?? ""}
             excluded={excluded}
             onExcluded={setExcluded}
             onNext={() => go("build")}

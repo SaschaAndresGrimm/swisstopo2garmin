@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use s2g_core::cache::Cache;
 use s2g_core::devices;
 use s2g_core::download::Cancel;
+use s2g_core::estimate::calibration_log_path;
 use s2g_core::garmin::Toolchain;
 use s2g_core::gpkg::Gpkg;
 use s2g_core::http::ReqwestHttp;
@@ -106,6 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .join("out")
             .join(arg("--work-dir").unwrap_or_else(|| "recipe-build".into())),
         http: &http,
+        calibration_log: arg("--no-log").is_none().then(calibration_log_path),
     };
 
     let started = std::time::Instant::now();

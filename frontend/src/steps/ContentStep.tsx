@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "../state/api";
 import { LayerPanel } from "../components/LayerPanel";
-import type { PresetId, PresetInfo, ReliefDetail } from "../state/api";
+import type { AreaSelection, PresetId, PresetInfo, ReliefDetail } from "../state/api";
+import { useAreaInfo } from "../state/useAreaInfo";
+import { SizeEstimate } from "../components/SizeEstimate";
 import type { T } from "../i18n";
 
 /**
@@ -20,6 +22,8 @@ export function ContentStep({
   relief,
   onRelief,
   supportsDem,
+  area,
+  deviceId,
   excluded,
   onExcluded,
   onNext,
@@ -33,6 +37,9 @@ export function ContentStep({
   relief: ReliefDetail;
   onRelief: (r: ReliefDetail) => void;
   supportsDem: boolean;
+  /** The chosen area, so the estimate can update as content changes (FR-54). */
+  area: AreaSelection | null;
+  deviceId: string;
   excluded: string[];
   onExcluded: (ids: string[]) => void;
   onNext: () => void;
@@ -44,6 +51,8 @@ export function ContentStep({
   useEffect(() => {
     api.listPresets().then(setPresets).catch((e) => setError(String(e)));
   }, []);
+
+  const { info } = useAreaInfo(area, deviceId, preset, contourM, relief);
 
   const intervals = [10, 20, 50, 100];
   const reliefOptions: ReliefDetail[] = ["off", "gentle", "detailed"];
@@ -126,6 +135,9 @@ export function ContentStep({
       </div>
 
       <LayerPanel t={t} preset={preset} excluded={excluded} onExcluded={onExcluded} />
+
+      {info && <SizeEstimate t={t} info={info} />}
+      {info?.overBudget && <p className="error">{t("area.overBudget")}</p>}
 
       {error && <p className="error">{t("data.error", { message: error })}</p>}
 

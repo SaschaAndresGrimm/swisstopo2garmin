@@ -126,10 +126,11 @@ impl Default for ContourSettings {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReliefDetail {
     /// No DEM: the device cannot render shaded relief.
+    #[default]
     Off,
     /// 3 arc-second, gentler. Hardware showed 1 arc-second is very dark in the Alps.
     Gentle,

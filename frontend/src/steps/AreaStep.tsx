@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, formatBytes } from "../state/api";
-import type { AreaInfo, AreaSelection, PlaceMatch } from "../state/api";
+import { useEffect, useState } from "react";
+import { api } from "../state/api";
+import type { AreaSelection, PlaceMatch } from "../state/api";
+import { useAreaInfo } from "../state/useAreaInfo";
 import { AreaMap, type DrawnBox } from "../map/AreaMap";
+import { SizeEstimate } from "../components/SizeEstimate";
 import type { T } from "../i18n";
 
 /**
@@ -14,6 +16,9 @@ import type { T } from "../i18n";
 export function AreaStep({
   t,
   deviceId,
+  preset,
+  contourM,
+  relief,
   area,
   onArea,
   onNext,
@@ -21,45 +26,30 @@ export function AreaStep({
 }: {
   t: T;
   deviceId: string;
+  /** Content settings feed the estimate; they have wizard defaults before step 3. */
+  preset: string;
+  contourM: number;
+  relief: string;
   area: AreaSelection | null;
   onArea: (a: AreaSelection) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
   const [box, setBox] = useState<DrawnBox | null>(null);
-  const [info, setInfo] = useState<AreaInfo | null>(null);
   const [query, setQuery] = useState("");
   const [radiusKm, setRadiusKm] = useState(10);
   const [matches, setMatches] = useState<PlaceMatch[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Describe whatever is currently selected: area, projected bounds, size estimate.
-  const describe = useCallback(
-    async (a: AreaSelection) => {
-      const b =
-        a.kind === "bbox"
-          ? { minE: a.minE, minN: a.minN, maxE: a.maxE, maxN: a.maxN }
-          : {
-              minE: a.easting - a.radiusKm * 1000,
-              minN: a.northing - a.radiusKm * 1000,
-              maxE: a.easting + a.radiusKm * 1000,
-              maxN: a.northing + a.radiusKm * 1000,
-            };
-      try {
-        const d = await api.describeArea(b.minE, b.minN, b.maxE, b.maxN, deviceId);
-        setInfo(d);
-        setBox({ west: d.wgs84[0]!, south: d.wgs84[1]!, east: d.wgs84[2]!, north: d.wgs84[3]! });
-      } catch (e) {
-        setError(String(e));
-      }
-    },
-    [deviceId],
-  );
+  const { info, error: infoError } = useAreaInfo(area, deviceId, preset, contourM, relief);
 
+  // Frame whatever the estimate reports, so a place search moves the map too.
   useEffect(() => {
-    if (area) void describe(area);
-  }, [area, describe]);
+    if (info) {
+      setBox({ west: info.wgs84[0]!, south: info.wgs84[1]!, east: info.wgs84[2]!, north: info.wgs84[3]! });
+    }
+  }, [info]);
 
   const search = async () => {
     if (!query.trim()) return;
@@ -107,6 +97,26 @@ export function AreaStep({
             />
             <button type="button" onClick={() => void search()} disabled={searching}>
               {searching ? t("common.loading") : t("area.go")}
+            </button>
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="whole">{t("area.whole")}</label>
+          <div className="row tight" id="whole">
+            <button
+              type="button"
+              onClick={() => {
+                // The extent comes from the backend so it cannot drift from the
+                // coverage check that validates the selection.
+                void api
+                  .coverageBbox()
+                  .then(([minE, minN, maxE, maxN]) =>
+                    onArea({ kind: "bbox", minE, minN, maxE, maxN }),
+                  )
+                  .catch((e) => setError(String(e)));
+              }}
+            >
+              {t("area.wholeAction")}
             </button>
           </div>
         </div>
@@ -174,25 +184,13 @@ export function AreaStep({
         }}
       />
 
-      {info && (
-        <dl className="facts">
-          <div>
-            <dt>{t("area.size")}</dt>
-            <dd>{info.areaKm2.toFixed(0)} km²</dd>
-          </div>
-          <div>
-            <dt>{t("area.estimate")}</dt>
-            <dd className={info.overBudget ? "error" : ""}>{formatBytes(info.estimatedBytes)}</dd>
-          </div>
-          <div>
-            <dt>{t("area.coverage")}</dt>
-            <dd>{info.withinSwitzerland ? t("common.yes") : t("area.outside")}</dd>
-          </div>
-        </dl>
-      )}
+      {info && <SizeEstimate t={t} info={info} />}
+      {info && !info.withinSwitzerland && <p className="error">{t("area.outside")}</p>}
       {info?.overBudget && <p className="error">{t("area.overBudget")}</p>}
 
-      {error && <p className="error">{t("data.error", { message: error })}</p>}
+      {(error ?? infoError) && (
+        <p className="error">{t("data.error", { message: error ?? infoError ?? "" })}</p>
+      )}
 
       <div className="row">
         <button type="button" onClick={onBack}>{t("common.back")}</button>

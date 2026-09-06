@@ -396,20 +396,28 @@ that are unioned, and modes can be mixed (e.g. two cantons plus a route corridor
     bikepacking on hiking trails. The device chooses the *cartography variant*
     (FR-CART6), the preset chooses the *content*.
 
-- **FR-51** An expandable **layer panel** for per-layer control: include/exclude, and a
-  minimum zoom level at which each layer appears. Layers are grouped so the panel stays
-  legible:
+- **FR-51** An expandable **layer panel** for per-layer control: include/exclude. Layers
+  are grouped so the panel stays legible. The groups are the *source layers* a build
+  extracts, because that is the granularity at which a layer can actually be left out:
 
-  | Group | Layers |
+  | Group | Source layers |
   |---|---|
-  | Terrain | contours, relief shading (DEM), rock, scree, glacier and firn |
-  | Land cover | forest, open forest, copse, scrub, wetland, water |
-  | Transport | roads by class, rail, **lifts and cableways**, ferries |
-  | Hiking | trail classes, via ferrata |
-  | **Winter** | ski routes (skiable / carrying / caution), snowshoe trails, winter hiking trails |
-  | **Cycling** | national cycle routes, mountain-bike routes, official route numbers |
-  | Built | buildings, land use areas, parking, leisure grounds |
-  | Names | settlements, field names, single objects |
+  | Land cover | ground cover, land use areas, recreation areas |
+  | Water | rivers and streams, lakes and ponds |
+  | Transport | roads/tracks/paths, railways, **lifts and cableways**, transport areas |
+  | Built | buildings, individual objects |
+  | Names | settlement names, local and field names |
+  | **Winter** | SAC ski network (skiable / carrying / caution), SAC named tours, snowshoe trails, winter hiking trails |
+  | **Cycling** | cycle paths, mountain-bike trails, signposted routes |
+
+  There is deliberately **no Hiking group and no Terrain group**. Swiss trail classes are
+  an *attribute* of the road layer (`tlm:wanderwege`), so a hiking toggle would either do
+  nothing or take the roads with it; the panel says so instead of offering one. Rock,
+  scree and glacier are attribute values of ground cover, and contours and relief have
+  their own controls (FR-52, FR-CART3), so neither is a layer to switch.
+
+  A minimum zoom level per layer is **not** implemented: level assignment lives in the
+  mkgmap style, where it is expressed per feature class rather than per source layer.
 
   A group whose source data is not downloaded is shown **disabled with the reason**,
   never hidden — a user looking for ski routes must be able to see that the feature
@@ -832,34 +840,42 @@ See §5.3.
 The complete, serializable description of a build — the unit of save/load/share, and the
 cache key source.
 
+As implemented (`crates/s2g-core/src/recipe.rs`):
+
 ```jsonc
 {
   "schemaVersion": 1,
-  "name": "Valais hiking",
-  "device": { "profileId": "fenix-8-47", "overrides": {} },
-  "area": {
-    "mode": "composite",
-    "parts": [
-      { "type": "adminUnit", "level": "canton", "id": "VS", "bufferKm": 2 },
-      { "type": "trackCorridor", "source": "haute-route.gpx", "bufferKm": 5 }
-    ]
+  "name": "Grindelwald 8 km",
+  "deviceId": "edge-840",           // selects the cartography variant and the budget
+  "area": {                          // "bbox" or "place"
+    "kind": "place",
+    "name": "Grindelwald",
+    "radiusKm": 8.0,
+    "easting": 2645921.0,            // the resolved coordinate is stored, because
+    "northing": 1163748.0            // re-resolving could pick a different settlement
   },
-  "content": {
-    "preset": "hiking",              // hiking | cycling | skimo | full
-
-    "layers": { "buildings": { "include": true, "minLevel": 2 } },
-    "contours": { "intervalM": 10, "label": true, "majorEveryM": 100 },
-    "labelLanguage": "local"
-  },
-  "cartography": { "styleRef": "style@v1", "typRef": "swisstopo-wrist@v1", "palette": "auto" },
-  "sources": {
-    "swisstlm3d": "swisstlm3d_2026-02",
-    "swissalti3d": "current",
-    "wanderwege": "current"
-  },
-  "output": { "format": "gmapsupp", "familyId": "auto", "splitPolicy": "auto" }
+  "preset": "hiking",                // hiking | cycling | skimo | full
+  "contours": { "intervalM": 20, "indexM": 100, "simplifyM": 8.0 },
+  "relief": "gentle",                // off | gentle (3") | detailed (1")
+  "excludedLayers": ["tlm_bauten_gebaeude_footprint"]
 }
 ```
+
+Differences from the original sketch above, all deliberate:
+
+- **No `sources` block.** Releases are resolved at build time and recorded in the build
+  manifest (§11.3) instead. Pinning them in the recipe would make a saved recipe fail
+  once swisstopo publishes a new release.
+- **No `cartography` block.** The device id selects the style and TYP variant
+  (FR-CART6); there is one cartography per device class, not a free choice.
+- **No `output` block.** Family id is derived from the recipe (see `cache_key`), so the
+  same recipe keeps its identity on the device across rebuilds.
+- **Layer control is a list of exclusions, not per-layer objects.** A recipe saved today
+  therefore picks up layers added by a later release, rather than silently missing them.
+- **Composite areas** (union of an admin unit and a track corridor) are specified in
+  FR-33 and FR-38 but not yet implemented; `area` currently holds one selection.
+- `labelLanguage` is not yet implemented (FR-53); labels carry the source feature's own
+  name, which is the "local" option and the correct Swiss default.
 
 ### 11.3 Build manifest
 

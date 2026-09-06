@@ -6,6 +6,7 @@ import type { CacheStatus, ReleaseInfo, TaskDone, TaskError, TaskProgress } from
 
 export type {
   AreaInfo,
+  AreaQuery,
   BuildFinished,
   BuildProgress,
   CacheStatus,
@@ -62,10 +63,12 @@ export const api = {
   findPlaces: (name: string) => invoke<import("./bindings").PlaceMatch[]>("find_places", { name }),
   /** LV95 [minE, minN, maxE, maxN] for a WGS84 rectangle. The projection lives only
    *  in Rust so there is one implementation, not two to keep in agreement. */
+  /** Full swissTLM3D coverage in LV95, for the whole-Switzerland action (FR-35). */
+  coverageBbox: () => invoke<[number, number, number, number]>("coverage_bbox"),
   wgs84BboxToLv95: (west: number, south: number, east: number, north: number) =>
     invoke<[number, number, number, number]>("wgs84_bbox_to_lv95", { west, south, east, north }),
-  describeArea: (minE: number, minN: number, maxE: number, maxN: number, deviceId: string) =>
-    invoke<import("./bindings").AreaInfo>("describe_area", { minE, minN, maxE, maxN, deviceId }),
+  describeArea: (query: import("./bindings").AreaQuery) =>
+    invoke<import("./bindings").AreaInfo>("describe_area", { query }),
   startBuild: (recipe: Recipe) => invoke<string>("start_build", { recipe }),
   planInstall: (gmapsupp: string, mount: string, deviceId: string, mapName: string) =>
     invoke<import("./bindings").InstallPlan>("plan_install", { gmapsupp, mount, deviceId, mapName }),

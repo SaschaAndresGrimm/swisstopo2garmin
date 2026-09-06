@@ -16,6 +16,7 @@ pub mod devices;
 pub mod download;
 pub mod elevation;
 pub mod error;
+pub mod estimate;
 pub mod extract;
 pub mod garmin;
 pub mod geom;

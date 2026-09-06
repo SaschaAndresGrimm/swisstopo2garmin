@@ -44,6 +44,7 @@ pub fn run() {
             ipc::find_places,
             ipc::describe_area,
             ipc::wgs84_bbox_to_lv95,
+            ipc::coverage_bbox,
             ipc::start_build,
             ipc::plan_install,
             ipc::install_map,
