@@ -121,11 +121,16 @@ export function AdminUnitPicker({
       {!error && !loading && (
         <>
           <input
+            id="admin-filter"
+            aria-label={t("admin.filter", { n: units.length })}
             value={query}
             placeholder={t("admin.filter", { n: units.length })}
             onChange={(e) => setQuery(e.target.value)}
           />
 
+          <p className="muted small" aria-live="polite">
+            {t("admin.matches", { n: matches.length })}
+          </p>
           <ul className="units">
             {matches.map((u) => (
               <li key={u.number}>

@@ -1014,6 +1014,71 @@ pub fn wgs84_bbox_to_lv95(west: f64, south: f64, east: f64, north: f64) -> IpcRe
 /// The content parameters are optional so the area step can ask before content has
 /// been chosen; they default to the hiking preset's settings, which is what the
 /// wizard starts with.
+/// How an oversized area would be divided (SPEC.md FR-36).
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct PartitionPlan {
+    pub parts: usize,
+    pub columns: usize,
+    pub rows: usize,
+    /// Why the split is needed, in words. Empty when none is.
+    pub reason: String,
+    /// False when even the largest allowed split leaves parts over budget.
+    pub fits: bool,
+    /// Name and estimated size of each part, in build order.
+    pub part_names: Vec<String>,
+    #[ts(type = "number[]")]
+    pub part_bytes: Vec<u64>,
+}
+
+/// Plan the split for a recipe, without building anything.
+#[tauri::command]
+pub async fn partition_plan(recipe: Recipe) -> IpcResult<PartitionPlan> {
+    let profiles = profiles()?;
+    let profile = profiles
+        .iter()
+        .find(|p| p.id == recipe.device_id)
+        .ok_or_else(|| format!("unknown device profile {:?}", recipe.device_id))?;
+
+    let cache_root = Cache::default_root();
+    let bbox = recipe.area.bbox();
+    let group_counts = match pipeline::find_tlm3d(&cache_root)
+        .and_then(|p| s2g_core::gpkg::Gpkg::open(p).ok())
+    {
+        Some(gpkg) => estimate::count_groups(&gpkg, &recipe, Some(&cache_root)),
+        None => Default::default(),
+    };
+    let predictors = estimate::Predictors {
+        group_counts,
+        area_km2: bbox.area_km2(),
+        contour_interval_m: recipe.contours.interval_m,
+        relief: recipe.relief,
+        slope_classes: recipe.slope_classes,
+    };
+    let model = estimate::current_model(
+        &resource_root().join("estimator").join("size-model.json"),
+        &calibration_log_path(),
+    );
+
+    let plan = s2g_core::partition::plan(
+        &recipe,
+        &model,
+        &predictors,
+        profile.effective_budget_bytes(),
+        profile.map_file.max_tiles_per_mapset,
+    );
+    Ok(PartitionPlan {
+        parts: plan.parts.len(),
+        columns: plan.columns,
+        rows: plan.rows,
+        reason: plan.reason.clone(),
+        fits: plan.fits,
+        part_names: plan.parts.iter().map(|p| p.recipe.name.clone()).collect(),
+        part_bytes: plan.parts.iter().map(|p| p.estimated_bytes).collect(),
+    })
+}
+
 /// The area and content parameters an estimate depends on, as one value: a command
 /// with eight positional arguments is easy to call wrongly from the frontend.
 #[derive(Debug, Clone, Deserialize, TS)]

@@ -33,6 +33,7 @@ pub mod library;
 pub mod manifest;
 pub mod mask;
 pub mod names;
+pub mod partition;
 pub mod pbf;
 pub mod pipeline;
 pub mod proj;

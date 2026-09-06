@@ -45,11 +45,6 @@ modelSamples: number,
 countedFeatures: boolean, };
 
 /**
- * Geometry facts plus a calibrated size estimate for a candidate area.
- *
- * The content parameters are optional so the area step can ask before content has
- * been chosen; they default to the hiking preset's settings, which is what the
- * wizard starts with.
  * The area and content parameters an estimate depends on, as one value: a command
  * with eight positional arguments is easy to call wrongly from the frontend.
  */
@@ -183,6 +178,28 @@ attributeCount: number,
  * Which presets extract this layer at all.
  */
 presets: Array<string>, };
+
+/**
+ * Geometry facts plus a calibrated size estimate for a candidate area.
+ *
+ * The content parameters are optional so the area step can ask before content has
+ * been chosen; they default to the hiking preset's settings, which is what the
+ * wizard starts with.
+ * How an oversized area would be divided (SPEC.md FR-36).
+ */
+export type PartitionPlan = { parts: number, columns: number, rows: number, 
+/**
+ * Why the split is needed, in words. Empty when none is.
+ */
+reason: string, 
+/**
+ * False when even the largest allowed split leaves parts over budget.
+ */
+fits: boolean, 
+/**
+ * Name and estimated size of each part, in build order.
+ */
+partNames: Array<string>, partBytes: number[], };
 
 export type PlaceMatch = { name: string, alternatives: Array<string>, populationCategory: string | null, easting: number, northing: number, lat: number, lon: number, };
 

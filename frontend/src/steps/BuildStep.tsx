@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type React from "react";
 import { api, formatBytes, formatDuration, onBuildEvents } from "../state/api";
-import type { BuildFailure, BuildFinished, BuildProgress, Recipe } from "../state/api";
+import type {
+  BuildFailure,
+  BuildFinished,
+  BuildProgress,
+  PartitionPlan,
+  Recipe,
+} from "../state/api";
 import type { T } from "../i18n";
 
 /** Build execution with per-stage progress and working cancellation (FR-70..FR-74). */
@@ -26,6 +32,7 @@ export function BuildStep({
   const [failure, setFailure] = useState<BuildFailure | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  const [split, setSplit] = useState<PartitionPlan | null>(null);
 
   const append = useCallback((line: string) => {
     // Bounded: a long build would otherwise grow the DOM without limit.
@@ -56,6 +63,19 @@ export function BuildStep({
       void un.then((fns) => fns.forEach((f) => f()));
     };
   }, [append, onDone]);
+
+  // Checked before offering the button, because a user who learns the area is too big
+  // only when the build fails has waited minutes for nothing.
+  useEffect(() => {
+    let live = true;
+    api
+      .partitionPlan(recipe)
+      .then((p) => live && setSplit(p.parts > 1 ? p : null))
+      .catch(() => live && setSplit(null));
+    return () => {
+      live = false;
+    };
+  }, [recipe]);
 
   const start = async () => {
     setError(null);
@@ -102,6 +122,22 @@ export function BuildStep({
         </div>
       </dl>
 
+      {split && (
+        <div className="notice">
+          <strong>{t("build.splitTitle", { n: split.parts })}</strong>
+          <p className="small">{split.reason}</p>
+          {!split.fits && <p className="error small">{t("build.splitCannotFit")}</p>}
+          <ul className="small">
+            {split.partNames.map((n, i) => (
+              <li key={n}>
+                {n} — {formatBytes(split.partBytes[i] ?? 0)}
+              </li>
+            ))}
+          </ul>
+          <p className="muted small">{t("build.splitHint")}</p>
+        </div>
+      )}
+
       <div className="row">
         {!taskId && !result && (
           <button type="button" className="primary" onClick={() => void start()}>
@@ -135,7 +171,7 @@ export function BuildStep({
               </strong>
               <span>{progress.stageLabel}</span>
             </div>
-            <div className="progress-meta muted small">
+            <div className="progress-meta muted small" aria-live="polite">
               <span>{progress.detail}</span>
               <span className="spacer" />
               <span>{t("build.elapsed", { time: formatDuration(progress.elapsedSeconds) })}</span>
@@ -150,7 +186,7 @@ export function BuildStep({
       )}
 
       {result && (
-        <div className="notice">
+        <div className="notice" role="status">
           <strong>{t("build.finished")}</strong>
           <dl className="facts">
             <div>
@@ -197,7 +233,7 @@ export function BuildStep({
       )}
 
       {error && (
-        <div className="notice error-box">
+        <div className="notice error-box" role="alert">
           <strong>{failure ? failure.summary : t("build.failed")}</strong>
           {failure?.suggestion && <p className="small">{failure.suggestion}</p>}
           {/* Said plainly rather than dressed up as an explanation. */}

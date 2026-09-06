@@ -420,10 +420,10 @@ and leaves a clean state.
 |---|---|---|
 | 1. Device step | **done** | Grouped list, USB detection, generic fallback, confidence shown with the reason a number is unverified. Limit overrides (FR-DEV3) not exposed in the UI yet. |
 | 2. Area step — map, rectangle, place radius | **done** | MapLibre + swisstopo WMTS, drag-to-draw, place search with population ranking. Projection is done in Rust so there is one implementation (FR-P1). |
-| 2. Area step — whole Switzerland (FR-35) | **done** | Extent read from `LV95_BOUNDS` via `coverage_bbox`, so it cannot drift from the coverage check. Auto-partitioning (FR-36) is not implemented. |
+| 2. Area step — whole Switzerland (FR-35, FR-36) | **done** | Extent read from `LV95_BOUNDS` via `coverage_bbox`. Auto-partitioning splits an oversized area on a grid and says plainly when even the largest split will not fit. |
 | 2. Area step — GPX/FIT corridor (FR-38…FR-40) | **done** | Import, buffer, route drawn on the map with length and ascent. Built on `mask.rs`, which filters vectors, shapefiles and contours by an arbitrary shape; the bbox stays the cheap first cut. |
 | 2. Area step — admin units (FR-33/34) | **done** | Cantons, districts and communes from swissBOUNDARIES3D, multi-select with the canton shown (commune names repeat), optional buffer, outlines drawn on the map. Schema in docs/boundaries-schema.md. |
-| 2. Area step — composite, GeoJSON | **not started** | FR-41/42. A composite area needs a union of masks, which is a small step from what exists. |
+| 2. Area step — composite, GeoJSON (FR-41/42) | **done** | Union of masks; GeoJSON in and out, projected both ways. |
 | Cartography — slope classes (FR-CART12) | **done** | Computed from swissALTI3D at a 10 m baseline, swisstopo's five classes, hatched so the map stays readable. Optional, off by default. |
 | Content — named SAC huts (FR-CART13) | **done** | 506 huts with names. Contact details and opening hours are not in any free dataset. |
 | **Routing (ActiveRouting equivalent)** | **not started** | The one substantive gap against Garmin TOPO Schweiz V4 PRO. Needs a NOD subfile and routing attributes on the road and trail network: mkgmap `--route`, plus access and speed tags derived from swissTLM3D's `verkehrsbeschraenkung`, `befahrbarkeit` and `wanderwege`. Deferred to v2 by decision. |
@@ -435,7 +435,7 @@ and leaves a clean state.
 | 4. Size estimator | **done** | Ridge-regression model over R-tree feature counts, fitted from real builds and shipped as `estimator/size-model.json`; every build appends to a local calibration log that refits it (FR-60…FR-63). Budget bar shows estimate, budget and margin together. |
 | 5. Build step | **done** | Seven stages with weighted progress, remaining time and elapsed, bounded live log, cancellation that kills the java children. |
 | 6. Install step | **done** | Device identity, free space, plan shown before writing, overwrite confirmation with backup, eject reminder. |
-| 7. Accessibility and theming | **partial** | Light/dark from the OS, focus rings, selected state carried by border as well as colour, progress bars carry ARIA. No screen-reader pass and no keyboard-only walkthrough yet. |
+| 7. Accessibility and theming (NFR-9) | **partial** | Static audit in CI, AA contrast measured and fixed in both themes, live regions on progress and failures. Still missing: a screen-reader pass, a keyboard-only walkthrough, and a keyboard equivalent for map drawing. See docs/accessibility.md. |
 | Build manifest (FR-71) | **done** | Written beside every output: releases with checksums, tool versions, stage timings, per-layer counts, output hash, attribution. |
 | Stage caching (FR-72) | **done** | The region PBF is reused when only the device, colour scheme, relief or TYP changed: 33.1 s to 5.3 s on the same area. |
 | Failure presentation (FR-73) | **done** | Recognised failures explained with what to do; unrecognised ones say so rather than guess. Copy-diagnostics included. |

@@ -5,6 +5,10 @@
   --muted: #5f5f5f;
   --line: #d8d5cf;
   --accent: #da291c;         /* swisstopo red */
+  /* The same red as text fails WCAG AA on the panel (4.43:1 light, 3.32:1 dark), so
+     text uses a variant that clears 4.5:1 in each theme. The brand colour still fills
+     buttons and draws borders, where 3:1 is the threshold. NFR-9. */
+  --accent-text: #d7291c;
   --panel: #f6f4f0;
   color-scheme: light dark;
 }
@@ -14,6 +18,7 @@
     --fg: #ececec;
     --muted: #a3a3a3;
     --line: #33373b;
+    --accent-text: #e8564b;
     --panel: #1e2124;
   }
 }
@@ -67,7 +72,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
 .muted { color: var(--muted); }
 .small { font-size: 0.85em; }
-.error { color: var(--accent); }
+.error { color: var(--accent-text); }
 .progress {
   background: var(--panel); border-radius: 8px;
   padding: 0.75rem 0.9rem; margin: 1rem 0;
@@ -100,7 +105,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
   display: flex; gap: 1rem; flex-wrap: wrap;
   font-variant-numeric: tabular-nums;
 }
-.progress-meta .warn { color: var(--accent); }
+.progress-meta .warn { color: var(--accent-text); }
 .datasets { width: 100%; border-collapse: collapse; margin-top: 1rem; }
 .datasets td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line); }
 .views button.current { background: var(--panel); }
@@ -113,7 +118,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
   display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.45rem;
   border-radius: 999px; font-size: 0.75rem;
   background: color-mix(in srgb, var(--accent) 15%, transparent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .sources { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
@@ -221,7 +226,7 @@ button[aria-pressed="true"], button.current {
 .layers .check { padding: 0.12rem 0; }
 .layers .check > span:last-child { margin-left: auto; }
 button.link {
-  background: none; border: 0; padding: 0; color: var(--accent);
+  background: none; border: 0; padding: 0; color: var(--accent-text);
   font-size: 0.8rem; text-decoration: underline; cursor: pointer;
 }
 

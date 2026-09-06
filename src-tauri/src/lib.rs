@@ -48,6 +48,7 @@ pub fn run() {
             ipc::delete_recipe,
             ipc::find_places,
             ipc::describe_area,
+            ipc::partition_plan,
             ipc::wgs84_bbox_to_lv95,
             ipc::coverage_bbox,
             ipc::data_location,

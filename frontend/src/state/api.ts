@@ -20,6 +20,7 @@ export type {
   InstallInstructions,
   InstallPlan,
   LayerInfo,
+  PartitionPlan,
   PlaceMatch,
   PresetInfo,
   ReleaseInfo,
@@ -157,6 +158,9 @@ export const api = {
     invoke<[number, number, number, number]>("wgs84_bbox_to_lv95", { west, south, east, north }),
   describeArea: (query: import("./bindings").AreaQuery) =>
     invoke<import("./bindings").AreaInfo>("describe_area", { query }),
+  /** How an oversized area would be divided, without building anything (FR-36). */
+  partitionPlan: (recipe: Recipe) =>
+    invoke<import("./bindings").PartitionPlan>("partition_plan", { recipe }),
   startBuild: (recipe: Recipe) => invoke<string>("start_build", { recipe }),
   planInstall: (gmapsupp: string, mount: string, deviceId: string, mapName: string) =>
     invoke<import("./bindings").InstallPlan>("plan_install", { gmapsupp, mount, deviceId, mapName }),
