@@ -45,6 +45,11 @@ impl Cancel {
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }
+    /// Public form of the internal check, for callers outside this module.
+    pub fn check_cancelled(&self) -> Result<()> {
+        self.check()
+    }
+
     fn check(&self) -> Result<()> {
         if self.is_cancelled() {
             Err(Error::Cancelled)
