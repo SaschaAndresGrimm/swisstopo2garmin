@@ -62,6 +62,36 @@ impl Toolchain {
         Ok(())
     }
 
+    /// The java runtime's own version string.
+    pub fn java_version(&self) -> Option<String> {
+        let out = Command::new(&self.java).arg("-version").output().ok()?;
+        // java prints its version on stderr.
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        text.lines().next().map(|l| l.trim().to_string())
+    }
+
+    /// splitter reports its version in the first line of its help output.
+    pub fn splitter_version(&self) -> Option<String> {
+        let out = Command::new(&self.java)
+            .arg("-jar")
+            .arg(&self.splitter_jar)
+            .arg("--version")
+            .output()
+            .ok()?;
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        text.lines()
+            .find(|l| l.to_lowercase().contains("splitter"))
+            .map(|l| l.trim().to_string())
+    }
+
     pub fn mkgmap_version(&self) -> Option<String> {
         let out = Command::new(&self.java)
             .arg("-jar")

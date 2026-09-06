@@ -15,6 +15,7 @@ export type {
   DataLocation,
   DatasetEntry,
   DeviceSummary,
+  InstallInstructions,
   InstallPlan,
   LayerInfo,
   PlaceMatch,
@@ -87,6 +88,14 @@ export const api = {
   detectDevices: () => invoke<import("./bindings").ConnectedDevice[]>("detect_devices"),
   /** Garmin devices on the USB bus, including ones not mounted as a filesystem. */
   usbDevices: () => invoke<import("./bindings").UsbDeviceInfo[]>("usb_devices"),
+  installInstructions: (deviceId: string, mapName: string) =>
+    invoke<import("./bindings").InstallInstructions>("install_instructions", {
+      deviceId,
+      mapName,
+    }),
+  /** Copy the built map into a folder the user picked (FR-83). */
+  exportMap: (gmapsupp: string, dir: string, deviceId: string, mapName: string) =>
+    invoke<string>("export_map", { gmapsupp, dir, deviceId, mapName }),
   listPresets: () => invoke<import("./bindings").PresetInfo[]>("list_presets"),
   listLayers: () => invoke<import("./bindings").LayerInfo[]>("list_layers"),
   listRecipes: () => invoke<import("./bindings").SavedRecipeInfo[]>("list_recipes"),

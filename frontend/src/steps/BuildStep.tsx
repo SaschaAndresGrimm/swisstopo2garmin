@@ -175,6 +175,13 @@ export function BuildStep({
             </div>
           </dl>
           <p className="mono small">{result.gmapsupp}</p>
+          {/* Named, because it is what lets a map on a device be traced back to the
+              releases and tools that made it. */}
+          {result.manifest && (
+            <p className="muted small">
+              {t("build.manifest")} <span className="mono">{result.manifest}</span>
+            </p>
+          )}
           {result.warnings.length > 0 && (
             <ul className="warnings">
               {result.warnings.map((w) => (

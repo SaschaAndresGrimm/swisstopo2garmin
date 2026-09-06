@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { api, formatBytes } from "../state/api";
-import type { BuildFinished, ConnectedDevice, InstallPlan, UsbDeviceInfo } from "../state/api";
+import type {
+  BuildFinished,
+  ConnectedDevice,
+  InstallInstructions,
+  InstallPlan,
+  UsbDeviceInfo,
+} from "../state/api";
 import { UnmountedDevices } from "../components/UnmountedDevices";
 import type { T } from "../i18n";
 
@@ -28,6 +35,8 @@ export function InstallStep({
   const [plan, setPlan] = useState<InstallPlan | null>(null);
   const [backup, setBackup] = useState(true);
   const [installed, setInstalled] = useState<string | null>(null);
+  const [exported, setExported] = useState<string | null>(null);
+  const [howTo, setHowTo] = useState<InstallInstructions | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +55,23 @@ export function InstallStep({
   useEffect(() => {
     void scan();
   }, [scan]);
+
+  // Always available, because the direct install cannot serve every case: a device in
+  // MTP mode, an SD card in a reader, or simply a user who would rather copy it.
+  useEffect(() => {
+    api.installInstructions(deviceId, mapName).then(setHowTo).catch(() => setHowTo(null));
+  }, [deviceId, mapName]);
+
+  const exportToFolder = async () => {
+    setError(null);
+    try {
+      const dir = await open({ directory: true, multiple: false, title: t("install.exportTitle") });
+      if (typeof dir !== "string") return;
+      setExported(await api.exportMap(build.gmapsupp, dir, deviceId, mapName));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   const prepare = async (mount: string) => {
     setError(null);
@@ -170,6 +196,38 @@ export function InstallStep({
           <p className="small">{t("install.eject")}</p>
         </div>
       )}
+
+      {/* The escape hatch, offered always rather than only when detection fails. */}
+      <div className="notice">
+        <strong>{t("install.export")}</strong>
+        <p className="small">{t("install.exportHint")}</p>
+        {howTo && (
+          <dl className="facts">
+            <div>
+              <dt>{t("install.folder")}</dt>
+              <dd className="mono small">{howTo.folders.join("  ")}</dd>
+            </div>
+            <div>
+              <dt>{t("install.filename")}</dt>
+              <dd className="mono small">{howTo.filename}</dd>
+            </div>
+            <div>
+              <dt>{t("install.multiple")}</dt>
+              <dd>{howTo.multipleMaps ? t("common.yes") : t("common.no")}</dd>
+            </div>
+          </dl>
+        )}
+        <div className="row tight">
+          <button type="button" onClick={() => void exportToFolder()}>
+            {t("install.exportAction")}
+          </button>
+        </div>
+        {exported && (
+          <p className="small">
+            {t("install.exported")} <span className="mono">{exported}</span>
+          </p>
+        )}
+      </div>
 
       {error && <p className="error">{t("data.error", { message: error })}</p>}
 

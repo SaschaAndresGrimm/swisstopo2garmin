@@ -49,6 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let written: std::path::PathBuf;
     if !kind.is_archive() {
         let dest = dir.join(&asset.name);
         let path = download(
@@ -65,6 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             path.display(),
             std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
         );
+        written = path;
     } else if !stream_inflate {
         let files = download_zip_all(
             &http,
@@ -76,6 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
         println!("\nextracted {} files into {}", files.len(), dir.display());
+        written = files.first().cloned().unwrap_or_else(|| dir.clone());
         for f in files.iter().take(20) {
             let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
             println!("  {:>12} B  {}", size, f.file_name().unwrap().to_string_lossy());
@@ -97,7 +100,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             member.uncompressed_size,
             member.name
         );
+        written = path;
     }
+    // Record where the bytes came from, exactly as the app's acquire_dataset does.
+    // Without this the cache looks complete but a build manifest cannot say which
+    // release a map came from.
+    let prov = s2g_core::cache::Provenance {
+        collection: collection.clone(),
+        item: item.id.clone(),
+        datetime: item.datetime.clone(),
+        asset: asset.name.clone(),
+        href: asset.href.clone(),
+        checksum: asset.checksum.clone(),
+        file: written
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        bytes: std::fs::metadata(&written).map(|m| m.len()).unwrap_or(0),
+        fetched_at: {
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("@{secs}")
+        },
+        inflated: stream_inflate,
+    };
+    cache.write_provenance(&prov).await?;
+    println!("provenance   : recorded for {}/{}", prov.collection, prov.item);
+
     println!("elapsed      : {:.1}s", started.elapsed().as_secs_f64());
     Ok(())
 }

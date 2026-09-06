@@ -28,6 +28,7 @@ pub mod gpx;
 pub mod http;
 pub mod img;
 pub mod library;
+pub mod manifest;
 pub mod mask;
 pub mod pbf;
 pub mod pipeline;

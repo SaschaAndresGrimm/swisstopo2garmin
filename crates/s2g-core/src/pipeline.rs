@@ -97,11 +97,119 @@ pub struct BuildReport {
     pub slope_areas: usize,
     pub has_dem: bool,
     pub warnings: Vec<String>,
+    /// The manifest written beside the output (FR-71), when it could be written.
+    pub manifest: Option<PathBuf>,
     /// Deterministic identity, so the same recipe keeps its place on the device.
     pub family_id: u16,
     /// Seconds spent in each stage, in the order they ran. Feeds the time estimate
     /// shown during the next build (FR-71).
     pub stage_seconds: Vec<(Stage, f64)>,
+}
+
+/// Assemble and write the build manifest.
+#[allow(clippy::too_many_arguments)]
+async fn write_manifest(
+    ctx: &BuildContext<'_>,
+    recipe: &Recipe,
+    identity: &crate::garmin::MapIdentity,
+    out: &crate::garmin::BuildOutput,
+    stats: &crate::extract::ExtractStats,
+    stage_seconds: &[(Stage, f64)],
+    contour_lines: usize,
+    slope_areas: usize,
+    warnings: &[String],
+    info: &img::ImgInfo,
+) -> Result<PathBuf> {
+    use crate::manifest::{Manifest, Output, Tools};
+
+    let entries = crate::cache::Cache::new(ctx.cache_root.clone())
+        .list()
+        .await
+        .unwrap_or_default();
+
+    let name_of = |p: &Path| {
+        p.file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default()
+    };
+    // Ask each tool for its own version rather than reading the jar's file name: the
+    // vendored jars are called plain `mkgmap.jar`, so the file name records nothing.
+    // Falling back to the path at least says which file was used.
+    let tools = Tools {
+        app: env!("CARGO_PKG_VERSION").to_string(),
+        mkgmap: ctx
+            .toolchain
+            .mkgmap_version()
+            .unwrap_or_else(|| name_of(&ctx.toolchain.mkgmap_jar)),
+        splitter: ctx
+            .toolchain
+            .splitter_version()
+            .unwrap_or_else(|| name_of(&ctx.toolchain.splitter_jar)),
+        java: ctx
+            .toolchain
+            .java_version()
+            .unwrap_or_else(|| ctx.toolchain.java.display().to_string()),
+    };
+
+    let sources = crate::manifest::sources_from_cache(&entries);
+
+    let manifest = Manifest {
+        schema_version: 1,
+        built_at: now_rfc3339(),
+        recipe_key: recipe.cache_key(),
+        recipe: recipe.clone(),
+        sources,
+        tools,
+        output: Output {
+            file: name_of(&out.gmapsupp),
+            bytes: out.bytes,
+            sha256: crate::cache::sha256_of(&out.gmapsupp)
+                .map_err(|e| Error::io(&out.gmapsupp, e))?,
+            tile_count: out.tile_count,
+            family_id: identity.family_id,
+            has_dem: info.has_dem(),
+        },
+        stage_seconds: stage_seconds
+            .iter()
+            .map(|(s, secs)| (format!("{s:?}").to_lowercase(), *secs))
+            .collect(),
+        features_per_layer: stats.per_layer.iter().cloned().collect(),
+        contour_lines,
+        slope_areas,
+        warnings: warnings.to_vec(),
+        // The string mkgmap actually embedded, not a copy of it: FR-L1 is about what
+        // travels with the file, so the manifest must record that and not a hopeful
+        // restatement.
+        attribution: identity.description.clone(),
+    };
+    manifest.write_beside(&out.gmapsupp)
+}
+
+/// RFC 3339 in UTC, without pulling in a date library for one timestamp.
+fn now_rfc3339() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Days from the civil epoch, by Howard Hinnant's algorithm.
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        (rem % 3600) / 60,
+        rem % 60
+    )
 }
 
 /// Rough disk a build needs, for the precheck.
@@ -515,7 +623,49 @@ pub async fn build(
         }
     }
 
+    let cache_has_provenance = crate::cache::Cache::new(ctx.cache_root.clone())
+        .list()
+        .await
+        .map(|e| e.iter().any(|x| x.provenance.is_some()))
+        .unwrap_or(false);
+
+    // ---- manifest (FR-71) ------------------------------------------------
+    // Written beside the output, so a map on a device can be traced back to the exact
+    // releases and tools that made it. A manifest failure must not fail a finished
+    // build: the map is already correct.
+    let manifest_path = match write_manifest(
+        ctx,
+        recipe,
+        &identity,
+        &out,
+        &stats,
+        &stage_seconds,
+        contour_lines,
+        slope_areas,
+        &warnings,
+        &info,
+    )
+    .await
+    {
+        Ok(p) => Some(p),
+        Err(e) => {
+            warnings.push(format!("could not write the build manifest: {e}"));
+            None
+        }
+    };
+    // A manifest whose sources are empty cannot trace the map back to anything, which
+    // is most of its purpose. That happens when datasets were put in the cache by
+    // something other than this app, so no provenance was recorded beside them.
+    if manifest_path.is_some() && !cache_has_provenance {
+        warnings.push(
+            "the datasets in the cache carry no provenance, so the build manifest \
+             cannot record which releases this map came from"
+                .into(),
+        );
+    }
+
     Ok(BuildReport {
+        manifest: manifest_path,
         gmapsupp: out.gmapsupp,
         bytes: out.bytes,
         tile_count: out.tile_count,

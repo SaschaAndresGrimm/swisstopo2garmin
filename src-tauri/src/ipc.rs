@@ -1414,6 +1414,8 @@ pub struct BuildFinished {
     pub contour_lines: usize,
     pub has_dem: bool,
     pub warnings: Vec<String>,
+    /// The manifest written beside the map (FR-71), when it could be written.
+    pub manifest: Option<String>,
     /// How long the build actually took. Shown on completion, and what makes the next
     /// build's estimate credible.
     pub seconds: f64,
@@ -1520,6 +1522,7 @@ pub async fn start_build(
                         features: report.features,
                         contour_lines: report.contour_lines,
                         has_dem: report.has_dem,
+                        manifest: report.manifest.map(|p| p.display().to_string()),
                         seconds: report.stage_seconds.iter().map(|(_, v)| *v).sum(),
                         warnings: report.warnings,
                     },
@@ -1607,6 +1610,82 @@ pub fn plan_install(
     })
 }
 
+/// Where a map goes on a given device, in words (SPEC.md FR-83).
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct InstallInstructions {
+    /// Folders this profile records as valid, in preference order.
+    pub folders: Vec<String>,
+    pub filename: String,
+    /// True when the device can hold several map sets, so the file name matters.
+    pub multiple_maps: bool,
+}
+
+/// Textual install instructions for a device profile.
+///
+/// Needed whenever the app cannot write the file itself: a device in MTP mode, an SD
+/// card in a reader, or a user who would simply rather copy it by hand.
+#[tauri::command]
+pub fn install_instructions(device_id: String, map_name: String) -> IpcResult<InstallInstructions> {
+    let profiles =
+        devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
+    let profile = profiles
+        .iter()
+        .find(|p| p.id == device_id)
+        .ok_or_else(|| format!("unknown device profile {device_id:?}"))?;
+    // Whether an SD card is an option is a device fact no profile records, so it is
+    // not claimed here (working agreement rule 3).
+    Ok(InstallInstructions {
+        folders: profile.map_file.install_paths.clone(),
+        filename: profile.output_filename(&map_name),
+        multiple_maps: profile.map_file.supports_multiple_mapsets,
+    })
+}
+
+/// Copy the built map to a folder the user chose (SPEC.md FR-83).
+///
+/// The escape hatch for every case the direct install cannot serve, MTP devices above
+/// all. Returns the path written.
+#[tauri::command]
+pub async fn export_map(
+    gmapsupp: String,
+    dir: String,
+    device_id: String,
+    map_name: String,
+) -> IpcResult<String> {
+    let profiles =
+        devices::load_profiles(&resource_root().join("devices")).map_err(|e| e.to_string())?;
+    let profile = profiles
+        .iter()
+        .find(|p| p.id == device_id)
+        .ok_or_else(|| format!("unknown device profile {device_id:?}"))?;
+
+    let filename = profile.output_filename(&map_name);
+    if devices::is_double_extension(&filename) {
+        return Err(format!("refusing to write {filename}: double extension"));
+    }
+    let dst = PathBuf::from(&dir).join(&filename);
+    let src = PathBuf::from(&gmapsupp);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    // Same write-then-rename as the device install: an interrupted copy must not leave
+    // a truncated file that looks finished.
+    let tmp = dst.with_extension("img.part");
+    tokio::task::spawn_blocking({
+        let (src, tmp, dst) = (src.clone(), tmp.clone(), dst.clone());
+        move || -> std::io::Result<()> {
+            std::fs::copy(&src, &tmp)?;
+            std::fs::rename(&tmp, &dst)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    Ok(dst.display().to_string())
+}
+
 /// Copy the map to the device, optionally backing up what is replaced.
 #[tauri::command]
 pub async fn install_map(plan: InstallPlan, backup: bool) -> IpcResult<String> {
@@ -1625,12 +1704,31 @@ pub async fn install_map(plan: InstallPlan, backup: bool) -> IpcResult<String> {
     std::fs::copy(&src, &tmp).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &dst).map_err(|e| e.to_string())?;
 
-    // Verify by size; hashing a multi-gigabyte file over USB is not worth the wait.
-    let copied = std::fs::metadata(&dst).map(|m| m.len()).unwrap_or(0);
-    if copied != plan.bytes {
+    // Re-hash from the device, not just compare sizes (FR-82). A truncated copy has the
+    // wrong size, but a copy corrupted mid-transfer -- which is what a flaky USB link
+    // actually produces -- has the right one. These maps are a few megabytes, so the
+    // read costs about a second.
+    let (src_hash, dst_hash) = tokio::task::spawn_blocking({
+        let (src, dst) = (src.clone(), dst.clone());
+        move || -> std::io::Result<(String, String)> {
+            Ok((
+                s2g_core::cache::sha256_of(&src)?,
+                s2g_core::cache::sha256_of(&dst)?,
+            ))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    if src_hash != dst_hash {
+        // Leave nothing half-installed: the device would try to load it.
+        let _ = std::fs::remove_file(&dst);
         return Err(format!(
-            "copy verification failed: {copied} bytes on the device, expected {}",
-            plan.bytes
+            "the copy on the device does not match what was built \
+             (built {}, on the device {}); it has been removed",
+            &src_hash[..16],
+            &dst_hash[..16]
         ));
     }
     Ok(dst.display().to_string())

@@ -304,6 +304,27 @@ pub fn precheck_space(path: &Path, need: u64) -> Result<()> {
     Ok(())
 }
 
+/// SHA-256 of a file, streamed rather than read whole.
+///
+/// Used to verify a map after copying it to a device (SPEC.md FR-82). Streamed because
+/// the same function should stay usable for a national build, which is gigabytes.
+pub fn sha256_of(path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let mut f = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
 /// Where the space in the data directory has gone.
 ///
 /// [`Cache::list`] only sees `<collection>/<item>/` directories, which is every acquired

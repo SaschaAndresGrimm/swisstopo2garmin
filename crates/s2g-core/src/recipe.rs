@@ -65,7 +65,7 @@ impl Preset {
 }
 
 /// Which area to build.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AreaSelection {
     /// An explicit LV95 rectangle, as drawn on the map.
@@ -244,7 +244,7 @@ impl AreaSelection {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContourSettings {
     pub interval_m: i32,
@@ -307,7 +307,7 @@ impl ReliefDetail {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Recipe {
     pub schema_version: u32,

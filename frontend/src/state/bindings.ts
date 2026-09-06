@@ -61,6 +61,10 @@ preset: string | null, contourM: number | null, relief: string | null, };
 
 export type BuildFinished = { taskId: string, gmapsupp: string, bytes: number, tileCount: number, features: number, contourLines: number, hasDem: boolean, warnings: Array<string>, 
 /**
+ * The manifest written beside the map (FR-71), when it could be written.
+ */
+manifest: string | null, 
+/**
  * How long the build actually took. Shown on completion, and what makes the next
  * build's estimate credible.
  */
@@ -118,6 +122,19 @@ confidence: string, confidenceVerified: boolean, confidenceNotes: string, budget
  * True when this profile was matched to a connected device.
  */
 connected: boolean, };
+
+/**
+ * Where a map goes on a given device, in words (SPEC.md FR-83).
+ */
+export type InstallInstructions = { 
+/**
+ * Folders this profile records as valid, in preference order.
+ */
+folders: Array<string>, filename: string, 
+/**
+ * True when the device can hold several map sets, so the file name matters.
+ */
+multipleMaps: boolean, };
 
 export type InstallPlan = { source: string, target: string, 
 /**
