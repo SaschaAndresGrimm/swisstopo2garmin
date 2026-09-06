@@ -1,18 +1,65 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { StepIndicator, type Step } from "./components/StepIndicator";
 import { DataScreen } from "./steps/DataScreen";
+import { DeviceStep } from "./steps/DeviceStep";
+import { AreaStep } from "./steps/AreaStep";
+import { ContentStep } from "./steps/ContentStep";
+import { BuildStep } from "./steps/BuildStep";
+import { InstallStep } from "./steps/InstallStep";
 import { detectLang, makeT, type Lang } from "./i18n";
+import type {
+  AreaSelection,
+  BuildFinished,
+  PresetId,
+  Recipe,
+  ReliefDetail,
+} from "./state/api";
 
 type View = "data" | Step;
 
 export default function App() {
   const [lang, setLang] = useState<Lang>(detectLang);
-  const [view, setView] = useState<View>("data");
+  const [view, setView] = useState<View>("device");
   const t = useMemo(() => makeT(lang), [lang]);
 
-  // Only the Data screen exists so far; the five build steps land in later
-  // milestones (PLAN.md M6). Nothing else is reachable yet.
-  const reachable = useMemo(() => new Set<Step>(), []);
+  // The recipe is assembled across the steps and is the only build input.
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [supportsDem, setSupportsDem] = useState(true);
+  const [area, setArea] = useState<AreaSelection | null>(null);
+  const [preset, setPreset] = useState<PresetId>("hiking");
+  const [contourM, setContourM] = useState(20);
+  const [indexM, setIndexM] = useState(100);
+  const [relief, setRelief] = useState<ReliefDetail>("gentle");
+  const [built, setBuilt] = useState<BuildFinished | null>(null);
+
+  const recipe: Recipe | null = useMemo(() => {
+    if (!deviceId || !area) return null;
+    const name =
+      area.kind === "place" ? `${area.name} ${area.radiusKm} km` : t("recipe.customArea");
+    return {
+      schemaVersion: 1,
+      name,
+      deviceId,
+      area,
+      preset,
+      contours: { intervalM: contourM, indexM, simplifyM: 8.0 },
+      relief,
+      excludedLayers: [],
+    };
+  }, [deviceId, area, preset, contourM, indexM, relief, t]);
+
+  // A step is reachable only once the steps it depends on are satisfied, so the
+  // indicator cannot jump to a screen that would have nothing to work with.
+  const reachable = useMemo(() => {
+    const s = new Set<Step>(["device"]);
+    if (deviceId) s.add("area");
+    if (deviceId && area) s.add("content");
+    if (recipe) s.add("build");
+    if (built) s.add("install");
+    return s;
+  }, [deviceId, area, recipe, built]);
+
+  const go = useCallback((v: View) => setView(v), []);
 
   return (
     <div className="app">
@@ -23,13 +70,20 @@ export default function App() {
           <button
             type="button"
             className={view === "data" ? "current" : ""}
-            onClick={() => setView("data")}
+            onClick={() => go("data")}
           >
             {t("nav.data")}
           </button>
+          <button
+            type="button"
+            className={view !== "data" ? "current" : ""}
+            onClick={() => go(deviceId ? "area" : "device")}
+          >
+            {t("nav.build")}
+          </button>
         </nav>
         <select
-          aria-label="language"
+          aria-label={t("app.language")}
           value={lang}
           onChange={(e) => setLang(e.target.value as Lang)}
         >
@@ -40,14 +94,95 @@ export default function App() {
         </select>
       </header>
 
-      <StepIndicator
-        t={t}
-        current={view === "data" ? "device" : view}
-        reachable={reachable}
-        onSelect={(s) => setView(s)}
-      />
+      {view !== "data" && (
+        <StepIndicator
+          t={t}
+          current={view as Step}
+          reachable={reachable}
+          onSelect={(s) => go(s)}
+        />
+      )}
 
-      <main>{view === "data" ? <DataScreen t={t} /> : <p>{t("common.notImplemented")}</p>}</main>
+      <main>
+        {view === "data" && <DataScreen t={t} />}
+
+        {view === "device" && (
+          <DeviceStep
+            t={t}
+            selected={deviceId}
+            onSelect={(id) => {
+              setDeviceId(id);
+              // Relief is only offered where the device supports a DEM.
+              void import("./state/api").then(async ({ api }) => {
+                const list = await api.listDevices();
+                const d = list.find((x) => x.id === id);
+                setSupportsDem(d?.supportsDem ?? false);
+                if (!d?.supportsDem) setRelief("off");
+              });
+            }}
+            onNext={() => go("area")}
+          />
+        )}
+
+        {view === "area" && deviceId && (
+          <AreaStep
+            t={t}
+            deviceId={deviceId}
+            area={area}
+            onArea={setArea}
+            onNext={() => go("content")}
+            onBack={() => go("device")}
+          />
+        )}
+
+        {view === "content" && (
+          <ContentStep
+            t={t}
+            preset={preset}
+            onPreset={(p, c, i) => {
+              setPreset(p);
+              setContourM(c);
+              setIndexM(i);
+            }}
+            contourM={contourM}
+            onContourM={setContourM}
+            relief={relief}
+            onRelief={setRelief}
+            supportsDem={supportsDem}
+            onNext={() => go("build")}
+            onBack={() => go("area")}
+          />
+        )}
+
+        {view === "build" && recipe && (
+          <BuildStep
+            t={t}
+            recipe={recipe}
+            onDone={(r) => {
+              setBuilt(r);
+              go("install");
+            }}
+            onBack={() => go("content")}
+          />
+        )}
+
+        {view === "install" && built && deviceId && (
+          <InstallStep
+            t={t}
+            build={built}
+            deviceId={deviceId}
+            mapName={recipe?.name ?? "swisstopo"}
+            onBack={() => go("build")}
+          />
+        )}
+
+        {/* A step reached without its prerequisites shows why rather than a blank pane. */}
+        {view !== "data" && !reachable.has(view as Step) && (
+          <section className="screen">
+            <p className="muted">{t("common.completeEarlierSteps")}</p>
+          </section>
+        )}
+      </main>
 
       <footer>{t("app.attribution")}</footer>
     </div>

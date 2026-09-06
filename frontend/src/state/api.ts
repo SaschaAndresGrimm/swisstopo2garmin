@@ -4,7 +4,40 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { CacheStatus, ReleaseInfo, TaskDone, TaskError, TaskProgress } from "./bindings";
 
-export type { CacheStatus, DatasetEntry, ReleaseInfo, TaskProgress } from "./bindings";
+export type {
+  AreaInfo,
+  BuildFinished,
+  BuildProgress,
+  CacheStatus,
+  ConnectedDevice,
+  DatasetEntry,
+  DeviceSummary,
+  InstallPlan,
+  PlaceMatch,
+  PresetInfo,
+  ReleaseInfo,
+  TaskProgress,
+} from "./bindings";
+
+/** Mirrors s2g_core::recipe::Recipe. Hand-written because ts-rs cannot export the
+ *  tagged area union in a shape TypeScript narrows well. */
+export type AreaSelection =
+  | { kind: "bbox"; minE: number; minN: number; maxE: number; maxN: number }
+  | { kind: "place"; name: string; radiusKm: number; easting: number; northing: number };
+
+export type PresetId = "hiking" | "cycling" | "skimo" | "full";
+export type ReliefDetail = "off" | "gentle" | "detailed";
+
+export interface Recipe {
+  schemaVersion: number;
+  name: string;
+  deviceId: string;
+  area: AreaSelection;
+  preset: PresetId;
+  contours: { intervalM: number; indexM: number; simplifyM: number };
+  relief: ReliefDetail;
+  excludedLayers: string[];
+}
 
 export const TLM3D = "ch.swisstopo.swisstlm3d";
 export const WANDERWEGE = "ch.swisstopo.swisstlm3d-wanderwege";
@@ -16,6 +49,21 @@ export const SOURCES = [
 ] as const;
 
 export const api = {
+  listDevices: () => invoke<import("./bindings").DeviceSummary[]>("list_devices"),
+  detectDevices: () => invoke<import("./bindings").ConnectedDevice[]>("detect_devices"),
+  listPresets: () => invoke<import("./bindings").PresetInfo[]>("list_presets"),
+  findPlaces: (name: string) => invoke<import("./bindings").PlaceMatch[]>("find_places", { name }),
+  /** LV95 [minE, minN, maxE, maxN] for a WGS84 rectangle. The projection lives only
+   *  in Rust so there is one implementation, not two to keep in agreement. */
+  wgs84BboxToLv95: (west: number, south: number, east: number, north: number) =>
+    invoke<[number, number, number, number]>("wgs84_bbox_to_lv95", { west, south, east, north }),
+  describeArea: (minE: number, minN: number, maxE: number, maxN: number, deviceId: string) =>
+    invoke<import("./bindings").AreaInfo>("describe_area", { minE, minN, maxE, maxN, deviceId }),
+  startBuild: (recipe: Recipe) => invoke<string>("start_build", { recipe }),
+  planInstall: (gmapsupp: string, mount: string, deviceId: string, mapName: string) =>
+    invoke<import("./bindings").InstallPlan>("plan_install", { gmapsupp, mount, deviceId, mapName }),
+  installMap: (plan: import("./bindings").InstallPlan, backup: boolean) =>
+    invoke<string>("install_map", { plan, backup }),
   cacheStatus: () => invoke<CacheStatus>("cache_status"),
   latestRelease: (collection: string) => invoke<ReleaseInfo>("latest_release", { collection }),
   acquire: (collection: string) => invoke<string>("acquire_dataset", { collection }),
@@ -30,6 +78,26 @@ export const api = {
  * capability, and the rejection is otherwise silent — the UI simply never updates
  * while `invoke` keeps working, which looks like a frontend bug. Surface it.
  */
+/** Build events. Separate from dataset task events so a build cannot be confused
+ *  with a download. */
+export function onBuildEvents(handlers: {
+  progress?: (p: import("./bindings").BuildProgress) => void;
+  done?: (d: import("./bindings").BuildFinished) => void;
+  error?: (e: TaskError) => void;
+  onFailure?: (reason: string) => void;
+}): Promise<UnlistenFn[]> {
+  return Promise.all([
+    listen<import("./bindings").BuildProgress>("build:progress", (e) => handlers.progress?.(e.payload)),
+    listen<import("./bindings").BuildFinished>("build:done", (e) => handlers.done?.(e.payload)),
+    listen<TaskError>("build:error", (e) => handlers.error?.(e.payload)),
+  ]).catch((reason) => {
+    const msg = `cannot subscribe to build events: ${String(reason)}`;
+    console.error(msg);
+    handlers.onFailure?.(msg);
+    return [] as UnlistenFn[];
+  });
+}
+
 export function onTaskEvents(handlers: {
   progress?: (p: TaskProgress) => void;
   done?: (d: TaskDone) => void;

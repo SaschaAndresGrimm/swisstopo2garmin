@@ -81,11 +81,11 @@ export function DataScreen({ t }: { t: T }) {
           </div>
           <div>
             <dt>{t("data.totalSize")}</dt>
-            <dd>{formatBytes(status.total_bytes)}</dd>
+            <dd>{formatBytes(status.totalBytes)}</dd>
           </div>
           <div>
             <dt>{t("data.free")}</dt>
-            <dd>{formatBytes(status.free_bytes)}</dd>
+            <dd>{formatBytes(status.freeBytes)}</dd>
           </div>
         </dl>
       )}

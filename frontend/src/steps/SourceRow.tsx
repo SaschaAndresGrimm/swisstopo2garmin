@@ -82,8 +82,8 @@ export function SourceRow({
       {release && (
         <p className="small">
           {t("data.available", { release: release.item })}
-          {release.archive_bytes ? ` · ${formatBytes(release.archive_bytes)}` : ""}
-          {release.member_bytes ? ` → ${formatBytes(release.member_bytes)}` : ""}
+          {release.archiveBytes ? ` · ${formatBytes(release.archiveBytes)}` : ""}
+          {release.memberBytes ? ` → ${formatBytes(release.memberBytes)}` : ""}
           {release.cached ? <span className="badge">{t("data.cached")}</span> : null}
         </p>
       )}

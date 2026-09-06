@@ -33,6 +33,15 @@ pub fn run() {
             ipc::acquire_dataset,
             ipc::cancel_task,
             ipc::remove_dataset,
+            ipc::list_devices,
+            ipc::detect_devices,
+            ipc::list_presets,
+            ipc::find_places,
+            ipc::describe_area,
+            ipc::wgs84_bbox_to_lv95,
+            ipc::start_build,
+            ipc::plan_install,
+            ipc::install_map,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start swisstopo2garmin");

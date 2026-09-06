@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: https://wmts.geo.admin.ch; connect-src 'self' ipc: http://ipc.localhost https://data.geo.admin.ch https://wmts.geo.admin.ch"
+      "csp": "default-src 'self'; img-src 'self' data: blob: https://wmts.geo.admin.ch; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; child-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost https://data.geo.admin.ch https://wmts.geo.admin.ch"
     }
   },
   "bundle": {

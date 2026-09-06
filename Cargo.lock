@@ -3333,6 +3333,7 @@ dependencies = [
 name = "swisstopo2garmin"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "s2g-core",
  "serde",
  "serde_json",

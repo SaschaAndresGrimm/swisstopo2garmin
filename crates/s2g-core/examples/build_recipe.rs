@@ -1,0 +1,125 @@
+//! Run a full recipe build exactly as the GUI does, without a window.
+//!
+//!   cargo run --release -p s2g-core --example build_recipe -- \
+//!       --place Grindelwald --radius-km 6 --device edge-840 --preset hiking
+//!
+//! The GUI's `start_build` command is a thin wrapper around `pipeline::build`, so this
+//! exercises the same code path a user drives through the wizard. Kept as an example
+//! rather than a test because it downloads elevation tiles and shells out to mkgmap.
+
+use std::path::PathBuf;
+
+use s2g_core::cache::Cache;
+use s2g_core::devices;
+use s2g_core::download::Cancel;
+use s2g_core::garmin::Toolchain;
+use s2g_core::gpkg::Gpkg;
+use s2g_core::http::ReqwestHttp;
+use s2g_core::pipeline::{self, BuildContext, Stage};
+use s2g_core::recipe::{AreaSelection, Preset, Recipe, ReliefDetail};
+
+fn arg(name: &str) -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    args.iter()
+        .position(|a| a == name)
+        .and_then(|i| args.get(i + 1).cloned())
+}
+
+fn root() -> PathBuf {
+    std::env::var("S2G_ROOT").map(PathBuf::from).unwrap_or_else(|_| {
+        std::env::current_dir()
+            .expect("cwd")
+            .ancestors()
+            .find(|c| c.join("devices").is_dir() && c.join("style").is_dir())
+            .expect("run from inside the repository")
+            .to_path_buf()
+    })
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let root = root();
+    let device_id = arg("--device").unwrap_or_else(|| "edge-840".into());
+    let preset = match arg("--preset").unwrap_or_else(|| "hiking".into()).as_str() {
+        "cycling" => Preset::Cycling,
+        "skimo" => Preset::Skimo,
+        "full" => Preset::Full,
+        _ => Preset::Hiking,
+    };
+    let relief = match arg("--relief").unwrap_or_else(|| "gentle".into()).as_str() {
+        "off" => ReliefDetail::Off,
+        "detailed" => ReliefDetail::Detailed,
+        _ => ReliefDetail::Gentle,
+    };
+    let radius_km: f64 = arg("--radius-km").unwrap_or_else(|| "6".into()).parse()?;
+    let place = arg("--place").unwrap_or_else(|| "Grindelwald".into());
+
+    let cache_root = Cache::default_root();
+    let gpkg_path = pipeline::find_tlm3d(&cache_root).ok_or("swissTLM3D not in the cache")?;
+
+    // Resolve the place the same way the GUI's find_places command does, so the area
+    // matches what the wizard would have stored.
+    let gpkg = Gpkg::open(&gpkg_path)?;
+    let hit = gpkg
+        .find_places(&place)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("no place called {place:?}"))?;
+    println!("place        : {} at {:.0} {:.0}", hit.name, hit.easting, hit.northing);
+
+    let recipe = Recipe {
+        relief,
+        ..Recipe::new(
+            format!("{place} {}", preset.id()),
+            &device_id,
+            AreaSelection::Place {
+                name: hit.name.clone(),
+                radius_km,
+                easting: hit.easting,
+                northing: hit.northing,
+            },
+        )
+        .with_preset(preset)
+    };
+    println!("recipe key   : {}", recipe.cache_key());
+
+    let profiles = devices::load_profiles(&root.join("devices"))?;
+    let profile = profiles
+        .iter()
+        .find(|p| p.id == recipe.device_id)
+        .ok_or_else(|| format!("unknown device profile {device_id:?}"))?;
+
+    let http = ReqwestHttp::new()?;
+    let ctx = BuildContext {
+        toolchain: Toolchain::discover(&root)?,
+        style_root: root.join("style"),
+        typ_root: root.join("typ"),
+        cache_root,
+        work_dir: root.join("out").join("recipe-build"),
+        http: &http,
+    };
+
+    let started = std::time::Instant::now();
+    let report = pipeline::build(&ctx, &recipe, profile, &Cancel::new(), |u| {
+        let i = Stage::all().iter().position(|s| *s == u.stage).unwrap_or(0) + 1;
+        match u.fraction {
+            Some(f) => println!("  [{i}/{}] {:<28} {:5.1}%  {}", Stage::all().len(), u.stage.label(), f * 100.0, u.detail),
+            None => println!("  [{i}/{}] {:<28}         {}", Stage::all().len(), u.stage.label(), u.detail),
+        }
+    })
+    .await?;
+
+    println!();
+    println!("gmapsupp     : {}", report.gmapsupp.display());
+    println!("size         : {} B", report.bytes);
+    println!("tiles        : {}", report.tile_count);
+    println!("features     : {} ({} nodes, {} ways)", report.features, report.nodes, report.ways);
+    println!("contours     : {} lines", report.contour_lines);
+    println!("relief       : {}", if report.has_dem { "yes" } else { "no" });
+    println!("family id    : {}", report.family_id);
+    for w in &report.warnings {
+        println!("warning      : {w}");
+    }
+    println!("elapsed      : {:.1}s", started.elapsed().as_secs_f64());
+    Ok(())
+}

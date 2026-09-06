@@ -125,3 +125,88 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
 .source h3 { margin: 0 0 0.15rem; font-size: 0.95rem; }
 .source p { margin: 0.2rem 0; }
 .row.tight { margin: 0; gap: 0.4rem; }
+
+/* ---------------------------------------------------------------- wizard steps */
+.screen { max-width: 46rem; }
+.screen.wide { max-width: 72rem; }
+.screen h2 { margin: 0 0 0.3rem; font-size: 1.15rem; }
+.screen > p.muted { margin: 0 0 1rem; max-width: 40rem; }
+.grouphead {
+  margin: 1.25rem 0 0.5rem; font-size: 0.78rem; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
+}
+
+input[type="text"], input:not([type]), select {
+  font: inherit; padding: 0.4rem 0.55rem; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+}
+input[type="range"] { accent-color: var(--accent); width: min(100%, 22rem); }
+input[type="checkbox"] { accent-color: var(--accent); }
+.field { margin: 1rem 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.field > label { font-size: 0.82rem; color: var(--muted); }
+.field > p { margin: 0; max-width: 40rem; }
+.check { display: flex; align-items: center; gap: 0.45rem; font-size: 0.9rem; }
+
+/* A selected option is marked by more than colour alone (NFR-9). */
+button[aria-pressed="true"], button.current {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* ------------------------------------------------------- device and preset cards */
+.devices, .presets {
+  display: grid; gap: 0.6rem;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+}
+.device, .preset {
+  display: block; text-align: left; padding: 0.7rem 0.85rem;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+}
+.device-name, .preset-name { font-weight: 600; margin-bottom: 0.3rem; }
+.device p, .preset p { margin: 0.2rem 0 0; }
+.device-facts { display: flex; gap: 1.1rem; flex-wrap: wrap; margin: 0; }
+.device-facts dt { color: var(--muted); font-size: 0.72rem; }
+.device-facts dd { margin: 0.1rem 0 0; font-size: 0.85rem; }
+.conf { font-size: 0.85rem; }
+.conf.verified { color: #1a7f37; }
+.conf.unverified { color: var(--muted); font-style: italic; }
+@media (prefers-color-scheme: dark) {
+  .conf.verified { color: #4ac26b; }
+}
+
+/* ------------------------------------------------------------------- area picker */
+.area-controls { display: flex; gap: 2rem; flex-wrap: wrap; align-items: flex-start; }
+.area-controls .field { margin: 0.5rem 0; }
+.areamap {
+  margin: 1rem 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+}
+.areamap-toolbar {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.areamap-canvas { height: min(60vh, 34rem); }
+/* MapLibre injects its own light-on-white chrome; keep it legible in dark mode. */
+.areamap .maplibregl-ctrl-attrib { font-size: 0.72rem; }
+.matches { list-style: none; margin: 0.4rem 0 0; padding: 0; display: grid; gap: 0.3rem; }
+.matches button { width: 100%; text-align: left; background: var(--bg); }
+
+/* ------------------------------------------------------------ notices and output */
+.notice {
+  margin: 1rem 0; padding: 0.75rem 0.9rem; border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.notice > strong { display: block; margin-bottom: 0.35rem; }
+.notice ul { margin: 0.3rem 0 0; padding-left: 1.2rem; }
+.notice .facts { margin: 0.5rem 0; }
+.notice p { margin: 0.3rem 0 0; }
+.error-box { border-color: var(--accent); }
+.warnings { margin: 0.5rem 0 0; padding-left: 1.2rem; color: var(--muted); }
+.notes { margin: 1rem 0; }
+.notes summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+.notes > p { max-width: 40rem; }
+.log {
+  margin: 0.5rem 0 0; padding: 0.6rem 0.7rem; border-radius: 6px;
+  background: var(--panel); border: 1px solid var(--line);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem;
+  max-height: 14rem; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
