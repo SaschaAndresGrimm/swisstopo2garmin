@@ -599,6 +599,13 @@ pub async fn build(
     let region_cache = crate::stage_cache::RegionCache::new(&ctx.cache_root);
     let region_key = crate::stage_cache::region_key(recipe, &source_release);
 
+    // Mark the work directory as belonging to a running build, so that if this process
+    // dies before the guard drops -- crash, force quit, power loss -- the next start can
+    // find the abandoned files and any Java children still running (SPEC.md §12).
+    // Dropped on every exit path, including a panic in a stage.
+    let _active =
+        crate::recovery::ActiveBuild::begin(&ctx.work_dir, recipe, &region_key, &now_rfc3339())?;
+
     let (pbf, stats, cached) = match region_cache.get(&region_key) {
         Some((path, cached_stats)) => {
             on_stage(StageUpdate {

@@ -56,6 +56,8 @@ pub fn run() {
             ipc::set_data_location,
             ipc::clear_elevation_cache,
             ipc::clear_build_files,
+            ipc::interrupted_builds,
+            ipc::discard_interrupted,
             ipc::import_track,
             ipc::list_admin_units,
             ipc::admin_extent,

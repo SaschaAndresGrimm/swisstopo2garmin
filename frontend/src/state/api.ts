@@ -71,6 +71,18 @@ export interface Recipe {
   excludedLayers: string[];
 }
 
+/** Mirrors s2g_core ipc::InterruptedBuild. Hand-written for the same reason as
+ *  `Recipe`: it carries one, and ts-rs cannot export it. */
+export interface InterruptedBuild {
+  workDir: string;
+  recipeName: string;
+  recipe: Recipe;
+  startedAt: string;
+  bytes: number;
+  resumable: boolean;
+  strayProcesses: number;
+}
+
 export const TLM3D = "ch.swisstopo.swisstlm3d";
 export const WANDERWEGE = "ch.swisstopo.swisstlm3d-wanderwege";
 
@@ -127,6 +139,11 @@ export const api = {
   /** `null` restores the platform default. */
   setDataLocation: (path: string | null) =>
     invoke<import("./bindings").DataLocation>("set_data_location", { path }),
+  /** Builds that never finished, found at startup (SPEC.md §12). */
+  interruptedBuilds: () => invoke<InterruptedBuild[]>("interrupted_builds"),
+  /** Kill any leftover Java processes for that build and delete its files. */
+  discardInterrupted: (workDir: string) =>
+    invoke<import("./bindings").DataLocation>("discard_interrupted", { workDir }),
   clearElevationCache: () =>
     invoke<import("./bindings").DataLocation>("clear_elevation_cache"),
   clearBuildFiles: () => invoke<import("./bindings").DataLocation>("clear_build_files"),

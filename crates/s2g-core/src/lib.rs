@@ -38,6 +38,7 @@ pub mod pbf;
 pub mod pipeline;
 pub mod proj;
 pub mod recipe;
+pub mod recovery;
 pub mod settings;
 pub mod shapefile;
 pub mod slope;

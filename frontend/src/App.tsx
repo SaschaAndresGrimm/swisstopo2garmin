@@ -7,6 +7,7 @@ import { ContentStep } from "./steps/ContentStep";
 import { BuildStep } from "./steps/BuildStep";
 import { InstallStep } from "./steps/InstallStep";
 import { RecipeLibrary } from "./components/RecipeLibrary";
+import { RecoveryNotice } from "./components/RecoveryNotice";
 import { detectLang, makeT, type Lang } from "./i18n";
 import { api } from "./state/api";
 import type {
@@ -149,6 +150,10 @@ export default function App() {
       )}
 
       <main>
+        {/* Shown on whatever screen the app opens on: an interrupted build is wasting
+            disk and possibly a processor core right now, whichever step the user is on. */}
+        <RecoveryNotice t={t} onResume={(r) => void applyRecipe(r)} />
+
         {view === "data" && <DataScreen t={t} />}
 
         {view === "device" && (

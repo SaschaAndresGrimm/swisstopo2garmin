@@ -1422,6 +1422,75 @@ pub async fn clear_build_files() -> IpcResult<DataLocation> {
     Ok(describe_location(root).await)
 }
 
+/// A build the app was running when it last stopped (SPEC.md §12).
+///
+/// Not a `ts-rs` type: it carries a whole `Recipe`, which ts-rs cannot export, so the
+/// interface is hand-written in `api.ts` beside `Recipe` itself.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterruptedBuild {
+    /// Identifies the build for `discard_interrupted`; also what the user sees.
+    pub work_dir: String,
+    pub recipe_name: String,
+    /// The whole recipe, so "Resume" can start it without the UI remembering anything.
+    pub recipe: Recipe,
+    pub started_at: String,
+    pub bytes: u64,
+    /// True when the cached region survived, so resuming skips about 80 % of the work.
+    pub resumable: bool,
+    /// Java processes from that build still running now.
+    pub stray_processes: usize,
+}
+
+/// Builds that never finished, found on startup (FR-73, SPEC.md §12).
+///
+/// Called once when the app starts. Anything reported here is both wasting disk and,
+/// if `strayProcesses` is non-zero, burning CPU right now.
+#[tauri::command]
+pub async fn interrupted_builds() -> IpcResult<Vec<InterruptedBuild>> {
+    let root = Cache::default_root();
+    let found = tokio::task::spawn_blocking(move || {
+        s2g_core::recovery::scan(&root, &s2g_core::recovery::SystemProbe)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(found
+        .into_iter()
+        .map(|o| InterruptedBuild {
+            work_dir: o.work_dir.to_string_lossy().to_string(),
+            recipe_name: o.recipe.name.clone(),
+            started_at: o.started_at,
+            bytes: o.bytes,
+            resumable: o.resumable,
+            stray_processes: o.stray_pids.len(),
+            recipe: o.recipe,
+        })
+        .collect())
+}
+
+/// Kill what is left of an interrupted build and delete its files.
+///
+/// Takes the work directory rather than an index, so a stale list from before another
+/// window discarded the same build cannot delete the wrong one.
+#[tauri::command]
+pub async fn discard_interrupted(work_dir: String) -> IpcResult<DataLocation> {
+    let root = Cache::default_root();
+    let scan_root = root.clone();
+    let target = PathBuf::from(work_dir);
+    tokio::task::spawn_blocking(move || {
+        let found = s2g_core::recovery::scan(&scan_root, &s2g_core::recovery::SystemProbe);
+        match found.iter().find(|o| o.work_dir == target) {
+            Some(o) => s2g_core::recovery::discard(o).map(|_| ()),
+            // Already gone, or never interrupted: nothing to do and nothing to report.
+            None => Ok(()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(describe_location(root).await)
+}
+
 #[tauri::command]
 pub async fn data_location() -> IpcResult<DataLocation> {
     Ok(describe_location(Cache::default_root()).await)
