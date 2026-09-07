@@ -250,16 +250,44 @@ fn builds_a_verified_gmapsupp_from_the_fixture() {
     // onto the device and to whoever the file is passed to. A footer in the app does not
     // satisfy this -- the file leaves the app.
     let bytes = std::fs::read(&out.gmapsupp).unwrap();
-    let attribution = identity.description.as_bytes();
+    // The attribution has its own header field (`--copyright-message`), separate from
+    // the name a device lists. It used to be appended to the description, which is what
+    // the Edge's map manager shows -- so every row read "<name> (c) swisstopo".
     assert!(
-        contains(&bytes, attribution),
+        contains(&bytes, s2g_core::garmin::COPYRIGHT.as_bytes()),
         "the copyright string {:?} is not in the built map",
-        identity.description
+        s2g_core::garmin::COPYRIGHT
     );
     assert!(
         contains(&bytes, b"swisstopo"),
         "the word swisstopo does not appear anywhere in the built map"
     );
+
+    // And the *name*, which is what the device's map manager lists. This is a separate
+    // assertion for a reason: the description above was present all along while the
+    // family name was not, so an Edge 840 listed every map this project ever built as
+    // "OSM street map". Checking the copyright is not checking the name.
+    // The name, in the field the device actually reads. Established from hardware: an
+    // Edge 840 displayed "OSM street map", which is mkgmap's default for `--description`
+    // and for no other option.
+    assert!(
+        contains(&bytes, identity.description.as_bytes()),
+        "the map's description {:?} is not in the built map, so a device will list it \
+         under whatever mkgmap defaulted to",
+        identity.description
+    );
+    assert!(
+        contains(&bytes, identity.family_name.as_bytes()),
+        "the map's family name {:?} is not in the built map",
+        identity.family_name
+    );
+    for default in ["OSM street map", "OSM map set"] {
+        assert!(
+            !contains(&bytes, default.as_bytes()),
+            "the built map still carries mkgmap's default name {default:?}, which is \
+             what a device shows instead of ours"
+        );
+    }
 
     let maps = info.maps();
     assert!(
@@ -321,4 +349,40 @@ fn dem_dists_are_derived_per_style_and_mismatches_are_caught() {
 /// as plain bytes, so a byte search is the right test and needs no IMG parsing.
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+/// The IMG header stores its description in two chunks, and knowing that is what stops
+/// somebody "fixing" a truncation that is not there.
+///
+/// A finished map shows a 20-character run in `strings` -- "Grindelwald ski tour" -- with
+/// the remainder a few bytes later. 20 bytes at 0x49 plus 30 at 0x65 is exactly the 50
+/// characters mkgmap enforces. Pinned against a real map so the layout is on record.
+#[test]
+fn the_img_header_holds_its_description_in_two_chunks() {
+    let map = repo_root().join("out/device-test/fenix-2-skimo-winter-slope.img");
+    if !map.is_file() {
+        eprintln!("skipping: run tools/device_test_set.sh to produce a map to inspect");
+        return;
+    }
+    let bytes = std::fs::read(&map).unwrap();
+    assert!(bytes.len() > 0x83, "not an IMG file");
+
+    let first = String::from_utf8_lossy(&bytes[0x49..0x49 + 20]).to_string();
+    let second = String::from_utf8_lossy(&bytes[0x65..0x65 + 30]).to_string();
+    let whole = format!("{first}{second}").trim_end().to_string();
+
+    assert_eq!(first.chars().count(), 20, "the first chunk is 20 bytes");
+    assert_eq!(second.chars().count(), 30, "the second chunk is 30 bytes");
+    assert!(
+        whole.starts_with("Grindelwald"),
+        "reassembled description is {whole:?}"
+    );
+    assert!(
+        whole.contains("wrist"),
+        "the second chunk should carry the rest of the name, got {whole:?}"
+    );
+    assert!(
+        whole.chars().count() <= s2g_core::garmin::MapIdentity::MAX_DESCRIPTION_CHARS,
+        "{whole:?} is longer than the header allows"
+    );
 }

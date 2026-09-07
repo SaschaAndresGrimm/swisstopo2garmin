@@ -218,6 +218,48 @@ ever been touched.
 | 2026-09-06 | Garmin Edge 840 | 3133 (part 006-B4062-00) | Map lists and renders; mixed-case Swiss labels correct; DEM shaded relief **does** render, but is too dark at 1 arc-second in alpine terrain. `GarminDevice.xml` advertises `Garmin/CustomMaps` and `Garmin/BirdsEye`. | none — `maxImgBytes` and `maxTilesPerMapset` still `community` | `devices/edge-840.json`, m0-findings §4.5, §4.14, §4.16 |
 | 2026-09-06 | Garmin fēnix 5 Plus | 1930 (part 006-B3110-00) | Wrist cartography renders correctly and legibly; coexists with the factory map (VAL-3). `GarminDevice.xml` advertises `Garmin/CustomMaps` and `Garmin/BirdsEye`. | none — and whether DEM relief renders on this generation is still unknown | `devices/fenix-5-plus.json` |
 
+### Findings from hardware, 2026-09-07 (Edge 840, firmware 3133)
+
+**Every map this project has ever built was listed as "OSM street map".** Photographed
+in the Edge's Other Maps manager: three test maps, all named `OSM street map`, with only
+their sizes to tell them apart.
+
+mkgmap needs the names on **both** of its passes and nothing carries over from the first.
+Pass 2 — the `--gmapsupp` one — was given `--family-id` and `--product-id` and no names
+at all, so mkgmap wrote its own defaults. Confirmed by reading the files: they contained
+`OSM map`, `OSM map set` and `OSM street map`, and none of ours.
+
+**Which field a device shows**, established from the photograph rather than guessed: the
+Edge displayed "OSM street map", and that string is mkgmap's default for `--description`
+and for no other option (found in `CommandArgsReader.class`, beside the option name). So
+the description is what an Edge lists.
+
+That settled the design. The description is now the map's **name and nothing else**, and
+the attribution moved to `--copyright-message`, the field Garmin has for it — appending
+the copyright to the description made every row read "Grindelwald ski touring (c)
+swisstopo", and at 27 characters of suffix it also left too little room for the name.
+
+Three format facts came out of it, all measured rather than assumed:
+
+* **The description is capped at 50 characters.** mkgmap refuses the build outright:
+  `IllegalArgumentException: Description is too long (max 50)` from
+  `ImgHeader.setDescription`. One of the six test maps would not compile until the name
+  was clamped.
+* **The header stores it in two chunks** — 20 bytes at offset `0x49` and 30 more at
+  `0x65`, space-padded. So `strings` on a finished map shows an alarming 20-character run
+  and the rest of the name a few bytes later. Nothing is truncated at 20; 20 + 30 is the
+  50. `the_img_header_holds_its_description_in_two_chunks` pins the layout, because the
+  obvious reaction to that 20-character run is to "fix" a truncation that is not there.
+* **The gmapsupp's map-set block has its own name**, set by `--x-mapset-name`. That
+  option is in neither `mkgmap --help=options` nor the bundled help, and mkgmap validates
+  option names against its own documentation and so rejects `--mapset-name` outright. It
+  was found as a string inside `GmapsuppBuilder.class`; `x-` is mkgmap's escape hatch for
+  undocumented options.
+
+`builds_a_verified_gmapsupp_from_the_fixture` now asserts the description and the family
+name are both in the compiled file, that the copyright is, and that none of mkgmap's three
+defaults is.
+
 ### Still outstanding
 
 Both profiles remain at `community` confidence, because a smoke test is not a

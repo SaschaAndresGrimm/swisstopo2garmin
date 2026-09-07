@@ -190,15 +190,53 @@ impl MapIdentity {
         // Map numbers must be at most 99_999_999. Reserve the low four digits for
         // tiles, giving 10_000 tiles per map set — well above any device's limit.
         let map_base = 10_000_000 + (h.rotate_left(13) % 8_900) * 10_000;
+        // The device's map manager lists maps by their **family name**, so that is
+        // where the recipe's name goes. It used to be the constant
+        // "swisstopo2garmin", which would have listed every map identically -- and in
+        // fact listed none of them, because pass 2 never passed the names at all and
+        // the device showed mkgmap's default "OSM street map" for all of them.
+        //
+        // The series name carries the product line instead, so the maps still group
+        // together, and the description keeps the attribution FR-L1 requires while also
+        // naming the map -- whichever field a given device chooses to show, it shows
+        // something true and useful.
+        let name = clamp_name(name);
         Self {
             family_id,
             product_id: 1,
             map_base,
-            family_name: "swisstopo2garmin".into(),
-            series_name: name.into(),
-            description: "swissTLM3D (c) swisstopo".into(),
+            family_name: name.clone(),
+            series_name: "swisstopo2garmin".into(),
+            description: description_for(&name),
         }
     }
+
+    /// The longest description the IMG header accepts.
+    ///
+    /// **Measured**, from mkgmap's own refusal: `IllegalArgumentException: Description
+    /// is too long (max 50)`, thrown from `ImgHeader.setDescription`. It is a
+    /// fixed-width field in the header, not a mkgmap policy, so there is no getting
+    /// round it.
+    pub const MAX_DESCRIPTION_CHARS: usize = 50;
+
+    /// The longest map name that fits the field a device displays.
+    ///
+    /// **The field is `--description`**, established from the Edge 840 photograph: it
+    /// showed "OSM street map", and that string is mkgmap's default for `--description`
+    /// and for nothing else (found in `CommandArgsReader.class`, beside the option name).
+    /// So the description is what a device lists, and it is capped at
+    /// [`MapIdentity::MAX_DESCRIPTION_CHARS`] by the header.
+    ///
+    /// Forty leaves room inside that cap, and a longer name is trimmed here on a word
+    /// boundary rather than cut mid-word by the format.
+    ///
+    /// One thing about the header is worth writing down, because it looks alarming and
+    /// is not: the description is stored in **two chunks**, 20 bytes at offset 0x49 and
+    /// 30 more at 0x65, space-padded. So `strings` on a finished map shows a suspicious
+    /// 20-character run -- "Grindelwald ski tour" -- and the rest of the name sits a few
+    /// bytes later, "ing, wrist". Nothing is truncated at 20; 20 + 30 is exactly the 50
+    /// the header allows.
+    pub const MAX_NAME_CHARS: usize = 40;
 
     /// Largest map number splitter and mkgmap accept.
     pub const MAX_MAP_NUMBER: u32 = 99_999_999;
@@ -435,6 +473,74 @@ fn run(cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
     Ok(log)
 }
 
+/// A map name that fits the header, ending on a word where it can.
+///
+/// ASCII-folded as well as clamped: the header is written in a Garmin code page, and a
+/// name with an umlaut in it is one more thing that can render as a question mark in a
+/// list the user cannot correct. `Zürich` is worth showing as `Zurich` rather than
+/// risking `Z?rich`.
+fn clamp_name(name: &str) -> String {
+    let folded: String = name
+        .chars()
+        .map(|c| match c {
+            'ä' | 'à' | 'á' | 'â' => 'a',
+            'ö' | 'ò' | 'ó' | 'ô' => 'o',
+            'ü' | 'ù' | 'ú' | 'û' => 'u',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'ï' | 'î' | 'í' | 'ì' => 'i',
+            'Ä' => 'A',
+            'Ö' => 'O',
+            'Ü' => 'U',
+            'ç' => 'c',
+            other => other,
+        })
+        .collect();
+    let trimmed = folded.trim();
+    if trimmed.is_empty() {
+        return "swisstopo2garmin".into();
+    }
+    if trimmed.chars().count() <= MapIdentity::MAX_NAME_CHARS {
+        return trimmed.to_string();
+    }
+    let cut: String = trimmed
+        .chars()
+        .take(MapIdentity::MAX_NAME_CHARS)
+        .collect::<String>();
+    // Prefer a word boundary, but only if one is reasonably close to the end --
+    // otherwise a single long word would be cut to almost nothing.
+    let cut = match cut.rfind(' ') {
+        Some(i) if i >= MapIdentity::MAX_NAME_CHARS / 2 => cut[..i].to_string(),
+        _ => cut,
+    };
+    // Drop punctuation the cut left dangling. "Grindelwald hiking (" is what naming a
+    // map "Grindelwald hiking (wrist)" actually produced.
+    cut.trim_end()
+        .trim_end_matches(['(', '[', '{', '-', ',', ':', ';', '/'])
+        .trim_end()
+        .to_string()
+}
+
+/// The attribution embedded in every map (FR-L1).
+///
+/// Carried by `--copyright-message`, which is the field Garmin has for exactly this,
+/// rather than appended to the description. The description is what a device *lists*, so
+/// putting the copyright there made every row in the map manager read "Grindelwald ski
+/// touring (c) swisstopo" -- and at 27 characters of suffix against a 50-character
+/// field, it also left too little room for the name.
+pub const COPYRIGHT: &str = "swissTLM3D (c) swisstopo";
+
+/// The map's description: the name, and nothing else.
+///
+/// This is the string a device shows in its map list, so it is the name and only the
+/// name. Clamped to the header's own limit, which mkgmap enforces by refusing the build.
+fn description_for(name: &str) -> String {
+    name.chars()
+        .take(MapIdentity::MAX_DESCRIPTION_CHARS)
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+}
+
 /// The `--max-nodes` a build starts from.
 ///
 /// Below splitter's own default of 1,600,000 (splitter r654 `--help`), because smaller
@@ -537,6 +643,9 @@ pub fn compile(
         .arg(format!("--family-name={}", id.family_name))
         .arg(format!("--series-name={}", id.series_name))
         .arg(format!("--description={}", id.description))
+        // FR-L1: the attribution travels inside the file, in the field Garmin has for
+        // it, rather than inside the name a device lists.
+        .arg(format!("--copyright-message={COPYRIGHT}"))
         .arg(format!("--draw-priority={}", opts.draw_priority))
         .arg("--overview-mapname=ovm")
         // Explicit, or two of our own maps share mkgmap's default and collide.
@@ -606,7 +715,27 @@ pub fn compile(
         .arg("--gmapsupp")
         .arg("--index")
         .arg(format!("--family-id={}", id.family_id))
-        .arg(format!("--product-id={}", id.product_id));
+        .arg(format!("--product-id={}", id.product_id))
+        // Nothing carries over from pass 1. Without these three, mkgmap writes its own
+        // defaults into the gmapsupp's map-set block -- and that block is what the
+        // device's map manager lists, so every map this project has ever produced showed
+        // up on an Edge 840 as "OSM street map". Found on hardware; the `.img` files
+        // contain the strings "OSM map", "OSM map set" and "OSM street map" and do not
+        // contain ours.
+        .arg(format!("--family-name={}", id.family_name))
+        .arg(format!("--series-name={}", id.series_name))
+        .arg(format!("--description={}", id.description))
+        // The gmapsupp's map-set block has its own name, and its own default of "OSM
+        // map set". The option is undocumented -- it appears in neither
+        // `mkgmap --help=options` nor the bundled help, and was found as the string
+        // `mapset-name` inside `GmapsuppBuilder.class`, beside the default it writes.
+        // mkgmap validates option names against its own documentation and so rejects it
+        // outright; the `x-` prefix is its escape hatch for undocumented options.
+        //
+        // Worth the reach: the alternative is shipping maps that name somebody else's
+        // project in the device's map manager.
+        .arg(format!("--x-mapset-name={}", id.family_name))
+        .arg(format!("--copyright-message={COPYRIGHT}"));
     for t in &tile_imgs {
         cmd.arg(t);
     }
@@ -733,6 +862,129 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = Toolchain::discover(dir.path()).unwrap_err();
         assert!(err.to_string().contains("toolchain.env"), "{err}");
+    }
+
+    /// The device's map manager lists maps by family name, so it has to be the map's
+    /// own name -- and it used to be the constant "swisstopo2garmin" for every map.
+    #[test]
+    fn a_map_is_named_after_its_recipe_not_after_the_program() {
+        let id = MapIdentity::for_recipe("key", "Grindelwald 6 km ski touring");
+        assert_eq!(id.family_name, "Grindelwald 6 km ski touring");
+        // The product line stays in the series name, so the maps still group together.
+        assert_eq!(id.series_name, "swisstopo2garmin");
+        // The description is the string a device lists, so it is the name and nothing
+        // else. The attribution has its own field.
+        assert_eq!(id.description, "Grindelwald 6 km ski touring");
+        assert!(
+            COPYRIGHT.contains("swisstopo"),
+            "FR-L1 needs an attribution to embed"
+        );
+    }
+
+    /// The IMG header's description field is 50 characters, from mkgmap's own refusal:
+    /// `IllegalArgumentException: Description is too long (max 50)`. Exceeding it fails
+    /// the build outright, which is how the limit was found -- one of the six test maps
+    /// would not compile.
+    #[test]
+    fn the_description_always_fits_the_header() {
+        for name in [
+            "Grindelwald hiking",
+            "Grindelwald slope classes",
+            "Grindelwald ski touring (wrist)",
+            "Berner Oberland and the Jungfrau region with contours",
+            &"A".repeat(200),
+        ] {
+            let id = MapIdentity::for_recipe("k", name);
+            let n = id.description.chars().count();
+            assert!(
+                n <= MapIdentity::MAX_DESCRIPTION_CHARS,
+                "{:?} is {n} chars",
+                id.description
+            );
+            assert!(!id.description.ends_with(' '));
+        }
+    }
+
+    /// Two maps of the same area must not be listed identically, or the map manager is
+    /// no help in choosing between them.
+    #[test]
+    fn two_recipes_of_one_area_are_named_differently() {
+        let a = MapIdentity::for_recipe("a", "Grindelwald 6 km");
+        let b = MapIdentity::for_recipe("b", "Grindelwald 6 km winter");
+        assert_ne!(a.family_name, b.family_name);
+        assert_ne!(a.family_id, b.family_id);
+    }
+
+    #[test]
+    fn a_long_name_is_cut_on_a_word() {
+        let id =
+            MapIdentity::for_recipe("k", "Berner Oberland and the Jungfrau region with contours");
+        assert!(
+            id.family_name.chars().count() <= MapIdentity::MAX_NAME_CHARS,
+            "{:?} is {} chars",
+            id.family_name,
+            id.family_name.chars().count()
+        );
+        assert!(!id.family_name.ends_with(' '));
+        // Cut on a word, not mid-word.
+        assert!(
+            "Berner Oberland and the Jungfrau region with contours".starts_with(&id.family_name),
+            "{:?}",
+            id.family_name
+        );
+        assert_eq!(id.family_name, "Berner Oberland and the Jungfrau region");
+    }
+
+    /// mkgmap cutting "Grindelwald hiking (wrist)" to twenty characters produced
+    /// "Grindelwald hiking (", a dangling bracket. Trimming here can do better.
+    #[test]
+    fn a_cut_never_leaves_dangling_punctuation() {
+        for name in [
+            "Grindelwald hiking (wrist)",
+            "Grindelwald skimo - winter scheme",
+            "Grindelwald, the whole valley",
+        ] {
+            let cut = MapIdentity::for_recipe("k", name).family_name;
+            assert!(
+                !cut.ends_with(['(', '[', '{', '-', ',', ':', ';', '/', ' ']),
+                "{cut:?} ends on punctuation"
+            );
+        }
+    }
+
+    /// One long word has no boundary to cut on, and must not be reduced to nothing.
+    #[test]
+    fn a_single_long_word_is_cut_rather_than_emptied() {
+        let long = "A".repeat(80);
+        let id = MapIdentity::for_recipe("k", &long);
+        assert_eq!(id.family_name.chars().count(), MapIdentity::MAX_NAME_CHARS);
+    }
+
+    /// The header is written in a Garmin code page, so an umlaut is one more thing that
+    /// can arrive as a question mark in a list the user cannot correct.
+    #[test]
+    fn accented_names_are_folded_for_the_header() {
+        assert_eq!(
+            MapIdentity::for_recipe("k", "Zürich 10 km").family_name,
+            "Zurich 10 km"
+        );
+        assert_eq!(
+            MapIdentity::for_recipe("k", "Genève 8 km").family_name,
+            "Geneve 8 km"
+        );
+    }
+
+    /// An empty or blank name must not produce a nameless map.
+    #[test]
+    fn a_blank_name_falls_back_to_the_program_name() {
+        assert_eq!(
+            MapIdentity::for_recipe("k", "   ").family_name,
+            "swisstopo2garmin"
+        );
+        assert_eq!(
+            MapIdentity::for_recipe("k", "").family_name,
+            "swisstopo2garmin"
+        );
     }
 
     /// SPEC.md §12: "Tile count exceeds device limit — auto-retune `--max-nodes`,

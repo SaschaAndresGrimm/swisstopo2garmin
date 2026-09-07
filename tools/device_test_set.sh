@@ -16,7 +16,7 @@ OUT="$REPO/out/device-test"
 mkdir -p "$OUT"
 
 build() {
-  name=$1; device=$2; preset=$3; palette=$4; relief=$5; slope=$6; contour=$7
+  name=$1; device=$2; preset=$3; palette=$4; relief=$5; slope=$6; contour=$7; label=$8
   printf '%-28s ' "$name"
   extra=""
   [ "$slope" = "yes" ] && extra="--slope"
@@ -24,6 +24,7 @@ build() {
       --place "$PLACE" --radius-km "$RADIUS" \
       --device "$device" --preset "$preset" --palette "$palette" \
       --relief "$relief" --contour "$contour" $extra \
+      --name "$label" \
       --work-dir "device-test/$name" --no-log > "$OUT/$name.log" 2>&1 || {
         echo "FAILED (see $OUT/$name.log)"; return 1; }
 
@@ -35,16 +36,18 @@ build() {
   printf '%10s B\n' "$size"
 }
 
+# The last column is the map's *name*, which is what the device's map manager lists.
+# Six maps of one place need six names, or the list is no help in choosing between them.
 echo "area: $PLACE ${RADIUS} km radius"
 echo
 
 #     name                       device         preset   palette relief  slope contour
-build edge-1-hiking-summer       edge-840       hiking   summer  gentle  no    20
-build edge-2-slope-no-relief     edge-840       hiking   summer  off     yes   20
-build edge-3-skimo-winter-slope  edge-840       skimo    winter  gentle  yes   20
-build edge-4-full-10m            edge-840       full     summer  gentle  no    10
-build fenix-1-hiking-summer      fenix-5-plus   hiking   summer  gentle  no    20
-build fenix-2-skimo-winter-slope fenix-5-plus   skimo    winter  off     yes   20
+build edge-1-hiking-summer       edge-840       hiking   summer  gentle  no    20 "Grindelwald hiking"
+build edge-2-slope-no-relief     edge-840       hiking   summer  off     yes   20 "Grindelwald slope classes"
+build edge-3-skimo-winter-slope  edge-840       skimo    winter  gentle  yes   20 "Grindelwald ski touring"
+build edge-4-full-10m            edge-840       full     summer  gentle  no    10 "Grindelwald full topo 10 m"
+build fenix-1-hiking-summer      fenix-5-plus   hiking   summer  gentle  no    20 "Grindelwald hiking, wrist"
+build fenix-2-skimo-winter-slope fenix-5-plus   skimo    winter  off     yes   20 "Grindelwald ski touring, wrist"
 
 echo
 echo "written to $OUT"

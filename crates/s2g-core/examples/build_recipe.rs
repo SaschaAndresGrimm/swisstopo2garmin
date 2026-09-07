@@ -183,7 +183,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         palette,
         slope_classes: arg("--slope").is_some() || std::env::args().any(|a| a == "--slope"),
         excluded_layers: excluded,
-        ..Recipe::new(format!("{place} {}", preset.id()), &device_id, area).with_preset(preset)
+        // `--name` overrides the default, because the map's name is what the device's
+        // map manager lists and a test set of six maps of one place needs six names.
+        ..Recipe::new(
+            arg("--name").unwrap_or_else(|| format!("{place} {}", preset.id())),
+            &device_id,
+            area,
+        )
+        .with_preset(preset)
     };
     // The preset sets a default interval; --contour overrides it.
     let mut recipe = recipe;

@@ -39,7 +39,12 @@ assembled without rebuilding anything.
 
 **Edge** — copy any or all of them into `/Garmin/` on the device under their own names and
 pick between them in the map settings. Each has its own family id, so they coexist without
-colliding.
+colliding, and each is named for what it is — "Grindelwald ski touring", "Grindelwald
+hiking, wrist" — so the device's map manager is some help in choosing.
+
+> Maps built before 2026-09-07 all appear as **"OSM street map"** in the Edge's map
+> manager. That was a defect: mkgmap needs the names on both of its passes and only got
+> them on the first. If you have older files, rebuild them.
 
 **fēnix** — one at a time, renamed to `/Garmin/gmapsupp.img`. Delete or rename the previous
 one first. Back up whatever is already there if you care about it.
