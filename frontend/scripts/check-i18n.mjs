@@ -67,6 +67,25 @@ for (const lang of ["de", "fr", "it"]) {
   }
 }
 
+// Keys in the bundle that nothing reads. An error rather than a warning: eight had
+// accumulated behind a console.warn, including three left over from a screen that was
+// redesigned. Values reached through a variable are counted as used -- the Data screen's
+// SOURCES table holds one key per source -- so this is safe to fail on.
+const referenced = new Set();
+for (const f of files) {
+  for (const m of readFileSync(f, "utf8").matchAll(/["']([a-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)["']/g)) {
+    referenced.add(m[1]);
+  }
+}
+const prefixes = dynamic.map(([tpl]) => tpl.split("${")[0]).filter(Boolean);
+const dead = Object.keys(en).filter(
+  (k) => !used.has(k) && !referenced.has(k) && !prefixes.some((p) => k.startsWith(p)),
+);
+if (dead.length) {
+  console.error(`${dead.length} key(s) defined but never used:\n    ${dead.join("\n    ")}`);
+  bad += dead.length;
+}
+
 if (bad) {
   console.error(`\n${bad} problem(s)`);
   process.exit(1);
