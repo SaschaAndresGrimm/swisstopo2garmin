@@ -475,6 +475,25 @@ panel takes the same area to 958,464 B.
 
 **Acceptance:** every one of the ten acceptance criteria in spec §18 is demonstrably met.
 
+### Status
+
+| Task | State | Notes |
+|---|---|---|
+| 1. Crash recovery | **done** | A marker written before the first stage and removed by `Drop`, so error, cancellation and panic all clear it; marker plus dead owner *is* an orphan. Java strays are found by their own command lines rather than a recorded pid list, which also survives pid reuse. Resume reuses the cached region — the expensive 80 % — and the UI does not claim more. `s2g_core::recovery`, sixteen tests. |
+| 2. The §12 error matrix | **done** | All twelve rows, each with a named test, in [docs/error-matrix.md](docs/error-matrix.md) — including the honest column of what is *not* covered. Five rows had no implementation behind them; the corrupt-cache mechanism existed and was called from nowhere. Two rows needed a decision, both recorded back into SPEC.md §12. |
+| 3. Performance and memory in CI | **partial** | Rates on the committed fixture, extrapolated to canton and national area against NFR-1's budgets, plus NFR-2's real content: peak RSS must not follow the input (10 → 15 → 37 MB across 1×, 4×, 16×). Ceilings are 5–8× the measured release figure. **Not tracked: real builds at commune/canton/national scale across releases**, which needs a machine with the datasets on it. See [docs/performance.md](docs/performance.md). |
+| 4. Signed installers (NFR-7) | **blocked** | Configuration is in place and documented in [docs/release.md](docs/release.md); **no credentials exist for either platform, so no signed artefact has ever been produced.** Building an actual bundle found three defects that would each have shipped an app unable to build a map — no resources declared, the toolchain located through a machine-specific env file, and the JRE's read-only files breaking every rebuild. All three fixed, with `the_real_bundle_is_self_sufficient` running the bundled Java against the bundled mkgmap. |
+| 4. SBOM (NFR-10) | **done** | `tools/sbom.py`, CycloneDX 1.5, in CI. Four ecosystems, because no single tool covers them — Rust, npm, the vendored Java tools and JRE, and the swisstopo datasets. Reproducible builds are **neither achieved nor attempted**; `cargo audit` and `npm audit` are not in CI. |
+| 5. Real-device validation sweep | **blocked on hardware** | The six files are built and waiting in `out/device-test/`; the checklist is §B of [docs/device-verification.md](docs/device-verification.md). The log in §E is now populated from the results that were recorded in `devices/*.json` and the M0 findings, and says what each device still has not been asked. Both profiles remain `community`: a smoke test is not a measurement, and nothing in §C has been done. Nothing added after Milestone 6 has been on a device — the winter palette, slope classes, hut details, transit stops, label language, and the night palette, which is the likeliest to be wrong. VAL-4 not attempted. |
+| 6. Documentation | **done** | [getting-started.md](docs/getting-started.md), [release.md](docs/release.md), [error-matrix.md](docs/error-matrix.md), [performance.md](docs/performance.md), a cartography contribution section, and `NOTICE`. Two stale claims corrected: README's "not yet" list named four features that had shipped, and cartography.md said no device had displayed the palette. **No screenshots yet** — the README asks for them and they need a running app on each platform. |
+| 7. Attribution audit | **done** | [docs/attribution-audit.md](docs/attribution-audit.md), FR-L1…FR-L4 row by row. FR-L1's embedded copyright was implemented and never verified; the fixture build test now reads the compiled `.img` back as bytes and asserts it. FR-L3 was absent from the app entirely, because the About screen FR-L1 asks for did not exist. `tools/check_i18n.py` in CI, because English is the fallback and a missing key renders as English. |
+| 8. Estimator calibration (FR-60) | **done, thin** | Ten new reference areas built, none in the training plan. Handlebar builds already held (worst 20.3 %); wrist builds were 66.4 % out because nothing in the model distinguished them. A flat factor could not fix it — the required factor ran 0.48 to 0.69 with feature density, and the best flat value was 27.2 % worst. Scaling only the feature terms does: worst 24.5 % over all sixteen. **In-sample, and half a percentage point of margin.** Sixteen manifests committed; `tests/estimator_reference.rs` checks it in CI. |
+
+**Not met, and known:** acceptance criterion 5 (hardware verification of everything since
+Milestone 6), criterion 7 in spirit (±25 % holds, but on in-sample constants with thin
+margin), NFR-7 (unsigned), NFR-9 (no screen-reader or keyboard-only pass), and NFR-10's
+reproducible-builds clause.
+
 ---
 
 ## 10. Sequencing
