@@ -177,7 +177,8 @@ pub fn find_names3d(cache_root: &Path) -> Option<std::path::PathBuf> {
 mod tests {
     use super::*;
 
-    const CSV: &str = "\u{feff}UUID;OBJEKTART;OBJEKTKLASSE_TLM;NAME_UUID;NAME;STATUS;SPRACHCODE;NAMEN_TYP\n\
+    const CSV: &str =
+        "\u{feff}UUID;OBJEKTART;OBJEKTKLASSE_TLM;NAME_UUID;NAME;STATUS;SPRACHCODE;NAMEN_TYP\n\
         {A};Ort;TLM_SIEDLUNG;{1};Sitten;offiziell;Hochdeutsch inkl. Lokalsprachen;Endonym\n\
         {A};Ort;TLM_SIEDLUNG;{2};Sion;offiziell;Franzoesisch inkl. Lokalsprachen;Endonym\n\
         {B};Ort;TLM_SIEDLUNG;{3};Coira;offiziell;Italienisch inkl. Lokalsprachen;Exonym\n\
@@ -226,8 +227,8 @@ mod tests {
 
     #[test]
     fn a_missing_dataset_is_an_error_that_names_the_directory() {
-        let err = NameIndex::load(Path::new("/nonexistent/names"), LabelLanguage::French)
-            .unwrap_err();
+        let err =
+            NameIndex::load(Path::new("/nonexistent/names"), LabelLanguage::French).unwrap_err();
         assert!(err.to_string().contains("/nonexistent/names"), "{err}");
     }
 

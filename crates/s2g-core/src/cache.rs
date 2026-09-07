@@ -99,6 +99,14 @@ impl Cache {
         self.root.join(collection).join(item)
     }
 
+    /// Where the last known STAC answer for each collection is kept, so release
+    /// information survives the API being unreachable (SPEC.md §12).
+    ///
+    /// A dot-directory, so [`Cache::list`] does not report it as a dataset.
+    pub fn catalog_dir(&self) -> PathBuf {
+        self.root.join(".catalog")
+    }
+
     pub async fn ensure_dir(&self, collection: &str, item: &str) -> Result<PathBuf> {
         let dir = self.item_dir(collection, item);
         tokio::fs::create_dir_all(&dir)
@@ -190,6 +198,36 @@ impl Cache {
         }
         out.sort_by(|a, b| (&a.collection, &a.item).cmp(&(&b.collection, &b.item)));
         Ok(out)
+    }
+
+    /// Quarantine whatever dataset a file belongs to, given a path inside the cache.
+    ///
+    /// The corruption is discovered by whoever tries to read the file — the build
+    /// opening a GeoPackage, say — and that code has a path, not a
+    /// `(collection, item)` pair. Deriving one from the other here is what makes the
+    /// quarantine mechanism reachable from where corruption is actually noticed;
+    /// before this it existed and was never called (SPEC.md §12).
+    ///
+    /// Returns `None` when the path is not inside this cache, which is not an error:
+    /// a user pointing the app at a GeoPackage elsewhere on disk is entitled to do so,
+    /// and moving their file would be worse than leaving it.
+    pub async fn quarantine_containing(&self, path: &Path) -> Result<Option<PathBuf>> {
+        let Ok(rel) = path.strip_prefix(&self.root) else {
+            return Ok(None);
+        };
+        let mut parts = rel.components();
+        let (Some(collection), Some(item)) = (parts.next(), parts.next()) else {
+            return Ok(None);
+        };
+        let (collection, item) = (
+            collection.as_os_str().to_string_lossy().to_string(),
+            item.as_os_str().to_string_lossy().to_string(),
+        );
+        // A loose file directly under the root belongs to no dataset.
+        if !self.item_dir(&collection, &item).is_dir() {
+            return Ok(None);
+        }
+        Ok(Some(self.quarantine(&collection, &item).await?))
     }
 
     pub async fn total_bytes(&self) -> Result<u64> {
@@ -289,6 +327,33 @@ fn is_dataset_file(name: &str) -> bool {
 /// no transitive weight, which beats shelling out to `df` on every check.
 fn fs_free_space(path: &Path) -> Option<u64> {
     fs4::available_space(path).ok()
+}
+
+/// Disk a download needs, given the wire size and the inflated size of its member.
+///
+/// The two differ enormously and the difference is the whole point: swissTLM3D is
+/// 4.5 GB over the wire and 10.0 GB on disk, so checking the download size would pass a
+/// machine that the download then fills.
+///
+/// `stream_inflate` distinguishes the two acquisition shapes. A streamed archive is
+/// inflated as it arrives, so only the result is ever on disk. Everything else is
+/// downloaded whole and then extracted, so both exist at the same moment and the peak
+/// is their sum.
+///
+/// `None` when the server reported nothing: a precheck cannot be invented from no
+/// information, and refusing a download because a `HEAD` failed would be worse.
+pub fn download_need(
+    archive_bytes: Option<u64>,
+    member_bytes: Option<u64>,
+    stream_inflate: bool,
+) -> Option<u64> {
+    if stream_inflate {
+        return member_bytes.or(archive_bytes);
+    }
+    match (archive_bytes, member_bytes) {
+        (Some(a), Some(m)) => Some(a.saturating_add(m)),
+        (a, m) => a.or(m),
+    }
 }
 
 pub fn precheck_space(path: &Path, need: u64) -> Result<()> {

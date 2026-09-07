@@ -88,6 +88,17 @@ export function SourceRow({
         </p>
       )}
 
+      {/* The API was unreachable, so this is the last answer it gave. Saying so is the
+          difference between offline-but-usable and quietly showing old information as
+          current (SPEC.md §12). */}
+      {release?.stale && (
+        <p className="muted small">
+          {t("data.staleRelease", {
+            when: (release.catalogFetchedAt ?? "").slice(0, 10),
+          })}
+        </p>
+      )}
+
       {mine && progress && <DownloadProgress t={t} progress={progress} />}
       {error && <p className="error small">{t("data.error", { message: error })}</p>}
     </article>

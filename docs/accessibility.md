@@ -60,10 +60,16 @@ user sees a button that does nothing for two minutes.
   static check proves controls *have* names; it cannot prove those names make sense read
   aloud, or that the reading order matches the visual one.
 - **No keyboard-only walkthrough** of the whole wizard. The map in particular is drawn
-  with a mouse: drawing a rectangle, a polygon or a circle has no keyboard equivalent.
+  with a mouse: drawing a rectangle, a polygon or a circle has no keyboard equivalent,
+  and **editing one has none either** — dragging a corner, moving the shape and adding a
+  vertex are all pointer-only (FR-31). That gap got wider when editing was added, and
+  saying so is the point of this list.
+
   Every other way of choosing an area — place search, administrative units, a GPX
   corridor, whole Switzerland, an imported GeoJSON — is fully keyboard-operable, so the
-  step is usable without a mouse, but one of its tools is not.
+  step is usable without a mouse, but its map tools are not. A keyboard equivalent
+  probably looks like a list of the selection's corners with numeric fields, which is
+  also the form somebody would want for entering exact coordinates.
 - **No testing at large text sizes** beyond checking that the units are relative.
 
 The first two are the honest gaps. They need a person, not a script.

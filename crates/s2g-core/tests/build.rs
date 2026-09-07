@@ -227,7 +227,14 @@ fn builds_a_verified_gmapsupp_from_the_fixture() {
         repo_root().join("style/swisstopo"),
         repo_root().join("typ/swisstopo.txt"),
     );
-    let out = compile(&tc, &tile_pbfs, &dir.path().join("img"), &opts, &Cancel::new()).unwrap();
+    let out = compile(
+        &tc,
+        &tile_pbfs,
+        &dir.path().join("img"),
+        &opts,
+        &Cancel::new(),
+    )
+    .unwrap();
     assert!(
         out.overview_img.is_some(),
         "the two-pass build must write an overview map"
@@ -238,6 +245,21 @@ fn builds_a_verified_gmapsupp_from_the_fixture() {
     let info = img::read(&out.gmapsupp).unwrap();
     let verdict = img::verify_gmapsupp(&info, false);
     assert!(verdict.ok(), "verification failed: {:?}", verdict.problems);
+
+    // FR-L1: the attribution must be embedded in the file, so it travels with the map
+    // onto the device and to whoever the file is passed to. A footer in the app does not
+    // satisfy this -- the file leaves the app.
+    let bytes = std::fs::read(&out.gmapsupp).unwrap();
+    let attribution = identity.description.as_bytes();
+    assert!(
+        contains(&bytes, attribution),
+        "the copyright string {:?} is not in the built map",
+        identity.description
+    );
+    assert!(
+        contains(&bytes, b"swisstopo"),
+        "the word swisstopo does not appear anywhere in the built map"
+    );
 
     let maps = info.maps();
     assert!(
@@ -293,4 +315,10 @@ fn dem_dists_are_derived_per_style_and_mismatches_are_caught() {
     }
 
     assert!(style_level_count(Path::new("/definitely/not/a/style")).is_err());
+}
+
+/// Whether `haystack` contains `needle`. Garmin stores these strings in the map header
+/// as plain bytes, so a byte search is the right test and needs no IMG parsing.
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
 }

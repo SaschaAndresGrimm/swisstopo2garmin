@@ -451,23 +451,24 @@ fn parse_ioreg(text: &str) -> Vec<UsbDevice> {
         Some(rhs.trim_matches('"').to_string())
     };
 
-    let mut flush = |vendor: &mut Option<u32>, model: &mut Option<String>, serial: &mut Option<String>| {
-        if *vendor == Some(GARMIN_VENDOR_ID) {
-            if let Some(m) = model.clone() {
-                let d = UsbDevice {
-                    model: m,
-                    serial: serial.clone(),
-                };
-                // ioreg lists a device once per interface; one entry each is enough.
-                if !out.contains(&d) {
-                    out.push(d);
+    let mut flush =
+        |vendor: &mut Option<u32>, model: &mut Option<String>, serial: &mut Option<String>| {
+            if *vendor == Some(GARMIN_VENDOR_ID) {
+                if let Some(m) = model.clone() {
+                    let d = UsbDevice {
+                        model: m,
+                        serial: serial.clone(),
+                    };
+                    // ioreg lists a device once per interface; one entry each is enough.
+                    if !out.contains(&d) {
+                        out.push(d);
+                    }
                 }
             }
-        }
-        *vendor = None;
-        *model = None;
-        *serial = None;
-    };
+            *vendor = None;
+            *model = None;
+            *serial = None;
+        };
 
     for line in text.lines() {
         // ioreg draws a tree, so every property line carries "| " and "+-o" prefixes
@@ -528,7 +529,11 @@ mod usb_tests {
     #[test]
     fn a_garmin_device_in_mtp_mode_is_recognised() {
         let found = parse_ioreg(IOREG_EDGE_840);
-        assert_eq!(found.len(), 1, "listed once per interface, reported once: {found:?}");
+        assert_eq!(
+            found.len(),
+            1,
+            "listed once per interface, reported once: {found:?}"
+        );
         assert_eq!(found[0].model, "Edge 840");
         assert_eq!(found[0].serial.as_deref(), Some("0000d0b4a4f6"));
     }

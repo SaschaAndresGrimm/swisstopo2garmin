@@ -970,7 +970,9 @@ output file names with hashes, and the attribution string embedded in the map.
 
 ## 12. Error handling
 
-Every error must state **what failed, why, and what the user can do**. Specified cases:
+Every error must state **what failed, why, and what the user can do**. Specified cases
+below; [docs/error-matrix.md](docs/error-matrix.md) records, row by row, what the code
+does about each one, the test that holds it there, and what is *not* covered.
 
 | Situation | Required behaviour |
 |---|---|
@@ -979,13 +981,13 @@ Every error must state **what failed, why, and what the user can do**. Specified
 | Checksum mismatch | Discard, warn, offer retry; never use unverified data |
 | STAC API unreachable | Fall back to cached catalog; state that release info may be stale |
 | swissALTI3D tile missing | Skip with a warning; contours for that cell are absent, and the build report says which cells |
-| Estimate exceeds device limit | Block with explanation; offer smaller area, coarser contours, fewer layers, or split into map sets |
-| Tile count exceeds device limit | Auto-retune `--max-nodes`, else split into map sets |
+| Estimate exceeds device limit | Explain, and offer only the remedies that would change *this* recipe: smaller area, coarser contours, fewer layers, no relief, no slope classes, or split into map sets. **"Block" resolved 2026-09-07:** a hard block on the estimate would refuse builds that fit, since FR-60's own accuracy target is ±25 %. What is blocked is the case that is certainly impossible — the partition planner reporting that no division of the area fits the device. Over budget but splittable proceeds, with the plan shown. |
+| Tile count exceeds device limit | Auto-retune `--max-nodes` upward — doubling, since each attempt is a full splitter run — then split into map sets. **Ceiling resolved 2026-09-07:** 1,600,000, which is splitter r654's own documented default and so the largest value its author treats as ordinary. Going past it to satisfy a tile budget would trade a documented limit for a guessed one, which rule 3 of the working agreement forbids. |
 | Java tool non-zero exit | Show stage, command line, stderr tail, and a plain-language cause where recognized |
 | Device unplugged mid-copy | Abort, report incomplete file on device, offer retry |
 | Target file already exists | Confirm, offer backup, never silently overwrite |
 | Corrupt cache detected | Quarantine, offer re-download, never crash |
-| App killed mid-build | On next start, detect and clean orphaned temp state; offer to resume |
+| App killed mid-build | On next start, detect orphaned work directories and the Java children still running for them; offer to resume or discard. **Resume clarified 2026-09-07:** resuming reuses the cached region — extract, elevation and contours, about 80 % of a build — and re-runs the rest. It is not a continuation from the byte the crash reached, and the UI does not claim to be. |
 
 ---
 
@@ -1033,9 +1035,16 @@ across releases to catch regressions.
 
 ## 14. Distribution
 
-- **License:** GPLv3 (or GPLv2-or-later). Chosen deliberately: bundling and invoking
-  `mkgmap` and `splitter` (both GPLv2) is then unambiguously clean, and existing mkgmap
-  style files and prior art can be reused.
+- **License:** GPLv3-or-later. Chosen deliberately: bundling and invoking `mkgmap`
+  (**GPL-2.0**, text verbatim in `vendor/mkgmap-r4924/LICENCE`) and `splitter`
+  (**GPL-3.0-only**, per its own source headers) is then unambiguously clean, and
+  existing mkgmap style files and prior art can be reused. Both are run as **separate
+  processes** and never linked, so no combined work is formed and neither licence reaches
+  this code. *Corrected 2026-09-07: this section previously asserted both tools are
+  GPLv2. Splitter is GPL-3.0-only — see the note in `NOTICE` for how that was settled.
+  Note the consequence: GPL-2.0 and GPL-3.0-only are mutually incompatible for linking,
+  so the process boundary is what makes bundling both of them lawful at all, not merely
+  what makes it tidy.*
 - **Public repository** with issues, and device profiles accepted as community pull requests.
 - **Releases:** signed installers per platform (NFR-7), a published SBOM, and a changelog
   that calls out cartography changes with before/after images.

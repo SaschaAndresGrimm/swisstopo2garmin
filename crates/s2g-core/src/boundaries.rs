@@ -32,7 +32,11 @@ pub enum AdminLevel {
 
 impl AdminLevel {
     pub fn all() -> &'static [AdminLevel] {
-        &[AdminLevel::Canton, AdminLevel::District, AdminLevel::Commune]
+        &[
+            AdminLevel::Canton,
+            AdminLevel::District,
+            AdminLevel::Commune,
+        ]
     }
 
     pub fn id(&self) -> &'static str {
@@ -121,9 +125,7 @@ pub fn find_boundaries(cache_root: &Path) -> Option<PathBuf> {
 }
 
 fn not_downloaded() -> Error {
-    Error::NotFound(
-        "swissBOUNDARIES3D is not downloaded; fetch it on the Data screen".into(),
-    )
+    Error::NotFound("swissBOUNDARIES3D is not downloaded; fetch it on the Data screen".into())
 }
 
 /// Canton number to name, for labelling districts and communes.
@@ -258,7 +260,12 @@ pub fn load_geometry(
 /// Bounding box of a set of units, for the recipe.
 pub fn extent(cache_root: &Path, level: AdminLevel, numbers: &[i64]) -> Result<BBox> {
     let polys = load_geometry(cache_root, level, numbers)?;
-    let (mut e0, mut n0, mut e1, mut n1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let (mut e0, mut n0, mut e1, mut n1) = (
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
     for c in polys.iter().flatten().flatten() {
         e0 = e0.min(c.e);
         n0 = n0.min(c.n);

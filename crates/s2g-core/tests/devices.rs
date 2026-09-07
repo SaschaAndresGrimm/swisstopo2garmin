@@ -163,7 +163,10 @@ fn a_user_override_replaces_the_limit_and_its_confidence() {
     );
 
     // Limits not overridden keep the shipped value.
-    assert_eq!(overridden.map_file.max_img_bytes, base.map_file.max_img_bytes);
+    assert_eq!(
+        overridden.map_file.max_img_bytes,
+        base.map_file.max_img_bytes
+    );
 }
 
 #[test]
@@ -171,7 +174,11 @@ fn an_empty_override_changes_nothing_including_the_confidence() {
     use s2g_core::settings::DeviceOverride;
 
     let profiles = load_profiles(&devices_dir()).unwrap();
-    let base = profiles.iter().find(|p| p.id == "edge-840").unwrap().clone();
+    let base = profiles
+        .iter()
+        .find(|p| p.id == "edge-840")
+        .unwrap()
+        .clone();
     let same = base.clone().with_override(&DeviceOverride::default());
 
     assert_eq!(same.effective_budget_bytes(), base.effective_budget_bytes());

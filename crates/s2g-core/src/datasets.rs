@@ -13,8 +13,12 @@ use std::path::{Path, PathBuf};
 use crate::stac;
 
 /// STAC collections holding winter route data.
-pub const WINTER_COLLECTIONS: &[&str] =
-    &[stac::SKITOUREN, stac::SCHNEESCHUH, stac::WINTERWANDERN, stac::UNTERKUENFTE];
+pub const WINTER_COLLECTIONS: &[&str] = &[
+    stac::SKITOUREN,
+    stac::SCHNEESCHUH,
+    stac::WINTERWANDERN,
+    stac::UNTERKUENFTE,
+];
 
 /// STAC collections holding the ASTRA route networks.
 ///
@@ -158,7 +162,10 @@ pub fn route_dataset_of(path: &Path) -> Option<String> {
         if let Some(c) = ROUTE_COLLECTIONS.iter().find(|c| **c == name) {
             return Some(short_dataset_name(c));
         }
-        if matches!(name.as_str(), "veloland" | "mountainbikeland" | "wanderland") {
+        if matches!(
+            name.as_str(),
+            "veloland" | "mountainbikeland" | "wanderland"
+        ) {
             return Some(name);
         }
     }
@@ -201,8 +208,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         touch(&root.join("routes/veloland/2026_shape_veloland/VeloWeg.shp"));
-        touch(&root.join(stac::MOUNTAINBIKELAND).join("mtb-2026/MTBWeg.shp"));
-        touch(&root.join(stac::MOUNTAINBIKELAND).join("mtb-2026/MTBWeg.dbf"));
+        touch(
+            &root
+                .join(stac::MOUNTAINBIKELAND)
+                .join("mtb-2026/MTBWeg.shp"),
+        );
+        touch(
+            &root
+                .join(stac::MOUNTAINBIKELAND)
+                .join("mtb-2026/MTBWeg.dbf"),
+        );
 
         let found = route_shapefiles(root);
         assert_eq!(found.len(), 2, "{found:?}");
@@ -221,7 +236,12 @@ mod tests {
         let found = route_shapefiles(root);
         assert_eq!(found.len(), 2, "{found:?}");
         // The app layout wins over the spike layout.
-        assert!(found.iter().all(|p| p.to_string_lossy().contains(stac::VELOLAND)), "{found:?}");
+        assert!(
+            found
+                .iter()
+                .all(|p| p.to_string_lossy().contains(stac::VELOLAND)),
+            "{found:?}"
+        );
     }
 
     #[test]
@@ -233,7 +253,10 @@ mod tests {
 
         let found = route_shapefiles(root);
         assert_eq!(found.len(), 1);
-        assert!(found[0].to_string_lossy().contains("veloland-2026"), "{found:?}");
+        assert!(
+            found[0].to_string_lossy().contains("veloland-2026"),
+            "{found:?}"
+        );
     }
 
     #[test]
@@ -245,8 +268,16 @@ mod tests {
         touch(&root.join("winter/ski_routes_2056.gpkg"));
         touch(&root.join("winter/ski_network_2056.gpkg"));
         // The same release fetched again under the app layout must not double them.
-        touch(&root.join(stac::SKITOUREN).join("skitouren/ski_routes_2056.gpkg"));
-        touch(&root.join(stac::SKITOUREN).join("skitouren/ski_network_2056.gpkg"));
+        touch(
+            &root
+                .join(stac::SKITOUREN)
+                .join("skitouren/ski_routes_2056.gpkg"),
+        );
+        touch(
+            &root
+                .join(stac::SKITOUREN)
+                .join("skitouren/ski_network_2056.gpkg"),
+        );
 
         let found = winter_geopackages(root);
         assert_eq!(found.len(), 2, "{found:?}");

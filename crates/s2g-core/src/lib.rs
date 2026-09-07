@@ -9,8 +9,10 @@
 //! - Downloads are resumable, verified against the STAC `file:checksum` multihash, and
 //!   only become visible in the cache after an atomic rename (FR-D1..D4).
 
+pub mod area_edit;
 pub mod boundaries;
 pub mod cache;
+pub mod clock;
 pub mod contour;
 pub mod datasets;
 pub mod dem;
@@ -29,15 +31,18 @@ pub mod gpkg;
 pub mod gpx;
 pub mod http;
 pub mod img;
+pub mod install;
 pub mod library;
 pub mod manifest;
 pub mod mask;
 pub mod names;
 pub mod partition;
 pub mod pbf;
+pub mod perf;
 pub mod pipeline;
 pub mod proj;
 pub mod recipe;
+pub mod recovery;
 pub mod settings;
 pub mod shapefile;
 pub mod slope;

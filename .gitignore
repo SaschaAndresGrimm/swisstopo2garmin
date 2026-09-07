@@ -1,6 +1,12 @@
 # Local data cache (never commit geodata)
 /cache/
 *.gpkg
+
+# ...except the committed test fixture. SPEC.md §13.2 wants a commune-sized extract that
+# runs the whole pipeline in CI in under a minute, and that is impossible if the extract
+# is not in the repository. It never ran there: the test skipped for want of a toolchain,
+# and once the toolchain arrived it failed on the missing file. 2.3 MB, once.
+!crates/s2g-core/tests/fixtures/*.gpkg
 *.gpkg.zip
 *.gdb.zip
 *.shp.zip

@@ -11,6 +11,7 @@ import type {
 } from "../state/api";
 import { useAreaInfo } from "../state/useAreaInfo";
 import { SizeEstimate } from "../components/SizeEstimate";
+import { OverBudget } from "../components/OverBudget";
 import type { T } from "../i18n";
 
 /**
@@ -204,7 +205,7 @@ export function ContentStep({
       <LayerPanel t={t} preset={preset} excluded={excluded} onExcluded={onExcluded} />
 
       {info && <SizeEstimate t={t} info={info} />}
-      {info?.overBudget && <p className="error">{t("area.overBudget")}</p>}
+      {info && <OverBudget t={t} info={info} />}
 
       {error && <p className="error">{t("data.error", { message: error })}</p>}
 

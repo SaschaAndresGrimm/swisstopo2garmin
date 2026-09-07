@@ -16,14 +16,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS 14 runners are arm64, macOS 13 are x64: SPEC.md NFR-7 ships both.
-        os: [macos-14, macos-13, ubuntu-latest, windows-latest]
+        # SPEC.md NFR-7 ships both macOS architectures, so both are tested.
+        # `macos-14` is arm64 and `macos-15-intel` is x64 — the `macos-13` this used to
+        # name has been retired by GitHub, which `actionlint` caught.
+        os: [macos-14, macos-15-intel, ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+
+      # tauri.conf.json declares the vendored toolchain as bundle resources (NFR-7), and
+      # tauri-build checks a declared resource exists -- so src-tauri does not compile
+      # without it. Fetching it here has a second, larger benefit: the tests that need
+      # mkgmap were silently skipping in CI with "toolchain not vendored", so the real
+      # compile path was never exercised by any run.
+      - name: Cache the vendored toolchain
+        id: vendor-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/mkgmap-r4924
+            vendor/splitter-r654
+            vendor/jre
+            vendor/toolchain.env
+          key: vendor-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vendor/fetch_tools.py') }}
+
+      - name: Vendor the Garmin toolchain and JRE
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        run: python3 vendor/fetch_tools.py
 
       - name: Linux system dependencies for Tauri
         if: runner.os == 'Linux'
@@ -39,7 +61,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       # Excludes tests/live.rs, which is #[ignore]d and needs network: CI must be
-      # offline and deterministic (PLAN.md M1 task 3).
+      # offline and deterministic (PLAN.md M1 task 3). With the toolchain vendored above,
+      # the tests that compile a real map with mkgmap now run instead of skipping.
       - name: Test
         run: cargo test --workspace
 
@@ -53,6 +76,23 @@ jobs:
             git diff -- frontend/src/state/bindings.ts
             exit 1
           fi
+
+  workflows:
+    name: workflow syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A workflow only fails when it runs, and the release workflow runs on a tag --
+      # so a mistake in it is discovered at the worst possible moment. actionlint checks
+      # expression syntax, action inputs and runner labels statically. It immediately
+      # found that both workflows still named `macos-13`, which GitHub has retired.
+      # The upstream download script rather than a third-party wrapper action: one fewer
+      # thing to trust, and `rhysd/actionlint` publishes no action of its own -- an
+      # earlier draft of this file referenced one that does not exist.
+      - name: actionlint
+        run: |
+          bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
 
   frontend:
     name: frontend
@@ -70,8 +110,41 @@ jobs:
         working-directory: frontend
       - run: npm run lint
         working-directory: frontend
+      # These two existed from Milestone 6 and were never wired in, so nothing ran them.
+      # English is the fallback (FR-4): a missing German key renders the English string,
+      # and a half-translated screen looks finished to anybody testing in English.
+      - run: npm run check:i18n
+        working-directory: frontend
+      # Static only -- control names, labels, live regions. Not a screen-reader pass;
+      # docs/accessibility.md says what is still missing.
+      - run: npm run check:a11y
+        working-directory: frontend
       - run: npm run build
         working-directory: frontend
+
+  performance:
+    name: performance thresholds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Release, because the ceilings are calibrated against an optimised build -- the
+      # test skips its rate assertions otherwise rather than measuring the wrong thing.
+      # Linux, because it is the only platform in the matrix that reports a true peak RSS
+      # (VmHWM), which is what NFR-2 is about.
+      #
+      # Scale is the honest limitation: CI is offline, so the canton and national budgets
+      # of NFR-1 are checked by extrapolating a rate measured on the committed 1 km2
+      # fixture. See docs/performance.md.
+      - name: Rates and peak memory (NFR-1, NFR-2)
+        run: cargo test --release -p s2g-core --test perf -- --nocapture
+
+      # FR-60's ±25% over the committed reference manifests. Offline and instant: a
+      # manifest carries the predictors and the actual size, so no build is needed.
+      - name: Size estimates hold on the reference suite (FR-60)
+        run: cargo test --release -p s2g-core --test estimator_reference -- --nocapture
 
   cartography:
     name: cartography consistency
@@ -88,6 +161,40 @@ jobs:
         run: python3 tools/make_typ.py
       - name: TYP matches the style
         run: python3 spikes/s0/checkstyle.py
+  supply-chain:
+    name: SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # node_modules is where npm licences are actually readable: the lock file records
+      # one for only some packages.
+      - run: npm ci
+        working-directory: frontend
+
+      # The vendored Java tools are the largest components in the bundle and the only
+      # GPL-2 ones, and both package managers are blind to them, so an SBOM that omits
+      # them omits the part a redistributor most needs (NFR-10).
+      - name: Fetch the vendored toolchain
+        run: python3 vendor/fetch_tools.py
+
+      - name: SBOM resolves every shipped component
+        run: python3 tools/sbom.py --check
+
+      - name: Generate the SBOM
+        run: python3 tools/sbom.py > sbom.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
       - name: TYP is in sync with palette.json
         run: |
           if ! git diff --quiet -- typ/swisstopo.txt; then

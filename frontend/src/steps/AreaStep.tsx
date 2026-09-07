@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../state/api";
-import type { AreaSelection, PlaceMatch } from "../state/api";
+import type { AreaEdit, AreaOutline, AreaSelection, PlaceMatch } from "../state/api";
 import { useAreaInfo } from "../state/useAreaInfo";
-import { AreaMap, type DrawnBox } from "../map/AreaMap";
+import { AreaMap, type DrawnBox, type PendingEdit } from "../map/AreaMap";
 import { SizeEstimate } from "../components/SizeEstimate";
+import { OverBudget } from "../components/OverBudget";
 import { TrackImport } from "../components/TrackImport";
 import { AdminUnitPicker } from "../components/AdminUnitPicker";
 import type { T } from "../i18n";
@@ -44,8 +45,90 @@ export function AreaStep({
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
+  const [outline, setOutline] = useState<AreaOutline | null>(null);
 
   const { info, error: infoError } = useAreaInfo(area, deviceId, preset, contourM, relief);
+
+  // The selection's true shape and its drag handles (FR-31). Asked of the backend
+  // rather than derived here: the geometry is LV95 and the map is WGS84, and only Rust
+  // projects (FR-P1).
+  useEffect(() => {
+    let live = true;
+    if (!area) {
+      setOutline(null);
+      return;
+    }
+    api
+      .areaOutline(area)
+      .then((o) => live && setOutline(o))
+      .catch(() => live && setOutline(null));
+    return () => {
+      live = false;
+    };
+  }, [area]);
+
+  /**
+   * A handle was dropped: convert where it landed to LV95, then let Rust apply it.
+   *
+   * One conversion per drag, on release rather than on every mouse move. The map
+   * previews the drag locally and this replaces the preview with the real answer, so a
+   * refused edit -- a rectangle collapsed to a line, a radius dragged to nothing --
+   * snaps back and says why instead of silently building nothing.
+   */
+  const applyEdit = async (pending: PendingEdit) => {
+    if (!area) return;
+    try {
+      const [easting, northing] = await api.wgs84BboxToLv95(
+        pending.lon,
+        pending.lat,
+        pending.lon,
+        pending.lat,
+      );
+      let edit: AreaEdit;
+      switch (pending.handle.role) {
+        case "vertex":
+          edit = { kind: "moveVertex", index: pending.handle.index, easting, northing };
+          break;
+        case "midpoint":
+          edit = { kind: "insertVertex", after: pending.handle.index, easting, northing };
+          break;
+        case "radius":
+          edit = { kind: "setRadiusKm", radiusKm: (pending.radiusM ?? 0) / 1000 };
+          break;
+        case "centre": {
+          // The displacement, not the destination: converting both ends and
+          // subtracting keeps the shape rigid, where converting a degree offset
+          // directly would stretch it slightly with latitude.
+          const [fromE, fromN] = await api.wgs84BboxToLv95(
+            pending.lon - (pending.dLon ?? 0),
+            pending.lat - (pending.dLat ?? 0),
+            pending.lon - (pending.dLon ?? 0),
+            pending.lat - (pending.dLat ?? 0),
+          );
+          edit = {
+            kind: "translate",
+            dEasting: easting - fromE,
+            dNorthing: northing - fromN,
+          };
+          break;
+        }
+      }
+      const next = await api.editArea(area, edit);
+      setError(null);
+      // `box` follows from the estimate's `wgs84` extent, so it does not need setting
+      // here -- and the outline, not the box, is what the map draws.
+      onArea(next);
+    } catch (e) {
+      // A refused edit is normal: the shape snaps back to what the backend still holds.
+      setError(String(e));
+      if (area) {
+        api
+          .areaOutline(area)
+          .then(setOutline)
+          .catch(() => setOutline(null));
+      }
+    }
+  };
 
   // The corridor centreline for the map, projected by the backend so the projection
   // has one implementation rather than two to keep in agreement.
@@ -196,6 +279,8 @@ export function AreaStep({
       <AreaMap
         t={t}
         track={trackLine}
+        outline={outline}
+        onEdit={(e) => void applyEdit(e)}
         onPolygon={(points) => {
           void (async () => {
             try {
@@ -245,7 +330,7 @@ export function AreaStep({
 
       {info && <SizeEstimate t={t} info={info} />}
       {info && !info.withinSwitzerland && <p className="error">{t("area.outside")}</p>}
-      {info?.overBudget && <p className="error">{t("area.overBudget")}</p>}
+      {info && <OverBudget t={t} info={info} />}
 
       {(error ?? infoError) && (
         <p className="error">{t("data.error", { message: error ?? infoError ?? "" })}</p>

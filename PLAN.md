@@ -419,7 +419,7 @@ and leaves a clean state.
 | Task | State | Notes |
 |---|---|---|
 | 1. Device step | **done** | Grouped list, USB detection, generic fallback, confidence shown with the reason a number is unverified. Limit overrides (FR-DEV3) not exposed in the UI yet. |
-| 2. Area step — map, rectangle, place radius | **done** | MapLibre + swisstopo WMTS, drag-to-draw, place search with population ranking. Projection is done in Rust so there is one implementation (FR-P1). |
+| 2. Area step — map, rectangle, place radius | **done** | MapLibre + swisstopo WMTS, drag-to-draw, place search with population ranking. Projection is done in Rust so there is one implementation (FR-P1). Selections are **editable**: drag a corner or vertex to reshape, the middle to move, a midpoint to add a vertex, a circle's edge to resize. The geometry lives in `s2g_core::area_edit` with 23 tests, because a corner-ordering mistake is invisible in a screenshot. Before this the map drew every selection as its bounding *rectangle*, so a polygon or circle was replaced the moment it was drawn. |
 | 2. Area step — whole Switzerland (FR-35, FR-36) | **done** | Extent read from `LV95_BOUNDS` via `coverage_bbox`. Auto-partitioning splits an oversized area on a grid and says plainly when even the largest split will not fit. |
 | 2. Area step — GPX/FIT corridor (FR-38…FR-40) | **done** | Import, buffer, route drawn on the map with length and ascent. Built on `mask.rs`, which filters vectors, shapefiles and contours by an arbitrary shape; the bbox stays the cheap first cut. |
 | 2. Area step — admin units (FR-33/34) | **done** | Cantons, districts and communes from swissBOUNDARIES3D, multi-select with the canton shown (commune names repeat), optional buffer, outlines drawn on the map. Schema in docs/boundaries-schema.md. |
@@ -435,7 +435,7 @@ and leaves a clean state.
 | 4. Size estimator | **done** | Ridge-regression model over R-tree feature counts, fitted from real builds and shipped as `estimator/size-model.json`; every build appends to a local calibration log that refits it (FR-60…FR-63). Budget bar shows estimate, budget and margin together. |
 | 5. Build step | **done** | Seven stages with weighted progress, remaining time and elapsed, bounded live log, cancellation that kills the java children. |
 | 6. Install step | **done** | Device identity, free space, plan shown before writing, overwrite confirmation with backup, eject reminder. |
-| 7. Accessibility and theming (NFR-9) | **partial** | Static audit in CI, AA contrast measured and fixed in both themes, live regions on progress and failures. Still missing: a screen-reader pass, a keyboard-only walkthrough, and a keyboard equivalent for map drawing. See docs/accessibility.md. |
+| 7. Accessibility and theming (NFR-9) | **partial** | Static audit, AA contrast measured and fixed in both themes, live regions on progress and failures. Still missing: a screen-reader pass, a keyboard-only walkthrough, and a keyboard equivalent for map drawing. See docs/accessibility.md. *Corrected 2026-09-07: this said "in CI" and the check was never wired into a workflow — it and the i18n check both existed and nothing ran them. Both are in the frontend job now.* |
 | Build manifest (FR-71) | **done** | Written beside every output: releases with checksums, tool versions, stage timings, per-layer counts, output hash, attribution. |
 | Stage caching (FR-72) | **done** | The region PBF is reused when only the device, colour scheme, relief or TYP changed: 33.1 s to 5.3 s on the same area. |
 | Failure presentation (FR-73) | **done** | Recognised failures explained with what to do; unrecognised ones say so rather than guess. Copy-diagnostics included. |
@@ -474,6 +474,56 @@ panel takes the same area to 958,464 B.
 8. Estimator calibration against at least ten reference areas until ±25 % holds (FR-60).
 
 **Acceptance:** every one of the ten acceptance criteria in spec §18 is demonstrably met.
+
+### Status
+
+| Task | State | Notes |
+|---|---|---|
+| 1. Crash recovery | **done** | A marker written before the first stage and removed by `Drop`, so error, cancellation and panic all clear it; marker plus dead owner *is* an orphan. Java strays are found by their own command lines rather than a recorded pid list, which also survives pid reuse. Resume reuses the cached region — the expensive 80 % — and the UI does not claim more. `s2g_core::recovery`, sixteen tests. |
+| 2. The §12 error matrix | **done** | All twelve rows, each with a named test, in [docs/error-matrix.md](docs/error-matrix.md) — including the honest column of what is *not* covered. Five rows had no implementation behind them; the corrupt-cache mechanism existed and was called from nowhere. Two rows needed a decision, both recorded back into SPEC.md §12. |
+| 3. Performance and memory in CI | **partial** | Rates on the committed fixture, extrapolated to canton and national area against NFR-1's budgets, plus NFR-2's real content: peak RSS must not follow the input (10 → 15 → 37 MB across 1×, 4×, 16×). Ceilings are 5–8× the measured release figure. **Not tracked: real builds at commune/canton/national scale across releases**, which needs a machine with the datasets on it. See [docs/performance.md](docs/performance.md). |
+| 4. Installers (NFR-7) — building | **done** | `.github/workflows/release.yml` builds all four platforms on a `v*` tag or on demand, and opens a **draft** release with `SHA256SUMS` and `sbom.json`. The bundle is genuinely standalone — map compiler, splitter, private JRE, cartography, device profiles, ~147 MB on macOS, verified by running the bundled Java against the bundled mkgmap from inside a mounted `.dmg` — though the first launch still downloads 10 GB of geodata. **Seven defects surfaced in the process**, listed below; all fixed, and CI is green on all four platforms for the first time. |
+| 4. Installers (NFR-7) — signing | **wired, inert** | Every signing step is guarded on its secret being present, so today the pipeline produces working unsigned bundles and adding certificates needs no edit. **No credentials exist for either platform, so no signed artefact has ever been produced** and the signing path is untested. macOS imports the certificate into a throwaway keychain; Windows has no signing environment variable, so the thumbprint is merged in via `tauri build --config`. Variable names were read out of the CLI binary — an earlier draft had invented a Windows one that does not exist. |
+| 4. Sample maps | **done** | Six `.img` files attached to each release, described in [docs/sample-maps.md](docs/sample-maps.md), so the cartography can be seen on a device without a 10 GB download. They cannot be built in CI, so `tools/publish_samples.sh` uploads them from a local build. Marked plainly as **not yet verified on hardware**. |
+| 4. SBOM (NFR-10) | **done** | `tools/sbom.py`, CycloneDX 1.5, in CI. Four ecosystems, because no single tool covers them — Rust, npm, the vendored Java tools and JRE, and the swisstopo datasets. Reproducible builds are **neither achieved nor attempted**; `cargo audit` and `npm audit` are not in CI. |
+| 5. Real-device validation sweep | **blocked on hardware** | The six files are built and waiting in `out/device-test/`; the checklist is §B of [docs/device-verification.md](docs/device-verification.md). The log in §E is now populated from the results that were recorded in `devices/*.json` and the M0 findings, and says what each device still has not been asked. Both profiles remain `community`: a smoke test is not a measurement, and nothing in §C has been done. Nothing added after Milestone 6 has been on a device — the winter palette, slope classes, hut details, transit stops, label language, and the night palette, which is the likeliest to be wrong. VAL-4 not attempted. |
+| 6. Documentation | **done** | [getting-started.md](docs/getting-started.md), [release.md](docs/release.md), [error-matrix.md](docs/error-matrix.md), [performance.md](docs/performance.md), a cartography contribution section, and `NOTICE`. Two stale claims corrected: README's "not yet" list named four features that had shipped, and cartography.md said no device had displayed the palette. **No screenshots yet** — the README asks for them and they need a running app on each platform. |
+| 7. Attribution audit | **done** | [docs/attribution-audit.md](docs/attribution-audit.md), FR-L1…FR-L4 row by row. FR-L1's embedded copyright was implemented and never verified; the fixture build test now reads the compiled `.img` back as bytes and asserts it. FR-L3 was absent from the app entirely, because the About screen FR-L1 asks for did not exist. `tools/check_i18n.py` in CI, because English is the fallback and a missing key renders as English. |
+| 8. Estimator calibration (FR-60) | **done, thin** | Ten new reference areas built, none in the training plan. Handlebar builds already held (worst 20.3 %); wrist builds were 66.4 % out because nothing in the model distinguished them. A flat factor could not fix it — the required factor ran 0.48 to 0.69 with feature density, and the best flat value was 27.2 % worst. Scaling only the feature terms does: worst 24.5 % over all sixteen. **In-sample, and half a percentage point of margin.** Sixteen manifests committed; `tests/estimator_reference.rs` checks it in CI. |
+
+### What building for real found
+
+Every one of these had been latent since Milestone 1 and was invisible on the machine the
+code was written on. They are recorded because the pattern is the point: a requirement
+that names a platform, or a check that is written but never run, proves nothing.
+
+1. **No bundle resources declared.** The packaged app resolved its resource root to `"."`
+   and could not find its style, so it could not build a map at all.
+2. **The toolchain was located through `vendor/toolchain.env`**, which holds absolute
+   paths into the developer's home — and points at a `vendor/jdk` that is not shipped.
+3. **Declaring the JRE as a resource broke every rebuild after the first**: Tauri copies
+   resources preserving their mode, and Temurin ships 430 read-only files.
+4. **`fetch_tools.py` had never worked on Windows.** Adoptium serves a zip there and the
+   script unpacked a tarball unconditionally — and behind that, `find_java` did not know
+   about `java.exe`. So the Windows installer NFR-7 promises had never been built.
+5. **`icons/icon.ico` did not exist**, and without it `src-tauri` does not compile on
+   Windows at all.
+6. **The fixture GeoPackage was gitignored.** `*.gpkg` keeps geodata out of the repository
+   and also caught `tests/fixtures/grindelwald.gpkg`, so §13.2's "whole pipeline in CI in
+   under a minute" had never run in CI. It skipped for want of a toolchain, then failed on
+   the missing file the moment CI had one.
+7. **A timing-based test was flaky**, passing on three platforms and failing on the
+   fourth. Replaced by counting ray casts, which is what the cache actually promises.
+
+`actionlint` separately found that both workflows named the retired `macos-13` runner, so
+the x64 macOS jobs would have failed to find a machine — and caught a fabricated action
+reference in the first draft of the job that runs it.
+
+**Not met, and known:** acceptance criterion 5 (hardware verification of everything since
+Milestone 6), criterion 7 in spirit (±25 % holds, but on in-sample constants with thin
+margin), NFR-7's *signing* (wired, no credentials, untested), NFR-9 (no screen-reader or
+keyboard-only pass, and area editing widened the keyboard gap), and NFR-10's
+reproducible-builds clause.
 
 ---
 

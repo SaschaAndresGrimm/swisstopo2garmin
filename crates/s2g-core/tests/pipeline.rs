@@ -151,11 +151,15 @@ fn an_area_selection_uses_the_tag_the_frontend_and_the_spec_use() {
 
     for tag in ["place", "corridor"] {
         let body = match tag {
-            "place" => r#"{"kind":"place","name":"Bern","radiusKm":8,"easting":2600000,"northing":1200000}"#,
+            "place" => {
+                r#"{"kind":"place","name":"Bern","radiusKm":8,"easting":2600000,"northing":1200000}"#
+            }
             _ => r#"{"kind":"corridor","name":"t","bufferKm":5,"points":[[2600000,1200000]]}"#,
         };
         let v: AreaSelection = serde_json::from_str(body).expect(tag);
-        assert!(serde_json::to_string(&v).unwrap().contains(&format!(r#""kind":"{tag}""#)));
+        assert!(serde_json::to_string(&v)
+            .unwrap()
+            .contains(&format!(r#""kind":"{tag}""#)));
     }
 }
 
@@ -249,8 +253,14 @@ fn every_palette_and_device_class_has_a_typ_file() {
 
     let root = repo_root();
     let profiles = devices::load_profiles(&root.join("devices")).unwrap();
-    let wrist = profiles.iter().find(|p| p.is_wrist()).expect("a wrist profile");
-    let handlebar = profiles.iter().find(|p| !p.is_wrist()).expect("a handlebar profile");
+    let wrist = profiles
+        .iter()
+        .find(|p| p.is_wrist())
+        .expect("a wrist profile");
+    let handlebar = profiles
+        .iter()
+        .find(|p| !p.is_wrist())
+        .expect("a handlebar profile");
 
     // Four combinations, four files. A missing one would fail the build at mkgmap,
     // after minutes of work.
@@ -403,7 +413,10 @@ fn a_mask_reduces_the_elevation_tiles_a_build_needs() {
         let (e, n) = cell.origin();
         let centre = Coord::new(e + 500.0, n + 500.0);
         if mask.contains(centre) {
-            assert!(masked.contains(cell), "dropped a cell the corridor covers: {cell:?}");
+            assert!(
+                masked.contains(cell),
+                "dropped a cell the corridor covers: {cell:?}"
+            );
         }
     }
 }
@@ -458,7 +471,10 @@ fn drawn_polygons_circles_and_composites_produce_sane_areas() {
         ],
     };
     assert_eq!(polygon.bbox().area_km2(), 100.0);
-    let mask = polygon.mask(dir.path()).unwrap().expect("a polygon has a mask");
+    let mask = polygon
+        .mask(dir.path())
+        .unwrap()
+        .expect("a polygon has a mask");
     assert!(mask.contains(Coord::new(2_605_000.0, 1_205_000.0)));
     assert!(!mask.contains(Coord::new(2_615_000.0, 1_205_000.0)));
 
@@ -539,12 +555,187 @@ fn the_shape_digest_separates_the_new_area_kinds() {
     };
     assert_ne!(a.shape_digest(), b.shape_digest());
 
-    let c1 = AreaSelection::Circle { easting: 1.0, northing: 2.0, radius_km: 3.0 };
-    let c2 = AreaSelection::Circle { easting: 1.0, northing: 2.0, radius_km: 4.0 };
+    let c1 = AreaSelection::Circle {
+        easting: 1.0,
+        northing: 2.0,
+        radius_km: 3.0,
+    };
+    let c2 = AreaSelection::Circle {
+        easting: 1.0,
+        northing: 2.0,
+        radius_km: 4.0,
+    };
     assert_ne!(c1.shape_digest(), c2.shape_digest());
 
     // Order matters in a composite only insofar as it changes the union; the digest is
     // allowed to differ, but the two must not collide with a single part.
-    let single = AreaSelection::Composite { parts: vec![c1.clone()] };
+    let single = AreaSelection::Composite {
+        parts: vec![c1.clone()],
+    };
     assert_ne!(single.shape_digest(), c1.shape_digest());
+}
+
+/// A build must be recoverable if the app dies, and must leave nothing behind if it
+/// does not (SPEC.md §12, "App killed mid-build"; acceptance criterion 8).
+///
+/// Uses the committed fixture GeoPackage as the dataset and cancels from inside the
+/// first stage callback, which is the only place the marker's existence can be observed
+/// without actually killing the process.
+#[tokio::test]
+async fn a_running_build_is_marked_recoverable_and_unmarks_itself_when_it_stops() {
+    use s2g_core::devices;
+    use s2g_core::download::Cancel;
+    use s2g_core::garmin::Toolchain;
+    use s2g_core::http::ReqwestHttp;
+    use s2g_core::pipeline::{self, BuildContext};
+    use s2g_core::recipe::{AreaSelection, Recipe};
+
+    let root = repo_root();
+    let Ok(toolchain) = Toolchain::discover(&root) else {
+        eprintln!("skipping: no java toolchain");
+        return;
+    };
+    let profiles = devices::load_profiles(&root.join("devices")).unwrap();
+    let profile = profiles.iter().find(|p| p.id == "edge-840").unwrap();
+
+    // A cache root holding the fixture where a real swissTLM3D release would live, so
+    // the build gets past the dataset lookup and into a stage.
+    let dir = tempfile::tempdir().unwrap();
+    let release = dir
+        .path()
+        .join(s2g_core::stac::TLM3D)
+        .join("swisstlm3d_fixture");
+    std::fs::create_dir_all(&release).unwrap();
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/grindelwald.gpkg"),
+        release.join("fixture.gpkg"),
+    )
+    .unwrap();
+
+    let work_dir = dir.path().join("builds").join("marked");
+    let recipe = Recipe::new(
+        "marked",
+        "edge-840",
+        AreaSelection::BBox {
+            min_e: 2_645_000.0,
+            min_n: 1_163_000.0,
+            max_e: 2_646_000.0,
+            max_n: 1_164_000.0,
+        },
+    );
+
+    let http = ReqwestHttp::new().unwrap();
+    let ctx = BuildContext {
+        toolchain,
+        style_root: root.join("style"),
+        typ_root: root.join("typ"),
+        cache_root: dir.path().to_path_buf(),
+        work_dir: work_dir.clone(),
+        http: &http,
+        calibration_log: None,
+    };
+
+    let cancel = Cancel::new();
+    let marker = work_dir.join("in-progress.json");
+    let seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let seen = seen.clone();
+        let marker = marker.clone();
+        let cancel_from_callback = cancel.clone();
+        let err = pipeline::build(&ctx, &recipe, profile, &cancel, move |_u| {
+            if marker.is_file() {
+                seen.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            // Stop as soon as a stage has started: the point is the marker, not a map.
+            cancel_from_callback.cancel();
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, s2g_core::Error::Cancelled),
+            "expected cancellation, got {err}"
+        );
+    }
+
+    assert!(
+        seen.load(std::sync::atomic::Ordering::SeqCst),
+        "no marker existed while the build was running, so a crash would be unrecoverable"
+    );
+    assert!(
+        !marker.exists(),
+        "a cancelled build left its marker behind, so the next start would offer to \
+         recover a build the user stopped on purpose"
+    );
+    // And with no marker there is nothing for recovery to find.
+    assert!(s2g_core::recovery::scan(dir.path(), &s2g_core::recovery::SystemProbe).is_empty());
+}
+
+/// SPEC.md §12: a build that finds damaged data must quarantine it and say so, not fail
+/// several stages later with a message about a missing table.
+#[tokio::test]
+async fn a_build_quarantines_a_damaged_geopackage_instead_of_failing_obscurely() {
+    use s2g_core::devices;
+    use s2g_core::download::Cancel;
+    use s2g_core::garmin::Toolchain;
+    use s2g_core::http::ReqwestHttp;
+    use s2g_core::pipeline::{self, BuildContext};
+    use s2g_core::recipe::{AreaSelection, Recipe};
+
+    let root = repo_root();
+    let Ok(toolchain) = Toolchain::discover(&root) else {
+        eprintln!("skipping: no java toolchain");
+        return;
+    };
+    let profiles = devices::load_profiles(&root.join("devices")).unwrap();
+    let profile = profiles.iter().find(|p| p.id == "edge-840").unwrap();
+
+    // A file where a swissTLM3D release would be, that opens as SQLite would and is not
+    // a GeoPackage — which is what a truncated download leaves behind.
+    let dir = tempfile::tempdir().unwrap();
+    let release = dir
+        .path()
+        .join(s2g_core::stac::TLM3D)
+        .join("swisstlm3d_2026-02");
+    std::fs::create_dir_all(&release).unwrap();
+    let damaged = release.join("swisstlm3d.gpkg");
+    std::fs::write(&damaged, b"SQLite format 3\0 truncated here").unwrap();
+
+    let recipe = Recipe::new(
+        "damaged",
+        "edge-840",
+        AreaSelection::BBox {
+            min_e: 2_645_000.0,
+            min_n: 1_163_000.0,
+            max_e: 2_646_000.0,
+            max_n: 1_164_000.0,
+        },
+    );
+    let http = ReqwestHttp::new().unwrap();
+    let ctx = BuildContext {
+        toolchain,
+        style_root: root.join("style"),
+        typ_root: root.join("typ"),
+        cache_root: dir.path().to_path_buf(),
+        work_dir: dir.path().join("builds").join("damaged"),
+        http: &http,
+        calibration_log: None,
+    };
+
+    let err = pipeline::build(&ctx, &recipe, profile, &Cancel::new(), |_| {})
+        .await
+        .unwrap_err();
+
+    let msg = err.to_string();
+    assert!(msg.contains("damaged"), "the cause is not stated: {msg}");
+    assert!(msg.contains("Data screen"), "no way forward: {msg}");
+    assert!(
+        !damaged.exists(),
+        "the damaged file is still where a build would find it"
+    );
+    // Moved aside, not deleted: it can be inspected and it can never be reused.
+    let quarantine = dir.path().join(".quarantine");
+    assert!(quarantine.is_dir(), "nothing was quarantined");
+    let found: Vec<_> = std::fs::read_dir(&quarantine).unwrap().flatten().collect();
+    assert_eq!(found.len(), 1, "expected exactly one quarantined dataset");
+    assert!(found[0].path().join("swisstlm3d.gpkg").is_file());
 }

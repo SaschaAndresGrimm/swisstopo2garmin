@@ -133,9 +133,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // and this used to see only the one the Milestone 5 spikes wrote.
         let sources = s2g_core::datasets::winter_geopackages(&Cache::default_root());
         if sources.is_empty() {
-            return Err("no winter route data in the cache; download it in the app or \
+            return Err(
+                "no winter route data in the cache; download it in the app or \
                         with the acquire example"
-                .into());
+                    .into(),
+            );
         }
         let mut winter_found: Vec<String> = Vec::new();
         for path in &sources {
@@ -179,9 +181,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             matched += 1;
         }
         if matched == 0 {
-            return Err("no cycle route data in the cache; download it in the app or \
+            return Err(
+                "no cycle route data in the cache; download it in the app or \
                         with the acquire example"
-                .into());
+                    .into(),
+            );
         }
         println!("routes: {matched} shapefile(s)");
     }

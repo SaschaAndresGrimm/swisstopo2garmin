@@ -44,7 +44,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         last = std::time::Instant::now();
         match p.total {
-            Some(t) => println!("  {:>5.1}%  {} / {} B", p.read as f64 / t as f64 * 100.0, p.read, t),
+            Some(t) => println!(
+                "  {:>5.1}%  {} / {} B",
+                p.read as f64 / t as f64 * 100.0,
+                p.read,
+                t
+            ),
             None => println!("  {} B", p.read),
         }
     };
@@ -81,7 +86,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         written = files.first().cloned().unwrap_or_else(|| dir.clone());
         for f in files.iter().take(20) {
             let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
-            println!("  {:>12} B  {}", size, f.file_name().unwrap().to_string_lossy());
+            println!(
+                "  {:>12} B  {}",
+                size,
+                f.file_name().unwrap().to_string_lossy()
+            );
         }
     } else {
         let dest = dir.join(format!("{}.gpkg", item.id));
@@ -127,7 +136,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         inflated: stream_inflate,
     };
     cache.write_provenance(&prov).await?;
-    println!("provenance   : recorded for {}/{}", prov.collection, prov.item);
+    println!(
+        "provenance   : recorded for {}/{}",
+        prov.collection, prov.item
+    );
 
     println!("elapsed      : {:.1}s", started.elapsed().as_secs_f64());
     Ok(())

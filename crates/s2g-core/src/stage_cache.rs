@@ -358,7 +358,10 @@ mod layer_digest_tests {
         ] {
             names.extend(group.iter().map(|s| s.layer));
         }
-        assert!(names.contains(&"accomodation_winter"), "huts missing: {names:?}");
+        assert!(
+            names.contains(&"accomodation_winter"),
+            "huts missing: {names:?}"
+        );
         assert!(names.contains(&"tlm_oev_haltestelle"), "stops missing");
         assert!(names.contains(&"ski_network"));
         assert!(names.contains(&"VeloWeg"));

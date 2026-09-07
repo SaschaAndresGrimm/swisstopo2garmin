@@ -2,7 +2,26 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl, { type Map as MlMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { ATTRIBUTION, BASE_LAYERS, SWITZERLAND, tileUrl, type BaseLayerId } from "./wmts";
+import type { AreaHandle, AreaOutline } from "../state/api";
 import type { T } from "../i18n";
+
+/**
+ * A completed drag, in WGS84 and in terms of which handle moved.
+ *
+ * Deliberately not an `AreaEdit`: that one is in LV95, and the map has no business
+ * projecting. The caller converts and applies it through Rust, where the geometry and
+ * the projection both live.
+ */
+export interface PendingEdit {
+  handle: AreaHandle;
+  lon: number;
+  lat: number;
+  /** Metres from the shape's centre, for a radius drag. */
+  radiusM?: number;
+  /** Displacement in WGS84 degrees, for a whole-shape move. */
+  dLon?: number;
+  dLat?: number;
+}
 
 /** A rectangle in WGS84, as the map produces it. */
 export interface DrawnBox {
@@ -14,6 +33,11 @@ export interface DrawnBox {
 
 const RECT_SOURCE = "s2g-rect";
 const TRACK_SOURCE = "s2g-track";
+const HANDLE_SOURCE = "s2g-handles";
+const HANDLE_LAYER = "s2g-handle-points";
+
+/** How close the pointer must be to grab a handle, in pixels. */
+const GRAB_RADIUS = 10;
 
 /**
  * swisstopo basemap with a drag-to-draw rectangle (FR-30, FR-31).
@@ -31,6 +55,8 @@ export function AreaMap({
   onPolygon,
   onCircle,
   track,
+  outline,
+  onEdit,
 }: {
   t: T;
   box: DrawnBox | null;
@@ -42,6 +68,12 @@ export function AreaMap({
   /** Lines to draw over the rectangle in WGS84 `[lon, lat]`: an imported track's
    *  centreline, or the outlines of the chosen administrative units. */
   track?: [number, number][][] | null;
+  /** The current selection's true shape and drag handles, from the backend (FR-31).
+   *  Drawn instead of `box`, which is only a bounding rectangle -- and drawing that
+   *  rectangle for a polygon or circle was the defect this replaces. */
+  outline?: AreaOutline | null;
+  /** A handle was dragged and released. */
+  onEdit?: (edit: PendingEdit) => void;
 }) {
   const container = useRef<HTMLDivElement | null>(null);
   const map = useRef<MlMap | null>(null);
@@ -60,6 +92,15 @@ export function AreaMap({
   onPolygonRef.current = onPolygon;
   const onCircleRef = useRef(onCircle);
   onCircleRef.current = onCircle;
+  const onEditRef = useRef(onEdit);
+  onEditRef.current = onEdit;
+  // The handlers below are bound once; they read the current outline through a ref so a
+  // re-render does not have to rebind them mid-drag.
+  const outlineRef = useRef(outline);
+  outlineRef.current = outline;
+  /** The handle being dragged, and where the drag started. */
+  const grabbed = useRef<{ handle: AreaHandle; from: maplibregl.LngLat } | null>(null);
+  const [hovering, setHovering] = useState(false);
 
   const rectGeoJson = useCallback((b: DrawnBox | null) => {
     if (!b) return { type: "FeatureCollection" as const, features: [] };
@@ -136,6 +177,36 @@ export function AreaMap({
         layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": "#1b3fa0", "line-width": 3 },
       });
+
+      // Drag handles, on top of everything. Midpoints are drawn smaller and hollow so
+      // they read as "this is not a corner yet" rather than competing with the real
+      // vertices for the eye.
+      m.addSource(HANDLE_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      m.addLayer({
+        id: HANDLE_LAYER,
+        type: "circle",
+        source: HANDLE_SOURCE,
+        paint: {
+          "circle-radius": ["case", ["==", ["get", "role"], "midpoint"], 4, 6],
+          "circle-color": [
+            "match",
+            ["get", "role"],
+            "midpoint",
+            "#ffffff",
+            "centre",
+            "#1b3fa0",
+            "radius",
+            "#1b3fa0",
+            "#da291c",
+          ],
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#ffffff",
+          "circle-opacity": ["case", ["==", ["get", "role"], "midpoint"], 0.9, 1],
+        },
+      });
     });
 
     map.current = m;
@@ -153,16 +224,45 @@ export function AreaMap({
     src?.setTiles?.([tileUrl(base)]);
   }, [base]);
 
+  // The selection's true shape, and its handles.
+  //
+  // `outline` wins over `box` whenever it exists: `box` is only a bounding rectangle,
+  // and drawing that for a polygon or a circle replaced the shape the user had just
+  // drawn with one they had not.
   useEffect(() => {
     const m = map.current;
     if (!m) return;
     const apply = () => {
-      const src = m.getSource(RECT_SOURCE) as maplibregl.GeoJSONSource | undefined;
-      src?.setData(rectGeoJson(box) as never);
+      const shape = m.getSource(RECT_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      if (outline && outline.rings.length > 0) {
+        shape?.setData({
+          type: "FeatureCollection",
+          features: outline.rings.map((ring) => ({
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Polygon", coordinates: [ring] },
+          })),
+        } as never);
+      } else {
+        shape?.setData(rectGeoJson(box) as never);
+      }
+
+      const handles = m.getSource(HANDLE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      handles?.setData({
+        type: "FeatureCollection",
+        features: (outline?.handles ?? []).map((h, i) => ({
+          type: "Feature",
+          // The index into the handle array, so a hit test can find the handle itself
+          // rather than reconstructing which one it was from coordinates.
+          id: i,
+          properties: { role: h.role, index: h.index, at: i },
+          geometry: { type: "Point", coordinates: [h.lon, h.lat] },
+        })),
+      } as never);
     };
     if (m.isStyleLoaded()) apply();
     else m.once("load", apply);
-  }, [box, rectGeoJson]);
+  }, [box, outline, rectGeoJson]);
 
   useEffect(() => {
     const m = map.current;
@@ -309,19 +409,183 @@ export function AreaMap({
     };
   }, [drawing, tool, rectGeoJson]);
 
-  /** Centre and frame a box the user chose elsewhere (a place search result). */
-  const frame = useCallback((b: DrawnBox) => {
-    map.current?.fitBounds(
+  // Editing: grab a handle, drag it, drop it. Bound once and only active when the
+  // draw tool is *not* armed, so drawing a new shape and editing the current one cannot
+  // both claim the pointer.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || drawing) return;
+
+    /** Metres between two positions. Only used for a circle's radius, over a few
+     *  kilometres at Swiss latitudes, where the spherical approximation is well inside
+     *  a pixel. The authoritative value is recomputed in LV95 by the backend. */
+    const metres = (a1: maplibregl.LngLat, b: maplibregl.LngLat) => {
+      const R = 6_371_000;
+      const dLat = ((b.lat - a1.lat) * Math.PI) / 180;
+      const dLon = ((b.lng - a1.lng) * Math.PI) / 180;
+      const lat = ((a1.lat + b.lat) / 2) * (Math.PI / 180);
+      const x = dLon * Math.cos(lat);
+      return Math.sqrt(x * x + dLat * dLat) * R;
+    };
+
+    /** The handle under the pointer, if any. */
+    const handleAt = (e: maplibregl.MapMouseEvent): AreaHandle | null => {
+      const current = outlineRef.current;
+      if (!current?.editable || !m.getLayer(HANDLE_LAYER)) return null;
+      const box: [maplibregl.PointLike, maplibregl.PointLike] = [
+        [e.point.x - GRAB_RADIUS, e.point.y - GRAB_RADIUS],
+        [e.point.x + GRAB_RADIUS, e.point.y + GRAB_RADIUS],
+      ];
+      const hit = m.queryRenderedFeatures(box, { layers: [HANDLE_LAYER] })[0];
+      const at = hit?.properties?.at;
+      return typeof at === "number" ? (current.handles[at] ?? null) : null;
+    };
+
+    /** Whether the pointer is inside the shape, which is what makes it draggable. */
+    const insideShape = (e: maplibregl.MapMouseEvent) =>
+      !!outlineRef.current?.editable &&
+      !!m.getLayer("s2g-rect-fill") &&
+      m.queryRenderedFeatures(e.point, { layers: ["s2g-rect-fill"] }).length > 0;
+
+    const hover = (e: maplibregl.MapMouseEvent) => {
+      if (grabbed.current) return;
+      const over = !!handleAt(e) || insideShape(e);
+      setHovering(over);
+      m.getCanvas().style.cursor = over ? "move" : "";
+    };
+
+    const down = (e: maplibregl.MapMouseEvent) => {
+      const handle = handleAt(e);
+      // Clicking the body of the shape moves the whole thing: the "area pannable" half
+      // of being able to edit a selection. A synthetic centre handle carries it, so the
+      // drop path below has one shape to deal with.
+      const grabbedHandle =
+        handle ??
+        (insideShape(e)
+          ? { lon: e.lngLat.lng, lat: e.lngLat.lat, role: "centre" as const, index: 0 }
+          : null);
+      if (!grabbedHandle) return;
+      grabbed.current = { handle: grabbedHandle, from: e.lngLat };
+      // Only now: otherwise the map pans out from under every handle drag.
+      m.dragPan.disable();
+      e.preventDefault();
+    };
+
+    const move = (e: maplibregl.MapMouseEvent) => {
+      const g = grabbed.current;
+      if (!g) {
+        hover(e);
+        return;
+      }
+      // A local preview while dragging. Approximate on purpose -- it is redrawn from
+      // the backend's answer on release, which is the authoritative one.
+      const current = outlineRef.current;
+      if (!current) return;
+      const src = m.getSource(RECT_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      const dLon = e.lngLat.lng - g.from.lng;
+      const dLat = e.lngLat.lat - g.from.lat;
+      if (g.handle.role === "centre") {
+        // Moving the whole shape previews exactly: every point shifts by the same
+        // amount, so the local approximation and the backend's answer agree.
+        src?.setData({
+          type: "FeatureCollection",
+          features: current.rings.map((ring) => ({
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Polygon",
+              coordinates: [ring.map(([lon, lat]) => [lon + dLon, lat + dLat])],
+            },
+          })),
+        } as never);
+      }
+
+      // Every other drag previews by moving the *handle*, not the outline. Reshaping the
+      // outline locally would mean reimplementing which corner anchors which -- the one
+      // thing deliberately kept in Rust and tested there -- and getting it subtly
+      // different here would show as the shape jumping on release. The dot following the
+      // cursor is enough to make the drag feel connected; the shape snaps to the
+      // authoritative result when the button comes up.
+      const handles = m.getSource(HANDLE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      handles?.setData({
+        type: "FeatureCollection",
+        features: current.handles.map((h, i) => {
+          const dragged = h.role === g.handle.role && h.index === g.handle.index;
+          return {
+            type: "Feature",
+            id: i,
+            properties: { role: h.role, index: h.index, at: i },
+            geometry: {
+              type: "Point",
+              coordinates: dragged ? [e.lngLat.lng, e.lngLat.lat] : [h.lon, h.lat],
+            },
+          };
+        }),
+      } as never);
+    };
+
+    const up = (e: maplibregl.MapMouseEvent) => {
+      const g = grabbed.current;
+      grabbed.current = null;
+      m.dragPan.enable();
+      if (!g) return;
+
+      const moved =
+        Math.abs(e.point.x - m.project(g.from).x) + Math.abs(e.point.y - m.project(g.from).y);
+      // A click is not a drag. Without this, selecting the shape would nudge it.
+      if (moved < 3) return;
+
+      const centre = outlineRef.current?.handles.find((h) => h.role === "centre");
+      onEditRef.current?.({
+        handle: g.handle,
+        lon: e.lngLat.lng,
+        lat: e.lngLat.lat,
+        radiusM:
+          g.handle.role === "radius" && centre
+            ? metres(new maplibregl.LngLat(centre.lon, centre.lat), e.lngLat)
+            : undefined,
+        dLon: e.lngLat.lng - g.from.lng,
+        dLat: e.lngLat.lat - g.from.lat,
+      });
+    };
+
+    m.on("mousedown", down);
+    m.on("mousemove", move);
+    m.on("mouseup", up);
+    return () => {
+      m.off("mousedown", down);
+      m.off("mousemove", move);
+      m.off("mouseup", up);
+      m.getCanvas().style.cursor = "";
+      grabbed.current = null;
+      m.dragPan.enable();
+    };
+  }, [drawing]);
+
+  /** Centre and frame a box the user chose elsewhere (a place search result).
+   *
+   * Only when it is not already on screen. Refitting on every change would yank the
+   * view away mid-edit: dragging a corner changes the selection, which changes the box,
+   * which would re-frame the map under the cursor on every single drag.
+   */
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !box) return;
+    const view = m.getBounds();
+    const onScreen =
+      box.west >= view.getWest() &&
+      box.east <= view.getEast() &&
+      box.south >= view.getSouth() &&
+      box.north <= view.getNorth();
+    if (onScreen) return;
+    m.fitBounds(
       [
-        [b.west, b.south],
-        [b.east, b.north],
+        [box.west, box.south],
+        [box.east, box.north],
       ],
       { padding: 40, duration: 400 },
     );
-  }, []);
-  useEffect(() => {
-    if (box) frame(box);
-  }, [box, frame]);
+  }, [box]);
 
   return (
     <div className="areamap">
@@ -349,6 +613,17 @@ export function AreaMap({
           <span className="muted small">
             {tool === "polygon" ? t("map.polygonHint") : t("map.drawing")}
           </span>
+        )}
+        {/* Draggable handles are invisible as an affordance until the pointer is over
+            one, so say what they do the moment the pointer finds them -- and say why
+            not, for the selections whose shape is derived from data. */}
+        {!drawing && outline?.editable && (
+          <span className="muted small">
+            {hovering ? t("map.editDragging") : t("map.editHint")}
+          </span>
+        )}
+        {!drawing && outline && !outline.editable && outline.notEditableBecause && (
+          <span className="muted small">{outline.notEditableBecause}</span>
         )}
         <div className="spacer" />
         <select

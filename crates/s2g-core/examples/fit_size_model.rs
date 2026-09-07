@@ -23,7 +23,9 @@ use s2g_core::recipe::{AreaSelection, Preset, Recipe, ReliefDetail};
 
 fn arg(name: &str) -> Option<String> {
     let a: Vec<String> = std::env::args().collect();
-    a.iter().position(|x| x == name).and_then(|i| a.get(i + 1).cloned())
+    a.iter()
+        .position(|x| x == name)
+        .and_then(|i| a.get(i + 1).cloned())
 }
 
 fn root() -> PathBuf {
@@ -63,7 +65,8 @@ const PLAN: &[(&str, f64, Preset, i32, ReliefDetail)] = &[
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = root();
     let out = PathBuf::from(
-        arg("--out").unwrap_or_else(|| root.join("estimator/size-model.json").display().to_string()),
+        arg("--out")
+            .unwrap_or_else(|| root.join("estimator/size-model.json").display().to_string()),
     );
     let device_id = arg("--device").unwrap_or_else(|| "edge-840".into());
 
@@ -87,7 +90,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for (i, (place, radius_km, preset, interval, relief)) in PLAN.iter().enumerate() {
         let Some(hit) = gpkg.find_places(place)?.into_iter().next() else {
-            println!("[{:2}/{}] {place}: no such place, skipped", i + 1, PLAN.len());
+            println!(
+                "[{:2}/{}] {place}: no such place, skipped",
+                i + 1,
+                PLAN.len()
+            );
             continue;
         };
         let mut recipe = Recipe::new(
@@ -154,13 +161,24 @@ fn report(samples: &[Sample], out: &Path) -> Result<(), Box<dyn std::error::Erro
     println!("\nsamples      : {}", samples.len());
     println!("chosen lambda: {lambda:.0e}");
     println!("prior MAPE   : {:.1}%", prior.mape(samples) * 100.0);
-    println!("fitted MAPE  : {:.1}%  (LOOCV {:.1}%)",
+    println!(
+        "fitted MAPE  : {:.1}%  (LOOCV {:.1}%)",
         fitted.mape(samples) * 100.0,
-        SizeModel::loocv_mape(samples, &prior, lambda) * 100.0);
+        SizeModel::loocv_mape(samples, &prior, lambda) * 100.0
+    );
 
     let names = [
-        "intercept", "landCover", "water", "transport", "built", "names", "winter", "cycling",
-        "contour/km² @20m", "relief/km² 1\"", "relief/km² 3\"",
+        "intercept",
+        "landCover",
+        "water",
+        "transport",
+        "built",
+        "names",
+        "winter",
+        "cycling",
+        "contour/km² @20m",
+        "relief/km² 1\"",
+        "relief/km² 3\"",
     ];
     println!("\n{:<20} {:>14} {:>14}", "term", "prior", "fitted");
     for (i, n) in names.iter().enumerate() {
@@ -172,7 +190,10 @@ fn report(samples: &[Sample], out: &Path) -> Result<(), Box<dyn std::error::Erro
 
     // Stage timings: the seed weights for the build-time estimate (FR-70a). Printed in
     // the form the constant takes, so it is transcribed rather than retyped.
-    let timed: Vec<&Sample> = samples.iter().filter(|s| !s.stage_seconds.is_empty()).collect();
+    let timed: Vec<&Sample> = samples
+        .iter()
+        .filter(|s| !s.stage_seconds.is_empty())
+        .collect();
     if timed.is_empty() {
         println!("\nno stage timings in these samples");
     } else {
@@ -196,7 +217,12 @@ fn report(samples: &[Sample], out: &Path) -> Result<(), Box<dyn std::error::Erro
         .map(|s| {
             let p = fitted.predict(&s.predictors) as f64;
             let a = s.actual_bytes as f64;
-            ((p - a).abs() / a, s.actual_bytes, p as u64, s.predictors.area_km2)
+            (
+                (p - a).abs() / a,
+                s.actual_bytes,
+                p as u64,
+                s.predictors.area_km2,
+            )
         })
         .collect();
     rows.sort_by(|x, y| y.0.total_cmp(&x.0));

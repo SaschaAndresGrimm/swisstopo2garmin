@@ -35,6 +35,15 @@ use crate::recipe::{Recipe, ReliefDetail};
 /// All three are steep alpine terrain, which is the worst case: slope classes only
 /// exist above 30°, so a Mittelland build adds far less. The error is therefore on the
 /// side of over-estimating, which is the safe side for a device budget.
+///
+/// It is nonetheless the weakest term in the model, and it is worth being explicit about
+/// why rather than leaving it to be rediscovered. The real driver is not area but the
+/// number of traced areas, which is the terrain's steepness: the reference builds range
+/// from 18.9 areas/km² in Appenzell to 43.7 in Grindelwald, a factor of 2.3. Nothing
+/// cheap reveals that before the elevation tiles are fetched — the same obstacle the
+/// contour term has — so a per-km² constant is the best a *pre-build* estimate can do,
+/// and it will over-predict gentle ground and under-predict steep. The two worst
+/// residuals in the reference suite are both slope builds, and this is why.
 pub const SLOPE_BYTES_PER_KM2: f64 = 3_568.0;
 
 /// Number of fitted coefficients: intercept, one per layer group, contour, two relief.
@@ -54,6 +63,12 @@ pub struct Predictors {
     /// Defaults so logs written before slope classes existed still load.
     #[serde(default)]
     pub slope_classes: bool,
+    /// True for a wrist device, which is compiled with the reduced cartography.
+    ///
+    /// Not a feature of the area but of the style applied to it, and it changes the
+    /// output size by a quarter. Defaults so older logs still load.
+    #[serde(default)]
+    pub wrist: bool,
 }
 
 impl Predictors {
@@ -61,8 +76,18 @@ impl Predictors {
     fn row(&self) -> [f64; TERMS] {
         let mut x = [0.0; TERMS];
         x[0] = 1.0;
+        // The wrist style keeps only a fraction of the features, so the reduction is
+        // applied to the feature columns rather than to the finished prediction. Doing it
+        // here means the fit sees it too: a wrist sample contributes scaled features
+        // against its real size, so the coefficients stay per-feature costs for the full
+        // cartography and a wrist build in the calibration log does not drag them down.
+        let feature_factor = if self.wrist {
+            WRIST_FEATURE_FACTOR
+        } else {
+            1.0
+        };
         for (i, g) in LayerGroup::all().iter().enumerate() {
-            x[1 + i] = *self.group_counts.get(g.id()).unwrap_or(&0) as f64;
+            x[1 + i] = *self.group_counts.get(g.id()).unwrap_or(&0) as f64 * feature_factor;
         }
         // Contour length scales with area and inversely with the interval. Normalised
         // at 20 m so the coefficient reads as "bytes per km² at a 20 m interval".
@@ -133,17 +158,49 @@ impl Default for SizeModel {
     }
 }
 
+/// What fraction of the *feature* bytes the reduced wrist cartography keeps.
+///
+/// The wrist style drops buildings, parking and orchards and carries about 73 % fewer
+/// labels (FR-CART6), so the features cost far less — while the contours, the relief DEM
+/// and the fixed per-map overhead are the same on both devices. Applying one flat factor
+/// to the whole prediction was the first attempt and it failed on the reference suite:
+/// Bellinzona, which is dense, needed 0.48 while alpine Saas-Fee needed 0.69. Scaling
+/// only the terms that actually shrink explains both, because the difference between
+/// those two areas *is* their feature count.
+///
+/// **Fitted** to the six wrist builds in `estimator/reference/`, jointly with
+/// [`WRIST_SLOPE_FACTOR`] and holding [`SLOPE_BYTES_PER_KM2`] at its measured value —
+/// deliberately, so correcting a wrist problem could not quietly distort a handlebar
+/// constant that had been measured.
+///
+/// The two together take the worst error over all sixteen reference builds from 66 % to
+/// 24.5 %. Read that number carefully: both constants were fitted on the same sixteen
+/// builds the error is reported over, so it is in-sample, and the feasible region is
+/// narrow — 0.40 to 0.41 paired with a slope factor of 0.55, and nothing else stays
+/// inside ±25 %. Half a percentage point of margin against the requirement is not
+/// comfort. docs/size-model.md says what would earn some.
+pub const WRIST_FEATURE_FACTOR: f64 = 0.41;
+
+/// What fraction of the slope-class bytes a wrist build carries.
+///
+/// Mechanism, not just a fit: both styles draw all five slope bands, but the handlebar
+/// style emits them at `resolution 19` and the wrist style at `resolution 20`
+/// (`style/*/polygons`), so the wrist map carries them at one fewer zoom level.
+///
+/// Fitted from the two wrist builds with slope classes, which is thin. It is here because
+/// the alternative — pretending the cost is identical — was 66 % out on one of them.
+pub const WRIST_SLOPE_FACTOR: f64 = 0.55;
 /// What the slope classes add to a build of this area.
 ///
 /// Kept outside the fitted model deliberately: it is added here and subtracted before
 /// fitting, so a user who builds with slope classes on does not have their extra bytes
 /// attributed to the feature-count coefficients.
 fn slope_adjustment(p: &Predictors) -> f64 {
-    if p.slope_classes {
-        p.area_km2 * SLOPE_BYTES_PER_KM2
-    } else {
-        0.0
+    if !p.slope_classes {
+        return 0.0;
     }
+    let style = if p.wrist { WRIST_SLOPE_FACTOR } else { 1.0 };
+    p.area_km2 * SLOPE_BYTES_PER_KM2 * style
 }
 
 impl SizeModel {
@@ -154,6 +211,9 @@ impl SizeModel {
             .zip(self.coefficients.iter())
             .map(|(a, b)| a * b)
             .sum();
+        // Slope is additive -- it draws extra polygons -- and stays outside the fit so a
+        // slope build does not attribute its extra bytes to the feature coefficients.
+        // The wrist reduction is already in the row.
         (y + slope_adjustment(p)).max(0.0) as u64
     }
 
@@ -257,9 +317,7 @@ impl SizeModel {
     /// Returns the model and the chosen lambda. The grid spans "essentially free" to
     /// "essentially the prior", so the data decides how much it is trusted.
     pub fn fit_cv(samples: &[Sample], prior: &SizeModel) -> (SizeModel, f64) {
-        const GRID: [f64; 11] = [
-            0.0, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11,
-        ];
+        const GRID: [f64; 11] = [0.0, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11];
         let best = GRID
             .iter()
             .map(|l| (*l, SizeModel::loocv_mape(samples, prior, *l)))
@@ -384,6 +442,84 @@ impl CalibrationLog {
 ///
 /// Averaged as fractions of each build, exactly as [`stage_weights`] averages the log,
 /// so a measured seed and a refitted one mean the same thing.
+/// A way of getting a too-large map under the device budget.
+///
+/// An enum rather than a sentence, because the UI translates into four languages and a
+/// remedy that does not apply to the recipe at hand is worse than no advice: telling
+/// somebody to coarsen contours that are already off reads as the app not knowing what
+/// it is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Remedy {
+    /// Select less ground. Always available.
+    SmallerArea,
+    /// Widen the contour interval. Contours are the largest single contributor.
+    CoarserContours,
+    /// Turn off layers that are currently on.
+    FewerLayers,
+    /// Drop the shaded-relief DEM, which is a fixed cost per square kilometre.
+    NoRelief,
+    /// Drop the slope classes.
+    NoSlopeClasses,
+    /// Build several map sets and let the device switch between them (FR-36).
+    SplitIntoMapSets,
+}
+
+/// Whether a predicted size fits the device, and what would help if it does not
+/// (SPEC.md §12, "Estimate exceeds device limit — block with explanation; offer smaller
+/// area, coarser contours, fewer layers, or split into map sets").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BudgetVerdict {
+    pub over_budget: bool,
+    /// How much has to go, zero when it fits.
+    pub overshoot_bytes: u64,
+    /// Only the remedies that would actually change this recipe, most effective first.
+    pub remedies: Vec<Remedy>,
+}
+
+/// Judge a predicted size against a device budget.
+///
+/// Ordered by how much each one saves on a typical build, from the measured stage
+/// weights: contours dominate, then the area itself, then relief, then the rest.
+/// `SplitIntoMapSets` comes last because it is the only one that keeps every bit of the
+/// map the user asked for, and so is the fallback rather than the first suggestion.
+pub fn budget_verdict(estimated_bytes: u64, budget_bytes: u64, recipe: &Recipe) -> BudgetVerdict {
+    if estimated_bytes <= budget_bytes {
+        return BudgetVerdict {
+            over_budget: false,
+            overshoot_bytes: 0,
+            remedies: Vec::new(),
+        };
+    }
+
+    let mut remedies = Vec::new();
+    // Contours first: they are 43% of build time and the largest part of the output.
+    // Only worth suggesting when there is room to coarsen, which 100 m already lacks.
+    if recipe.contours.interval_m > 0 && recipe.contours.interval_m < 100 {
+        remedies.push(Remedy::CoarserContours);
+    }
+    remedies.push(Remedy::SmallerArea);
+    if recipe.relief != ReliefDetail::Off {
+        remedies.push(Remedy::NoRelief);
+    }
+    if recipe.slope_classes {
+        remedies.push(Remedy::NoSlopeClasses);
+    }
+    // "Fewer layers" is only honest advice when some are still on. With everything
+    // already excluded there is nothing left to turn off.
+    if recipe.excluded_layers.len() < crate::extract::DEFAULT_LAYERS.len() {
+        remedies.push(Remedy::FewerLayers);
+    }
+    remedies.push(Remedy::SplitIntoMapSets);
+
+    BudgetVerdict {
+        over_budget: true,
+        overshoot_bytes: estimated_bytes - budget_bytes,
+        remedies,
+    }
+}
+
 pub const DEFAULT_STAGE_WEIGHTS: [f64; 7] = [
     0.0372, // extract
     0.3254, // elevation
@@ -537,7 +673,10 @@ pub fn count_groups(
                 .file_stem()
                 .map(|x| x.to_string_lossy().to_string())
                 .unwrap_or_default();
-            let Some(spec) = crate::extract::CYCLE_LAYERS.iter().find(|sp| sp.layer == stem) else {
+            let Some(spec) = crate::extract::CYCLE_LAYERS
+                .iter()
+                .find(|sp| sp.layer == stem)
+            else {
                 continue;
             };
             if !keep(spec.layer) {
@@ -562,16 +701,19 @@ pub fn count_groups(
 mod tests {
     use super::*;
 
-    fn predictors(counts: &[(&str, u64)], area: f64, interval: i32, relief: ReliefDetail) -> Predictors {
+    fn predictors(
+        counts: &[(&str, u64)],
+        area: f64,
+        interval: i32,
+        relief: ReliefDetail,
+    ) -> Predictors {
         Predictors {
-            group_counts: counts
-                .iter()
-                .map(|(k, v)| ((*k).to_string(), *v))
-                .collect(),
+            group_counts: counts.iter().map(|(k, v)| ((*k).to_string(), *v)).collect(),
             area_km2: area,
             contour_interval_m: interval,
             relief,
             slope_classes: false,
+            wrist: false,
         }
     }
 
@@ -640,7 +782,12 @@ mod tests {
     #[test]
     fn a_single_sample_nudges_rather_than_replaces() {
         let prior = SizeModel::default();
-        let p = predictors(&[("transport", 20_000), ("built", 40_000)], 144.0, 20, ReliefDetail::Gentle);
+        let p = predictors(
+            &[("transport", 20_000), ("built", 40_000)],
+            144.0,
+            20,
+            ReliefDetail::Gentle,
+        );
         let predicted = prior.predict(&p);
         let sample = Sample {
             predictors: p.clone(),
@@ -794,7 +941,10 @@ mod tests {
             .collect();
 
         let (fitted, lambda) = SizeModel::fit_cv(&samples, &SizeModel::default());
-        assert!(lambda <= 1e3, "clean data should not be regularised hard: {lambda}");
+        assert!(
+            lambda <= 1e3,
+            "clean data should not be regularised hard: {lambda}"
+        );
         assert!(fitted.mape(&samples) < 1e-3);
     }
 
@@ -834,7 +984,10 @@ mod tests {
                 "lambda {lambda} scored {chosen} but {other} scored {score}"
             );
         }
-        assert!(fitted.coefficients.iter().all(|c| c.is_finite() && *c >= 0.0));
+        assert!(fitted
+            .coefficients
+            .iter()
+            .all(|c| c.is_finite() && *c >= 0.0));
         assert_eq!(fitted.coefficients.len(), TERMS);
     }
 
@@ -977,8 +1130,10 @@ mod tests {
     }
 }
 
+/// The two adjustments that sit outside the fitted model: the additive slope term and
+/// the multiplicative wrist factor.
 #[cfg(test)]
-mod slope_tests {
+mod adjustment_tests {
     use super::*;
 
     fn predictors(area_km2: f64, slope: bool) -> Predictors {
@@ -988,6 +1143,7 @@ mod slope_tests {
             contour_interval_m: 20,
             relief: ReliefDetail::Off,
             slope_classes: slope,
+            wrist: false,
         }
     }
 
@@ -1010,7 +1166,11 @@ mod slope_tests {
     #[test]
     fn the_slope_estimate_matches_the_paired_builds_it_came_from() {
         // area km², measured with, measured without.
-        let observed = [(144.0, 1_559_040u64, 1_089_024u64), (100.0, 1_184_256, 822_784), (100.0, 1_153_024, 770_560)];
+        let observed = [
+            (144.0, 1_559_040u64, 1_089_024u64),
+            (100.0, 1_184_256, 822_784),
+            (100.0, 1_153_024, 770_560),
+        ];
         for (km2, with_s, without) in observed {
             let predicted_extra = km2 * SLOPE_BYTES_PER_KM2;
             let actual_extra = (with_s - without) as f64;
@@ -1063,5 +1223,278 @@ mod slope_tests {
         let old = r#"{"predictors":{"groupCounts":{},"areaKm2":100.0,"contourIntervalM":20,"relief":"off"},"actualBytes":1000}"#;
         let s: Sample = serde_json::from_str(old).expect("older log lines must parse");
         assert!(!s.predictors.slope_classes);
+    }
+
+    // ---- the wrist cartography factor (FR-60) ---------------------------
+
+    /// A 144 km² area with the feature mix of the Grindelwald reference build.
+    fn alpine_area() -> Predictors {
+        Predictors {
+            group_counts: [
+                ("transport".to_string(), 3_918),
+                ("landCover".to_string(), 3_315),
+                ("built".to_string(), 6_507),
+                ("water".to_string(), 2_453),
+            ]
+            .into_iter()
+            .collect(),
+            area_km2: 144.0,
+            contour_interval_m: 20,
+            relief: ReliefDetail::Gentle,
+            slope_classes: false,
+            wrist: false,
+        }
+    }
+
+    /// The one clean wrist/handlebar pair: Grindelwald 6 km, hiking, 20 m contours,
+    /// gentle relief, the same recipe on both devices — 1,105,408 B on an Edge 840
+    /// against 792,576 B on a fēnix 5 Plus.
+    ///
+    /// The prediction has to land near that ratio, but the ratio is *not* the constant:
+    /// only the feature terms shrink, so the whole-map ratio depends on how much of the
+    /// map is features. A flat factor equal to this ratio was the first attempt and it
+    /// was 66 % out on another area.
+    #[test]
+    fn the_measured_pair_is_reproduced_by_scaling_the_feature_terms() {
+        let model = SizeModel::default();
+        let handlebar = alpine_area();
+        let wrist = Predictors {
+            wrist: true,
+            ..handlebar.clone()
+        };
+        let ratio = model.predict(&wrist) as f64 / model.predict(&handlebar) as f64;
+        let measured = 792_576.0 / 1_105_408.0;
+        assert!(
+            (ratio - measured).abs() < 0.12,
+            "predicted ratio {ratio:.3} against a measured {measured:.3}"
+        );
+        // And the whole-map ratio must be above the feature factor, because contours,
+        // relief and the fixed overhead do not shrink at all.
+        assert!(
+            ratio > WRIST_FEATURE_FACTOR,
+            "ratio {ratio:.3} is at or below the feature factor, so something that \
+             should not shrink did"
+        );
+    }
+
+    /// All sixteen training builds were handlebar maps, so without this term a fēnix
+    /// estimate was the Edge estimate — over by a third, which is well outside FR-60.
+    #[test]
+    fn a_wrist_build_is_predicted_smaller_than_the_same_area_on_a_handlebar_device() {
+        let model = SizeModel::default();
+        let handlebar = alpine_area();
+        let wrist = Predictors {
+            wrist: true,
+            ..handlebar.clone()
+        };
+
+        let (h, w) = (model.predict(&handlebar), model.predict(&wrist));
+        assert!(w < h, "wrist {w} should be under handlebar {h}");
+
+        // Only the feature terms shrink. Everything else -- the intercept, the contour
+        // term and the relief term -- is identical, so the difference must be exactly
+        // the feature reduction.
+        let bare = Predictors {
+            group_counts: Default::default(),
+            ..handlebar.clone()
+        };
+        let fixed = model.predict(&bare) as f64;
+        let expected = fixed + (h as f64 - fixed) * WRIST_FEATURE_FACTOR;
+        assert!(
+            (w as f64 - expected).abs() < 2.0,
+            "wrist prediction {w} against {expected:.0} from scaling features alone"
+        );
+    }
+
+    /// The factor must be inverted before fitting, exactly as the slope term is: a wrist
+    /// build in somebody's calibration log must not teach the model that land cover
+    /// costs three quarters of what it does.
+    #[test]
+    fn a_wrist_sample_does_not_shrink_the_fitted_coefficients() {
+        let prior = SizeModel::default();
+        let base = alpine_area();
+
+        // A handlebar build the prior predicts exactly, and the wrist build of the same
+        // area, which by construction comes out at whatever the prior says for it.
+        let handlebar_bytes = prior.predict(&base);
+        let wrist_bytes = prior.predict(&Predictors {
+            wrist: true,
+            ..base.clone()
+        });
+
+        let samples = vec![
+            Sample {
+                predictors: base.clone(),
+                actual_bytes: handlebar_bytes,
+                stage_seconds: vec![],
+                at: 0,
+            },
+            Sample {
+                predictors: Predictors {
+                    wrist: true,
+                    ..base.clone()
+                },
+                actual_bytes: wrist_bytes,
+                stage_seconds: vec![],
+                at: 0,
+            },
+        ];
+
+        let fitted = SizeModel::fit(&samples, &prior, 1e7);
+        // Both samples agree with the prior once the factor is divided out, so the fit
+        // should not have moved. Without the inversion the wrist sample would pull every
+        // coefficient down.
+        for (i, (a, b)) in fitted
+            .coefficients
+            .iter()
+            .zip(prior.coefficients.iter())
+            .enumerate()
+        {
+            assert!(
+                (a - b).abs() < b.abs() * 0.02 + 1.0,
+                "coefficient {i} moved from {b} to {a}"
+            );
+        }
+    }
+
+    /// A round trip through the log, because the field is `#[serde(default)]` and a
+    /// default that silently swallowed a true would be invisible.
+    #[test]
+    fn the_wrist_flag_survives_the_calibration_log() {
+        let json = serde_json::to_string(&Sample {
+            predictors: Predictors {
+                wrist: true,
+                ..alpine_area()
+            },
+            actual_bytes: 1,
+            stage_seconds: vec![],
+            at: 0,
+        })
+        .unwrap();
+        assert!(json.contains("\"wrist\":true"), "{json}");
+        let back: Sample = serde_json::from_str(&json).unwrap();
+        assert!(back.predictors.wrist);
+    }
+
+    /// The sixteen shipped training samples predate the field, and must still load as
+    /// handlebar builds — which is what they are.
+    #[test]
+    fn a_log_written_before_the_wrist_field_existed_loads_as_handlebar() {
+        let json = r#"{"predictors":{"groupCounts":{"transport":100},"areaKm2":10.0,
+                       "contourIntervalM":20,"relief":"gentle"},"actualBytes":1000}"#;
+        let s: Sample = serde_json::from_str(json).unwrap();
+        assert!(!s.predictors.wrist);
+    }
+}
+
+/// Judging a prediction against a device budget (SPEC.md §12).
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    use crate::recipe::ReliefDetail;
+
+    fn budget_recipe() -> Recipe {
+        let mut r = Recipe::new(
+            "test",
+            "fenix-5-plus",
+            crate::recipe::AreaSelection::BBox {
+                min_e: 2_600_000.0,
+                min_n: 1_190_000.0,
+                max_e: 2_650_000.0,
+                max_n: 1_240_000.0,
+            },
+        );
+        r.contours.interval_m = 20;
+        r.relief = ReliefDetail::Gentle;
+        r
+    }
+
+    #[test]
+    fn a_map_that_fits_gets_no_advice() {
+        let v = budget_verdict(50_000_000, 100_000_000, &budget_recipe());
+        assert!(!v.over_budget);
+        assert_eq!(v.overshoot_bytes, 0);
+        assert!(
+            v.remedies.is_empty(),
+            "advice was offered for a map that fits"
+        );
+    }
+
+    /// Exactly at the budget fits: the budget already carries a safety factor from the
+    /// profile's confidence level, so subtracting a second margin here would compound it.
+    #[test]
+    fn a_map_exactly_at_the_budget_fits() {
+        assert!(!budget_verdict(100_000_000, 100_000_000, &budget_recipe()).over_budget);
+        assert!(budget_verdict(100_000_001, 100_000_000, &budget_recipe()).over_budget);
+    }
+
+    #[test]
+    fn an_oversized_map_reports_how_much_has_to_go() {
+        let v = budget_verdict(150_000_000, 100_000_000, &budget_recipe());
+        assert!(v.over_budget);
+        assert_eq!(v.overshoot_bytes, 50_000_000);
+    }
+
+    /// SPEC.md §12 names four remedies. Contours first, because they are the largest
+    /// part of the output; splitting last, because it is the only one that keeps
+    /// everything the user asked for.
+    #[test]
+    fn the_remedies_are_ordered_by_what_they_save() {
+        let v = budget_verdict(150_000_000, 100_000_000, &budget_recipe());
+        assert_eq!(v.remedies.first(), Some(&Remedy::CoarserContours));
+        assert_eq!(v.remedies.last(), Some(&Remedy::SplitIntoMapSets));
+        assert!(v.remedies.contains(&Remedy::SmallerArea));
+        assert!(v.remedies.contains(&Remedy::FewerLayers));
+    }
+
+    /// Advice that cannot be followed reads as the app not understanding its own state.
+    #[test]
+    fn remedies_that_would_change_nothing_are_not_offered() {
+        let mut r = budget_recipe();
+        r.contours.interval_m = 0;
+        r.relief = ReliefDetail::Off;
+        r.slope_classes = false;
+        r.excluded_layers = crate::extract::DEFAULT_LAYERS
+            .iter()
+            .map(|l| l.layer.to_string())
+            .collect();
+
+        let v = budget_verdict(150_000_000, 100_000_000, &r);
+        assert!(
+            !v.remedies.contains(&Remedy::CoarserContours),
+            "contours are off"
+        );
+        assert!(!v.remedies.contains(&Remedy::NoRelief), "relief is off");
+        assert!(
+            !v.remedies.contains(&Remedy::NoSlopeClasses),
+            "slopes are off"
+        );
+        assert!(
+            !v.remedies.contains(&Remedy::FewerLayers),
+            "every layer is excluded"
+        );
+        // Two always remain, and they are always true.
+        assert_eq!(
+            v.remedies,
+            vec![Remedy::SmallerArea, Remedy::SplitIntoMapSets]
+        );
+    }
+
+    /// 100 m is the coarsest interval the UI offers, so there is nothing to coarsen.
+    #[test]
+    fn contours_already_at_the_coarsest_interval_are_not_suggested() {
+        let mut r = budget_recipe();
+        r.contours.interval_m = 100;
+        let v = budget_verdict(150_000_000, 100_000_000, &r);
+        assert!(!v.remedies.contains(&Remedy::CoarserContours));
+    }
+
+    #[test]
+    fn slope_classes_are_offered_as_a_saving_only_when_they_are_on() {
+        let mut r = budget_recipe();
+        r.slope_classes = true;
+        assert!(budget_verdict(150_000_000, 100_000_000, &r)
+            .remedies
+            .contains(&Remedy::NoSlopeClasses));
     }
 }

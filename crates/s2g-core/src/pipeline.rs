@@ -123,7 +123,11 @@ async fn build_region(
     warnings: &mut Vec<String>,
     contour_lines: &mut usize,
     slope_areas: &mut usize,
-) -> Result<(PathBuf, crate::extract::ExtractStats, Option<crate::elevation::Grid>)> {
+) -> Result<(
+    PathBuf,
+    crate::extract::ExtractStats,
+    Option<crate::elevation::Grid>,
+)> {
     let pbf = ctx.work_dir.join("region.osm.pbf");
     let mut builder = RegionBuilder::create(&pbf, bbox)?;
     if let Some(mask) = area_mask {
@@ -151,8 +155,7 @@ async fn build_region(
                 }
             }
             None => warnings.push(
-                "swissNAMES3D is not downloaded, so labels stay in the local language"
-                    .into(),
+                "swissNAMES3D is not downloaded, so labels stay in the local language".into(),
             ),
         }
     }
@@ -301,10 +304,7 @@ async fn build_region(
         )
         .await?;
         if !fstats.missing.is_empty() {
-            warnings.push(format!(
-                "{} elevation tile(s) unavailable, so contours have gaps there",
-                fstats.missing.len()
-            ));
+            warnings.push(missing_tile_warning(&fstats.missing));
         }
 
         let grid = load_grid(&paths, bbox)?;
@@ -402,7 +402,7 @@ async fn write_manifest(
 
     let manifest = Manifest {
         schema_version: 1,
-        built_at: now_rfc3339(),
+        built_at: crate::clock::now_rfc3339(),
         recipe_key: recipe.cache_key(),
         recipe: recipe.clone(),
         sources,
@@ -432,30 +432,68 @@ async fn write_manifest(
     manifest.write_beside(&out.gmapsupp)
 }
 
-/// RFC 3339 in UTC, without pulling in a date library for one timestamp.
-fn now_rfc3339() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    // Days from the civil epoch, by Howard Hinnant's algorithm.
-    let days = (secs / 86_400) as i64;
-    let rem = secs % 86_400;
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
+/// Open a cached GeoPackage, quarantining it if it turns out not to be one.
+///
+/// SQLite opens lazily, so a truncated or half-written file opens cleanly and fails
+/// several stages later with a message about a missing table — which reads as a bug in
+/// this program rather than as damaged data. Reading `gpkg_contents` immediately is a
+/// single indexed query and settles it.
+///
+/// A file that fails is moved aside rather than deleted (FR-C5): it can be inspected,
+/// it is never silently reused, and the Data screen shows the dataset as absent so it
+/// can be downloaded again. Quarantining was implemented before this and never called
+/// from anywhere — the mechanism existed and the corruption path did not reach it.
+async fn open_verified(path: &Path, cache_root: &Path) -> Result<Gpkg> {
+    let corruption = match Gpkg::open(path) {
+        Ok(gpkg) => match gpkg.layers() {
+            Ok(layers) if !layers.is_empty() => return Ok(gpkg),
+            Ok(_) => "the file contains no layers".to_string(),
+            Err(e) => e.to_string(),
+        },
+        Err(e) => e.to_string(),
+    };
+
+    let cache = crate::cache::Cache::new(cache_root);
+    let moved = cache.quarantine_containing(path).await;
+    let where_now = match moved {
+        Ok(Some(dst)) => format!(
+            " It has been moved to {} so it cannot be reused.",
+            dst.display()
+        ),
+        // Outside the cache, or the move failed: either way, say nothing that is untrue
+        // about what happened to the user's file.
+        _ => String::new(),
+    };
+    Err(Error::NotFound(format!(
+        "the swissTLM3D data at {} is damaged ({corruption}).{where_now} Download it \
+         again on the Data screen.",
+        path.display()
+    )))
+}
+
+/// Name the elevation cells that were unavailable (SPEC.md §12).
+///
+/// The count alone left the user with nothing to check: swissALTI3D is published per
+/// square kilometre and cells do occasionally 404, so naming them is what lets somebody
+/// look the tile up on the portal or decide the gap is somewhere they do not care about.
+///
+/// Capped, because a whole-canton outage would otherwise produce a warning thousands of
+/// identifiers long. Cells are sorted so the list is the same on every run.
+fn missing_tile_warning(missing: &[crate::elevation::Cell]) -> String {
+    const NAMED: usize = 12;
+    let mut cells: Vec<_> = missing.to_vec();
+    cells.sort();
+    let named: Vec<String> = cells.iter().take(NAMED).map(|c| c.label()).collect();
+    let rest = cells.len().saturating_sub(named.len());
+    let tail = if rest > 0 {
+        format!(" and {rest} more")
+    } else {
+        String::new()
+    };
     format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60
+        "{} elevation tile(s) unavailable, so contours have gaps there: {}{tail}",
+        cells.len(),
+        named.join(", ")
     )
 }
 
@@ -469,8 +507,7 @@ fn now_rfc3339() -> String {
 fn required_bytes(bbox: &BBox, recipe: &Recipe, mask: Option<&crate::mask::Mask>) -> u64 {
     const TILE_BYTES: f64 = 1_200_000.0;
     const OVERHEAD_BYTES: u64 = 512 * 1024 * 1024;
-    let needs_elevation =
-        recipe.contours.interval_m > 0 || recipe.relief.resolution().is_some();
+    let needs_elevation = recipe.contours.interval_m > 0 || recipe.relief.resolution().is_some();
     if !needs_elevation {
         return OVERHEAD_BYTES;
     }
@@ -579,7 +616,7 @@ pub async fn build(
     let gpkg_path = find_tlm3d(&ctx.cache_root).ok_or_else(|| {
         Error::NotFound("swissTLM3D is not downloaded; fetch it on the Data screen".into())
     })?;
-    let gpkg = Gpkg::open(&gpkg_path)?;
+    let gpkg = open_verified(&gpkg_path, &ctx.cache_root).await?;
 
     let mut contour_lines = 0usize;
     let mut slope_areas = 0usize;
@@ -598,6 +635,17 @@ pub async fn build(
         .unwrap_or_default();
     let region_cache = crate::stage_cache::RegionCache::new(&ctx.cache_root);
     let region_key = crate::stage_cache::region_key(recipe, &source_release);
+
+    // Mark the work directory as belonging to a running build, so that if this process
+    // dies before the guard drops -- crash, force quit, power loss -- the next start can
+    // find the abandoned files and any Java children still running (SPEC.md §12).
+    // Dropped on every exit path, including a panic in a stage.
+    let _active = crate::recovery::ActiveBuild::begin(
+        &ctx.work_dir,
+        recipe,
+        &region_key,
+        &crate::clock::now_rfc3339(),
+    )?;
 
     let (pbf, stats, cached) = match region_cache.get(&region_key) {
         Some((path, cached_stats)) => {
@@ -670,9 +718,16 @@ pub async fn build(
         let grid = match elevation.take() {
             Some(g) => Some(g),
             None => {
-                let (paths, _) =
-                    fetch_tiles(ctx.http, &ctx.cache_root, &bbox, area_mask.as_deref(), 12, cancel, |_| {})
-                        .await?;
+                let (paths, _) = fetch_tiles(
+                    ctx.http,
+                    &ctx.cache_root,
+                    &bbox,
+                    area_mask.as_deref(),
+                    12,
+                    cancel,
+                    |_| {},
+                )
+                .await?;
                 Some(load_grid(&paths, &bbox)?)
             }
         };
@@ -695,15 +750,48 @@ pub async fn build(
     });
     let identity = MapIdentity::for_recipe(&recipe.cache_key(), &recipe.name);
     let tiles_dir = ctx.work_dir.join("tiles");
-    let _ = std::fs::remove_dir_all(&tiles_dir);
-    let tiles = split(&ctx.toolchain, &pbf, &tiles_dir, &identity, 700_000, 4096, cancel)?;
-    if tiles.len() > profile.map_file.max_tiles_per_mapset {
-        return Err(Error::Zip(format!(
-            "{} tiles exceeds the {} this device accepts; choose a smaller area",
-            tiles.len(),
-            profile.map_file.max_tiles_per_mapset
-        )));
-    }
+    // Splitting is retried with a larger --max-nodes when it produces more tiles than
+    // the device accepts: fewer, denser tiles for the same map (SPEC.md §12). Only when
+    // the ceiling is reached is the area genuinely too big for one map set, and then the
+    // message says the thing that actually helps -- partition it (FR-36).
+    let max_tiles = profile.map_file.max_tiles_per_mapset;
+    let mut max_nodes = crate::garmin::START_MAX_NODES;
+    let tiles = loop {
+        let _ = std::fs::remove_dir_all(&tiles_dir);
+        let tiles = split(
+            &ctx.toolchain,
+            &pbf,
+            &tiles_dir,
+            &identity,
+            max_nodes,
+            4096,
+            cancel,
+        )?;
+        match crate::garmin::retune_max_nodes(max_nodes, tiles.len(), max_tiles) {
+            Some(next) => {
+                warnings.push(format!(
+                    "{} tiles exceeded the {max_tiles} this device accepts, so tiles were \
+                     packed more densely (--max-nodes {next})",
+                    tiles.len()
+                ));
+                on_stage(StageUpdate {
+                    stage: Stage::Split,
+                    fraction: None,
+                    detail: format!("retrying with denser tiles ({next} nodes)"),
+                });
+                max_nodes = next;
+            }
+            None if tiles.len() > max_tiles => {
+                return Err(Error::Zip(format!(
+                    "{} tiles exceeds the {max_tiles} this device accepts, even with the \
+                     densest tiles the map compiler supports. Split the area into several \
+                     map sets, or choose a smaller area.",
+                    tiles.len()
+                )));
+            }
+            None => break tiles,
+        }
+    };
 
     // ---- compile ---------------------------------------------------------
     cancel.check_cancelled()?;
@@ -773,6 +861,9 @@ pub async fn build(
                 contour_interval_m: recipe.contours.interval_m,
                 relief: recipe.relief,
                 slope_classes: recipe.slope_classes,
+                // Which cartography was compiled, so the sample records the thing that
+                // changes its size by a quarter.
+                wrist: profile.is_wrist(),
             },
             actual_bytes: out.bytes,
             stage_seconds: stage_seconds
@@ -865,4 +956,48 @@ fn load_ice(gpkg: &Gpkg, bbox: &BBox) -> Vec<Vec<Vec<crate::geom::Coord>>> {
         true
     });
     polys
+}
+
+#[cfg(test)]
+mod missing_tile_tests {
+    use super::*;
+    use crate::elevation::Cell;
+
+    /// SPEC.md §12: "swissALTI3D tile missing — skip with a warning; contours for that
+    /// cell are absent, and the build report says which cells."
+    ///
+    /// The count alone was not enough: it told the user something was wrong and gave
+    /// them nothing to check.
+    #[test]
+    fn the_warning_names_the_cells_swisstopo_names() {
+        let w = missing_tile_warning(&[
+            Cell {
+                e_km: 2646,
+                n_km: 1163,
+            },
+            Cell {
+                e_km: 2645,
+                n_km: 1163,
+            },
+        ]);
+        assert!(w.contains("2 elevation tile"), "{w}");
+        // Sorted, so two runs of the same build produce the same warning.
+        assert!(w.contains("2645-1163, 2646-1163"), "{w}");
+        assert!(!w.contains("more"), "nothing was elided: {w}");
+    }
+
+    /// A regional outage must not produce a warning thousands of identifiers long.
+    #[test]
+    fn a_long_list_is_capped_but_still_reports_the_true_count() {
+        let many: Vec<Cell> = (0..500)
+            .map(|i| Cell {
+                e_km: 2600 + i,
+                n_km: 1100,
+            })
+            .collect();
+        let w = missing_tile_warning(&many);
+        assert!(w.contains("500 elevation tile"), "{w}");
+        assert!(w.contains("and 488 more"), "{w}");
+        assert!(w.len() < 300, "the warning is {} chars: {w}", w.len());
+    }
 }

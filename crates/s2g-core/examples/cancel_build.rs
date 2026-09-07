@@ -19,7 +19,9 @@ use s2g_core::recipe::{AreaSelection, Preset, Recipe, ReliefDetail};
 
 fn arg(name: &str) -> Option<String> {
     let a: Vec<String> = std::env::args().collect();
-    a.iter().position(|x| x == name).and_then(|i| a.get(i + 1).cloned())
+    a.iter()
+        .position(|x| x == name)
+        .and_then(|i| a.get(i + 1).cloned())
 }
 
 fn root() -> PathBuf {
@@ -72,7 +74,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     recipe.relief = ReliefDetail::Off;
 
     let profiles = devices::load_profiles(&root.join("devices"))?;
-    let profile = profiles.iter().find(|p| p.id == "edge-840").ok_or("no profile")?;
+    let profile = profiles
+        .iter()
+        .find(|p| p.id == "edge-840")
+        .ok_or("no profile")?;
     let http = ReqwestHttp::new()?;
     let ctx = BuildContext {
         toolchain: Toolchain::discover(&root)?,
@@ -148,9 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("stages                : {}", Stage::all().len());
 
     if peak <= before {
-        return Err(
-            "no java child ever ran, so this run proves nothing about killing one".into(),
-        );
+        return Err("no java child ever ran, so this run proves nothing about killing one".into());
     }
 
     if after > before {

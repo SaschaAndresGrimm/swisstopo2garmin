@@ -30,9 +30,39 @@ These are fetched by vendor/fetch_tools.py and invoked as separate processes; th
 not linked into this program.
 
   mkgmap    GPL-2.0        https://www.mkgmap.org.uk/
-  splitter  GPL-2.0        https://www.mkgmap.org.uk/
-  Eclipse Temurin JRE/JDK  GPL-2.0 with Classpath Exception
-                           https://adoptium.net/
+                           Licence text: vendor/mkgmap-r4924/LICENCE (GPL v2, verbatim)
+  splitter  GPL-3.0-only   https://www.mkgmap.org.uk/
+                           Licence text: vendor/splitter-r654/doc/LICENSE-gpl-3.0.txt
+
+Note on splitter's version (resolved 2026-09-07). This file previously stated GPL-2.0
+for splitter, which nothing supported: the bundled r654 distribution ships
+doc/LICENSE-gpl-3.0.txt and no GPL v2 text, its jar carries no licence file, and
+neither the project's download page nor its documentation names a version.
+
+Settled from splitter's own source headers, consistent across every file checked and
+across two independent mirrors of the subversion trunk:
+
+    Copyright (c) 2009, Steve Ratcliffe
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3 as
+    published by the Free Software Foundation.
+
+"version 3", without "or later" -- so splitter is GPL-3.0-only, which is exactly what
+the licence text shipped alongside it says.
+
+This does not change anything about whether bundling is lawful. mkgmap and splitter
+are invoked as separate processes and are never linked into this program, so no
+combined work is formed and their licence does not reach this code either way. Under
+GPL-2-or-later or GPL-3 the arrangement is clean; under GPL-2-only it would still be
+clean, because there is no linkage. Resolving the version is a matter of accuracy in
+this file, not of compliance.
+
+  splitter's bundled libraries, per its own doc/ directory:
+    fastutil           Apache-2.0
+    osmpbf             Apache-2.0
+    protobuf-java      BSD-3-Clause (see LICENSE-apache-2.0.txt and LICENSE-LGPL.txt
+                       in that directory for the full set as shipped)
+    xpp3               LICENSE-xpp3.txt (Indiana University Extreme! Lab licence)
 
 --------------------------------------------------------------------------------
 Trademarks

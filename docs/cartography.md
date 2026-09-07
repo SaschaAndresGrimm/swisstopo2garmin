@@ -94,7 +94,12 @@ trail keeps its class styling while still contributing its underlying road geome
   fills here. TYP supports XPM bitmaps for these.
 - **No separate wrist variant.** FR-CART6 unmet — line weights are tuned for an Edge.
 - **Contours are one colour** everywhere; the Landeskarte varies them over rock and ice.
-- **Unverified.** No device or desktop renderer has displayed this palette yet.
+- **Partly verified.** The summer palette renders correctly on an Edge 840 (firmware
+  3133) and a fēnix 5 Plus (firmware 1930); see the log in
+  [device-verification.md](device-verification.md). The **winter palette, slope hatches
+  and night palette have never been on a device.** The night palette is the one to
+  distrust: it is the only palette here derived — by inverting the day colours under
+  contrast rules — rather than measured from a swisstopo sheet.
 
 ---
 
@@ -148,3 +153,62 @@ them in produced long straight blue lines cutting across lakes and glaciers:
 
 Dropped with `{ deletealltags }`, which is mkgmap's idiom for discarding an element —
 there is no "type 0x00 means discard".
+
+---
+
+## Contributing a cartography change
+
+Cartography is the one part of this project where the tests cannot tell you whether the
+answer is right. They can only tell you it is *consistent*. So the workflow is built
+around making a change reviewable rather than around proving it correct.
+
+### The two-file rule
+
+`typ/swisstopo.txt` is generated. Every colour change is an edit to
+[`cartography/palette.json`](../cartography/palette.json); every pattern, icon or type
+table change is an edit to [`tools/make_typ.py`](../tools/make_typ.py). Then:
+
+```sh
+python3 tools/make_typ.py          # regenerate the TYP
+python3 spikes/s0/checkstyle.py    # every emitted type is drawn, and in a draw order
+npm --prefix frontend run check:i18n   # if you added a UI string for it
+```
+
+CI regenerates the TYP and fails if the committed one differs, so a hand edit to
+`typ/swisstopo.txt` is caught rather than silently overwritten later.
+
+`checkstyle.py` catches the failure mode that costs the most time: a type the style
+emits that the TYP's `[_drawOrder]` does not mention is **invisible on the device and
+invisible in the `.img`**. Nothing else finds it — see m0-findings §4.8.
+
+### Where a colour is allowed to come from
+
+Measured from a swisstopo product, or derived from something measured, and the source
+recorded. `tools/sample_palette.py` and `tools/winter_palette.py` sample the national map
+raster; `tools/slope_palette.py` and `tools/night_palette.py` derive from what those
+produced, under stated rules.
+
+An invented colour that looks right on a monitor is the thing this discipline exists to
+prevent, because the device's screen is not the monitor and the reviewer's judgement of a
+hex value in a diff is worth very little.
+
+### Showing your work
+
+`tools/visual_regression.py` renders fixed extents through the offline renderer and diffs
+against committed PNGs. Include the before and after images in the pull request — this is
+what makes a cartography change reviewable by somebody who is not looking at your screen.
+
+Two caveats the renderer cannot get past, both of which mean **judge on hardware**:
+
+* It cannot draw TYP bitmap patterns. It approximates one by blending background and ink
+  at the pattern's coverage ratio, so rock shows as a flat tint where the device shows
+  hachures.
+* It is not a Garmin. Line weights, label placement and the device's own relief shading
+  are all its own.
+
+### Before it ships
+
+Add the change to section B of [device-verification.md](device-verification.md) with a
+sentence saying what specifically needs somebody's eyes and why a renderer cannot answer
+it. A cartography change with no hardware check queued behind it is a change nobody knows
+the effect of.

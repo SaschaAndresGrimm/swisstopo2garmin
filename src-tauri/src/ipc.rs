@@ -65,6 +65,12 @@ pub struct ReleaseInfo {
     pub member_bytes: Option<u64>,
     pub member_name: Option<String>,
     pub cached: bool,
+    /// True when the STAC API could not be reached and this is the last answer it
+    /// gave (SPEC.md §12). The Data screen must say so rather than presenting old
+    /// release information as current.
+    pub stale: bool,
+    /// When the release information was actually fetched, so "stale" can be dated.
+    pub catalog_fetched_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -153,34 +159,53 @@ pub async fn cache_status() -> IpcResult<CacheStatus> {
     })
 }
 
+/// Wire size and inflated size of a release's primary asset.
+///
+/// Shared by the Data screen's release line and by the download's space precheck, so
+/// the number the user is shown is the number the precheck uses.
+async fn probe_sizes(
+    http: &ReqwestHttp,
+    asset: &s2g_core::stac::Asset,
+    kind: s2g_core::stac::AssetKind,
+) -> (Option<u64>, Option<u64>, Option<String>) {
+    use s2g_core::http::Http;
+    let total = http.head(&asset.href).await.ok().and_then(|h| h.len);
+    match (total, kind.is_archive()) {
+        // A bare GeoPackage is its own member: nothing to probe, and probing it as a
+        // zip is what made the Data screen show an error for it.
+        (Some(total), false) => (Some(total), Some(total), Some(asset.name.clone())),
+        (Some(total), true) => match s2g_core::zip::first_member(http, &asset.href, total).await {
+            Ok(m) => (Some(total), Some(m.uncompressed_size), Some(m.name)),
+            // A multi-member archive still reports its download size honestly.
+            Err(_) => (Some(total), None, None),
+        },
+        (None, _) => (None, None, None),
+    }
+}
+
 #[tauri::command]
 pub async fn latest_release(collection: String) -> IpcResult<ReleaseInfo> {
     let http = ReqwestHttp::new().map_err(|e| e.to_string())?;
     let stac = Stac::new(&http);
-    let item = stac.latest(&collection).await.map_err(|e| e.to_string())?;
+    // Falls back to the last answer the API gave when it cannot be reached, so the Data
+    // screen stays usable offline instead of saying nothing about data already on disk.
+    let cached_item = stac
+        .latest_cached(
+            &collection,
+            &cache().catalog_dir(),
+            &s2g_core::clock::now_rfc3339(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let (stale, catalog_fetched_at) = (cached_item.stale, cached_item.fetched_at);
+    let item = cached_item.item;
     // Clone so `item` is free to be consumed below.
     let (asset, kind) = item.primary_asset().map_err(|e| e.to_string())?;
     let (asset, kind) = (asset.clone(), kind);
 
     // Probe the archive so the UI can state both the download size and the far larger
     // on-disk size before the user commits (SPEC.md FR-C1).
-    let (archive_bytes, member_bytes, member_name) = {
-        use s2g_core::http::Http;
-        let total = http.head(&asset.href).await.ok().and_then(|h| h.len);
-        match (total, kind.is_archive()) {
-            // A bare GeoPackage is its own member: nothing to probe, and probing it as
-            // a zip is what made the Data screen show an error for it.
-            (Some(total), false) => (Some(total), Some(total), Some(asset.name.clone())),
-            (Some(total), true) => {
-                match s2g_core::zip::first_member(&http, &asset.href, total).await {
-                    Ok(m) => (Some(total), Some(m.uncompressed_size), Some(m.name)),
-                    // A multi-member archive still reports its download size honestly.
-                    Err(_) => (Some(total), None, None),
-                }
-            }
-            (None, _) => (None, None, None),
-        }
-    };
+    let (archive_bytes, member_bytes, member_name) = probe_sizes(&http, &asset, kind).await;
 
     let cached = cache()
         .read_provenance(&collection, &item.id)
@@ -197,6 +222,8 @@ pub async fn latest_release(collection: String) -> IpcResult<ReleaseInfo> {
         member_bytes,
         member_name,
         cached,
+        stale,
+        catalog_fetched_at: Some(catalog_fetched_at),
     })
 }
 
@@ -241,6 +268,16 @@ pub async fn acquire_dataset(
         .ensure_dir(&collection, &item.id)
         .await
         .map_err(|e| e.to_string())?;
+
+    // SPEC.md §12 asks for a precheck "before download and before build". The build had
+    // one; this did not, and swissTLM3D is the case that matters: 4.5 GB down the wire
+    // becomes 10.0 GB on disk, so the wire size is not the number to check. A download
+    // that fills the disk takes the rest of the machine down with it.
+    let (archive_bytes, member_bytes, _) = probe_sizes(&http, &asset, kind).await;
+    let need = s2g_core::cache::download_need(archive_bytes, member_bytes, stream_inflate);
+    if let Some(need) = need {
+        s2g_core::cache::precheck_space(&dir, need).map_err(|e| e.to_string())?;
+    }
 
     let id = task_id.clone();
     let datetime = item.datetime.clone();
@@ -368,7 +405,7 @@ pub async fn acquire_dataset(
                         .map(|f| f.to_string_lossy().to_string())
                         .unwrap_or_default(),
                     bytes: member.uncompressed_size,
-                    fetched_at: now_rfc3339(),
+                    fetched_at: s2g_core::clock::now_rfc3339(),
                     inflated: true,
                 };
                 let _ = Cache::new(Cache::default_root())
@@ -421,57 +458,14 @@ pub async fn remove_dataset(collection: String, item: String) -> IpcResult<()> {
         .map_err(|e| e.to_string())
 }
 
-/// UTC timestamp for provenance. Written by hand rather than pulling in a date-time
-/// crate for a single string; the civil-from-days algorithm is Howard Hinnant's.
-fn now_rfc3339() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn timestamp_is_rfc3339() {
-        let s = super::now_rfc3339();
-        assert_eq!(s.len(), 20, "{s}");
-        assert!(s.ends_with('Z'), "{s}");
-        let (date, time) = s[..19].split_once('T').expect("T separator");
-        let parts: Vec<&str> = date.split('-').collect();
-        assert_eq!(parts.len(), 3);
-        assert!(parts[0].parse::<i32>().unwrap() >= 2024, "{s}");
-        assert!((1..=12).contains(&parts[1].parse::<u32>().unwrap()), "{s}");
-        assert!((1..=31).contains(&parts[2].parse::<u32>().unwrap()), "{s}");
-        assert_eq!(time.split(':').count(), 3, "{s}");
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Devices, presets, area and build (SPEC.md §6.3-6.7)
 // ---------------------------------------------------------------------------
 
-use s2g_core::devices::{self, DeviceProfile};
-use s2g_core::extract::{LayerGroup, CYCLE_LAYERS, DEFAULT_LAYERS, WINTER_LAYERS};
 use s2g_core::boundaries::{self, AdminLevel};
+use s2g_core::devices::{self, DeviceProfile};
 use s2g_core::estimate::{self, calibration_log_path};
+use s2g_core::extract::{LayerGroup, CYCLE_LAYERS, DEFAULT_LAYERS, WINTER_LAYERS};
 use s2g_core::library;
 use s2g_core::pipeline::{self, BuildContext, Stage};
 use s2g_core::proj::{lv95_to_wgs84, BBox};
@@ -512,10 +506,7 @@ pub fn device_override(device_id: String) -> IpcResult<DeviceOverrideInfo> {
 /// Stored in the settings file rather than in `devices/*.json`, so an app update that
 /// ships new profiles cannot silently discard them (FR-DEV3).
 #[tauri::command]
-pub fn set_device_override(
-    device_id: String,
-    value: Option<DeviceOverrideInfo>,
-) -> IpcResult<()> {
+pub fn set_device_override(device_id: String, value: Option<DeviceOverrideInfo>) -> IpcResult<()> {
     let mut settings = s2g_core::settings::Settings::load();
     match value {
         None => {
@@ -545,25 +536,32 @@ pub fn set_device_override(
 /// override, and be very hard to see.
 fn profiles() -> Result<Vec<DeviceProfile>, String> {
     let overrides = s2g_core::settings::Settings::load().device_overrides;
-    Ok(
-        devices::load_profiles(&resource_root().join("devices"))
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|p| match overrides.get(&p.id) {
-                Some(o) => p.with_override(o),
-                None => p,
-            })
-            .collect(),
-    )
+    Ok(devices::load_profiles(&resource_root().join("devices"))
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|p| match overrides.get(&p.id) {
+            Some(o) => p.with_override(o),
+            None => p,
+        })
+        .collect())
 }
 
 fn resource_root() -> PathBuf {
     if let Ok(p) = std::env::var("S2G_ROOT") {
         return PathBuf::from(p);
     }
-    // Walk up from the executable, then from the working directory, looking for the
-    // marker files a build needs. Keeps `cargo run` and a bundle both working.
-    let candidates = std::env::current_exe()
+    // Walk up from the executable and from the working directory, looking for the marker
+    // files a build needs, and at each level also look in the places a packaged app puts
+    // its resources. A development checkout has them at the repo root; a macOS bundle has
+    // them in `Contents/Resources` beside `Contents/MacOS/<exe>`; the Linux and Windows
+    // bundles put them in a `resources` directory next to the executable.
+    //
+    // Without the bundle cases this returned "." in a packaged app and every build failed
+    // for want of a style directory -- on the developer's machine it worked, because the
+    // walk found the repo.
+    // The inner collects are load-bearing: `ancestors()` borrows the path it walks, and
+    // the path is owned by the closure.
+    let bases = std::env::current_exe()
         .ok()
         .into_iter()
         .flat_map(|exe| exe.ancestors().map(Path::to_path_buf).collect::<Vec<_>>())
@@ -573,12 +571,31 @@ fn resource_root() -> PathBuf {
                 .into_iter()
                 .flat_map(|d| d.ancestors().map(Path::to_path_buf).collect::<Vec<_>>()),
         );
-    for c in candidates {
-        if c.join("devices").is_dir() && c.join("style").is_dir() {
-            return c;
+
+    resolve_resource_root(bases).unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// The search itself, separated from where the candidates come from.
+///
+/// `current_exe` cannot be faked in a test, and this is the logic that was wrong: it is
+/// worth being able to hand it a macOS bundle's ancestor list and see what it picks.
+fn resolve_resource_root(bases: impl Iterator<Item = PathBuf>) -> Option<PathBuf> {
+    for base in bases {
+        for candidate in [base.clone(), base.join("Resources"), base.join("resources")] {
+            if has_resources(&candidate) {
+                return Some(candidate);
+            }
         }
     }
-    PathBuf::from(".")
+    None
+}
+
+/// Whether a directory holds the files a build cannot run without.
+///
+/// `devices` and `style` together, because either alone occurs by accident: `style` is a
+/// common directory name, and a stray `devices` could be anything.
+fn has_resources(dir: &Path) -> bool {
+    dir.join("devices").is_dir() && dir.join("style").is_dir()
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -622,8 +639,7 @@ fn summarise(p: &DeviceProfile, connected: bool) -> DeviceSummary {
 
 #[tauri::command]
 pub fn list_devices() -> IpcResult<Vec<DeviceSummary>> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let detected = devices::detect();
     Ok(profiles
         .iter()
@@ -674,8 +690,7 @@ pub struct UsbDeviceInfo {
 /// no device while one was plainly plugged in, and there was nothing to act on.
 #[tauri::command]
 pub fn usb_devices() -> IpcResult<Vec<UsbDeviceInfo>> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let mounted = devices::detect();
     Ok(devices::usb_devices()
         .into_iter()
@@ -716,8 +731,7 @@ fn looks_wrist(model: &str) -> bool {
 
 #[tauri::command]
 pub fn detect_devices() -> IpcResult<Vec<ConnectedDevice>> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     Ok(devices::detect()
         .into_iter()
         .map(|d| {
@@ -956,6 +970,13 @@ pub struct AreaInfo {
     #[ts(type = "number")]
     pub hard_limit_bytes: u64,
     pub over_budget: bool,
+    /// How much has to go, and which changes to this recipe would help (SPEC.md §12).
+    /// Only remedies that would actually change *this* recipe are listed.
+    #[ts(type = "number")]
+    pub overshoot_bytes: u64,
+    /// `smallerArea` | `coarserContours` | `fewerLayers` | `noRelief` |
+    /// `noSlopeClasses` | `splitIntoMapSets`, most effective first.
+    pub remedies: Vec<String>,
     /// True once the model has been refit from the user's own builds.
     pub calibrated: bool,
     /// How many real builds the model has seen.
@@ -1025,18 +1046,18 @@ pub async fn partition_plan(recipe: Recipe) -> IpcResult<PartitionPlan> {
 
     let cache_root = Cache::default_root();
     let bbox = recipe.area.bbox();
-    let group_counts = match pipeline::find_tlm3d(&cache_root)
-        .and_then(|p| s2g_core::gpkg::Gpkg::open(p).ok())
-    {
-        Some(gpkg) => estimate::count_groups(&gpkg, &recipe, Some(&cache_root)),
-        None => Default::default(),
-    };
+    let group_counts =
+        match pipeline::find_tlm3d(&cache_root).and_then(|p| s2g_core::gpkg::Gpkg::open(p).ok()) {
+            Some(gpkg) => estimate::count_groups(&gpkg, &recipe, Some(&cache_root)),
+            None => Default::default(),
+        };
     let predictors = estimate::Predictors {
         group_counts,
         area_km2: bbox.area_km2(),
         contour_interval_m: recipe.contours.interval_m,
         relief: recipe.relief,
         slope_classes: recipe.slope_classes,
+        wrist: profile.is_wrist(),
     };
     let model = estimate::current_model(
         &resource_root().join("estimator").join("size-model.json"),
@@ -1213,11 +1234,7 @@ pub async fn admin_outline(level: String, numbers: Vec<i64>) -> IpcResult<Vec<Ve
 /// Resolved once when the units are chosen and stored in the recipe, so the area
 /// readout and size estimate need no file access afterwards.
 #[tauri::command]
-pub async fn admin_extent(
-    level: String,
-    numbers: Vec<i64>,
-    buffer_km: f64,
-) -> IpcResult<[f64; 4]> {
+pub async fn admin_extent(level: String, numbers: Vec<i64>, buffer_km: f64) -> IpcResult<[f64; 4]> {
     let level = match level.as_str() {
         "commune" => AdminLevel::Commune,
         "district" => AdminLevel::District,
@@ -1422,6 +1439,164 @@ pub async fn clear_build_files() -> IpcResult<DataLocation> {
     Ok(describe_location(root).await)
 }
 
+/// A build the app was running when it last stopped (SPEC.md §12).
+///
+/// Not a `ts-rs` type: it carries a whole `Recipe`, which ts-rs cannot export, so the
+/// interface is hand-written in `api.ts` beside `Recipe` itself.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterruptedBuild {
+    /// Identifies the build for `discard_interrupted`; also what the user sees.
+    pub work_dir: String,
+    pub recipe_name: String,
+    /// The whole recipe, so "Resume" can start it without the UI remembering anything.
+    pub recipe: Recipe,
+    pub started_at: String,
+    pub bytes: u64,
+    /// True when the cached region survived, so resuming skips about 80 % of the work.
+    pub resumable: bool,
+    /// Java processes from that build still running now.
+    pub stray_processes: usize,
+}
+
+/// Builds that never finished, found on startup (FR-73, SPEC.md §12).
+///
+/// Called once when the app starts. Anything reported here is both wasting disk and,
+/// if `strayProcesses` is non-zero, burning CPU right now.
+#[tauri::command]
+pub async fn interrupted_builds() -> IpcResult<Vec<InterruptedBuild>> {
+    let root = Cache::default_root();
+    let found = tokio::task::spawn_blocking(move || {
+        s2g_core::recovery::scan(&root, &s2g_core::recovery::SystemProbe)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(found
+        .into_iter()
+        .map(|o| InterruptedBuild {
+            work_dir: o.work_dir.to_string_lossy().to_string(),
+            recipe_name: o.recipe.name.clone(),
+            started_at: o.started_at,
+            bytes: o.bytes,
+            resumable: o.resumable,
+            stray_processes: o.stray_pids.len(),
+            recipe: o.recipe,
+        })
+        .collect())
+}
+
+/// Kill what is left of an interrupted build and delete its files.
+///
+/// Takes the work directory rather than an index, so a stale list from before another
+/// window discarded the same build cannot delete the wrong one.
+#[tauri::command]
+pub async fn discard_interrupted(work_dir: String) -> IpcResult<DataLocation> {
+    let root = Cache::default_root();
+    let scan_root = root.clone();
+    let target = PathBuf::from(work_dir);
+    tokio::task::spawn_blocking(move || {
+        let found = s2g_core::recovery::scan(&scan_root, &s2g_core::recovery::SystemProbe);
+        match found.iter().find(|o| o.work_dir == target) {
+            Some(o) => s2g_core::recovery::discard(o).map(|_| ()),
+            // Already gone, or never interrupted: nothing to do and nothing to report.
+            None => Ok(()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(describe_location(root).await)
+}
+
+/// One third-party component, its licence, and where its licence text can be read.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct Component {
+    pub name: String,
+    pub version: Option<String>,
+    pub license: String,
+    /// Path to the licence text shipped with the app, when one is present. `None` means
+    /// the component's licence is named in NOTICE but its text is not bundled — which
+    /// the About screen says, rather than implying a file that is not there.
+    pub license_path: Option<String>,
+    pub url: String,
+}
+
+/// Everything FR-L1…FR-L4 require to be visible in the app.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct AboutInfo {
+    pub app_version: String,
+    /// The exact string embedded in every generated map, so what the user reads here is
+    /// what travels with the file (FR-L1).
+    pub map_copyright: String,
+    pub components: Vec<Component>,
+    /// Path to this installation's NOTICE, for the full text (FR-L2).
+    pub notice_path: Option<String>,
+}
+
+/// The About screen's content (FR-L1…FR-L4).
+///
+/// Assembled here rather than written into the frontend so that the attribution the user
+/// reads is the same string the pipeline embeds in the map, and the tool versions are the
+/// ones actually installed rather than the ones the documentation remembers.
+#[tauri::command]
+pub fn about() -> IpcResult<AboutInfo> {
+    let root = resource_root();
+    let toolchain = s2g_core::garmin::Toolchain::discover(&root).ok();
+    let present = |p: PathBuf| p.is_file().then(|| p.display().to_string());
+
+    let mut components = vec![
+        Component {
+            name: "mkgmap".into(),
+            version: toolchain.as_ref().and_then(|t| t.mkgmap_version()),
+            license: "GPL-2.0".into(),
+            license_path: present(root.join("vendor/mkgmap-r4924/LICENCE")),
+            url: "https://www.mkgmap.org.uk/".into(),
+        },
+        Component {
+            name: "splitter".into(),
+            version: toolchain.as_ref().and_then(|t| t.splitter_version()),
+            // GPL-3.0-only, from splitter's own source headers ("version 3", with no
+            // "or later"); see the note in NOTICE for how that was settled.
+            license: "GPL-3.0-only".into(),
+            license_path: present(root.join("vendor/splitter-r654/doc/LICENSE-gpl-3.0.txt")),
+            url: "https://www.mkgmap.org.uk/".into(),
+        },
+        Component {
+            name: "Eclipse Temurin".into(),
+            version: toolchain.as_ref().and_then(|t| t.java_version()),
+            license: "GPL-2.0 with Classpath Exception".into(),
+            // Temurin ships its own licences under `legal/`, per module. `java.base`
+            // holds the GPL v2 text, the OpenJDK assembly exception and the Classpath
+            // Exception, so pointing there is pointing at the real thing. Both layouts
+            // are probed because macOS bundles put the home inside `Contents/Home`.
+            license_path: [
+                "vendor/jre/legal/java.base",
+                "vendor/jre/Contents/Home/legal/java.base",
+                "vendor/jdk/legal/java.base",
+                "vendor/jdk/Contents/Home/legal/java.base",
+            ]
+            .iter()
+            .map(|p| root.join(p))
+            .find(|p| p.join("LICENSE").is_file())
+            .map(|p| p.display().to_string()),
+            url: "https://adoptium.net/".into(),
+        },
+    ];
+    components.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(AboutInfo {
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        // Taken from the same place the build takes it, so the two cannot drift.
+        map_copyright: s2g_core::garmin::MapIdentity::for_recipe("about", "about").description,
+        components,
+        notice_path: present(root.join("NOTICE")),
+    })
+}
+
 #[tauri::command]
 pub async fn data_location() -> IpcResult<DataLocation> {
     Ok(describe_location(Cache::default_root()).await)
@@ -1476,8 +1651,7 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
         relief,
     } = query;
     let bbox = BBox::new(min_e, min_n, max_e, max_n);
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let profile = profiles.iter().find(|p| p.id == device_id);
     let budget = profile
         .map(|p| p.effective_budget_bytes())
@@ -1513,15 +1687,14 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
     }
 
     let cache_root = Cache::default_root();
-    let (group_counts, counted) = match pipeline::find_tlm3d(&cache_root)
-        .and_then(|p| s2g_core::gpkg::Gpkg::open(p).ok())
-    {
-        Some(gpkg) => (
-            estimate::count_groups(&gpkg, &probe, Some(&cache_root)),
-            true,
-        ),
-        None => (Default::default(), false),
-    };
+    let (group_counts, counted) =
+        match pipeline::find_tlm3d(&cache_root).and_then(|p| s2g_core::gpkg::Gpkg::open(p).ok()) {
+            Some(gpkg) => (
+                estimate::count_groups(&gpkg, &probe, Some(&cache_root)),
+                true,
+            ),
+            None => (Default::default(), false),
+        };
 
     let model = estimate::current_model(
         &resource_root().join("estimator").join("size-model.json"),
@@ -1533,8 +1706,16 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
         contour_interval_m: probe.contours.interval_m,
         relief,
         slope_classes: probe.slope_classes,
+        // The wrist cartography drops layers and labels, so the same area compiles
+        // considerably smaller and the estimate has to know which one this device gets.
+        // An unrecognised device id falls back to the full cartography, which
+        // over-estimates rather than under-estimates — the safe direction for a budget.
+        wrist: profile.map(|p| p.is_wrist()).unwrap_or(false),
     };
     let estimated = model.predict(&predictors);
+    // What to do about it, if anything. The decision and the ordering live in
+    // s2g_core::estimate so they are tested; the UI only translates the names.
+    let verdict = estimate::budget_verdict(estimated, budget, &probe);
 
     Ok(AreaInfo {
         area_km2: bbox.area_km2(),
@@ -1543,7 +1724,18 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
         estimated_bytes: estimated,
         budget_bytes: budget,
         hard_limit_bytes: hard_limit,
-        over_budget: estimated > budget,
+        over_budget: verdict.over_budget,
+        overshoot_bytes: verdict.overshoot_bytes,
+        remedies: verdict
+            .remedies
+            .iter()
+            .map(|r| {
+                serde_json::to_value(r)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default()
+            })
+            .collect(),
         calibrated: model.samples > 0,
         model_samples: model.samples,
         counted_features: counted,
@@ -1648,9 +1840,8 @@ pub async fn start_build(
         // Stage weights come from this user's own builds once there are any, because
         // the split between stages moves enormously with a warm or cold elevation
         // cache. Until then the shipped weights apply.
-        let weights = estimate::stage_weights(&estimate::CalibrationLog::read(
-            &calibration_log_path(),
-        ));
+        let weights =
+            estimate::stage_weights(&estimate::CalibrationLog::read(&calibration_log_path()));
         let build_started = std::time::Instant::now();
         let result = pipeline::build(&ctx, &recipe, &profile, &cancel, move |u| {
             // Stage changes are always reported; progress within a stage is throttled.
@@ -1754,6 +1945,37 @@ pub struct InstallPlan {
     pub fits: bool,
 }
 
+/// The outline and drag handles for a selection, in WGS84 (FR-31).
+///
+/// Not a `ts-rs` type: it carries `s2g_core::area_edit` types, and the frontend's map
+/// already declares the matching shapes beside its other hand-written ones.
+///
+/// This exists because the map used to draw *every* selection as its bounding rectangle,
+/// so a polygon or circle was replaced by a box the user had not drawn the moment it was
+/// finished.
+#[tauri::command]
+pub fn area_outline(
+    area: s2g_core::recipe::AreaSelection,
+) -> IpcResult<s2g_core::area_edit::Outline> {
+    Ok(s2g_core::area_edit::outline(&area))
+}
+
+/// Apply one drag to a selection and return the result (FR-31).
+///
+/// The geometry lives in `s2g_core::area_edit`, where corner ordering and drag anchors
+/// are tested. The map's job is to notice which handle was grabbed and where it was
+/// dropped; it does not know which corner is opposite which.
+///
+/// Round-tripping through here on every commit also keeps the projection in one place
+/// (FR-P1): the map works in WGS84, the recipe in LV95, and only Rust converts.
+#[tauri::command]
+pub fn edit_area(
+    area: s2g_core::recipe::AreaSelection,
+    edit: s2g_core::area_edit::AreaEdit,
+) -> IpcResult<s2g_core::recipe::AreaSelection> {
+    s2g_core::area_edit::apply(&area, edit).map_err(|e| e.to_string())
+}
+
 /// Describe what installing would do, without doing it (FR-80, FR-81).
 #[tauri::command]
 pub fn plan_install(
@@ -1762,8 +1984,7 @@ pub fn plan_install(
     device_id: String,
     map_name: String,
 ) -> IpcResult<InstallPlan> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let profile = profiles
         .iter()
         .find(|p| p.id == device_id)
@@ -1808,8 +2029,7 @@ pub struct InstallInstructions {
 /// card in a reader, or a user who would simply rather copy it by hand.
 #[tauri::command]
 pub fn install_instructions(device_id: String, map_name: String) -> IpcResult<InstallInstructions> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let profile = profiles
         .iter()
         .find(|p| p.id == device_id)
@@ -1834,8 +2054,7 @@ pub async fn export_map(
     device_id: String,
     map_name: String,
 ) -> IpcResult<String> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let profile = profiles
         .iter()
         .find(|p| p.id == device_id)
@@ -1871,45 +2090,128 @@ pub async fn export_map(
 pub async fn install_map(plan: InstallPlan, backup: bool) -> IpcResult<String> {
     let src = PathBuf::from(&plan.source);
     let dst = PathBuf::from(&plan.target);
-    if let Some(parent) = dst.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    if dst.exists() && backup {
-        let bak = dst.with_extension("img.bak");
-        std::fs::rename(&dst, &bak).map_err(|e| e.to_string())?;
-    }
-    // Write beside the target then rename, so an interrupted copy cannot leave a
-    // truncated map the device would try to load.
-    let tmp = dst.with_extension("img.part");
-    std::fs::copy(&src, &tmp).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &dst).map_err(|e| e.to_string())?;
-
-    // Re-hash from the device, not just compare sizes (FR-82). A truncated copy has the
-    // wrong size, but a copy corrupted mid-transfer -- which is what a flaky USB link
-    // actually produces -- has the right one. These maps are a few megabytes, so the
-    // read costs about a second.
-    let (src_hash, dst_hash) = tokio::task::spawn_blocking({
-        let (src, dst) = (src.clone(), dst.clone());
-        move || -> std::io::Result<(String, String)> {
-            Ok((
-                s2g_core::cache::sha256_of(&src)?,
-                s2g_core::cache::sha256_of(&dst)?,
-            ))
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
-
-    if src_hash != dst_hash {
-        // Leave nothing half-installed: the device would try to load it.
-        let _ = std::fs::remove_file(&dst);
-        return Err(format!(
+    // The copy, the verification and the rollback live in s2g_core::install, where the
+    // device-goes-away cases have tests. A cable cannot be unplugged in CI.
+    let done = tokio::task::spawn_blocking(move || s2g_core::install::install(&src, &dst, backup))
+        .await
+        .map_err(|e| e.to_string())?;
+    match done {
+        Ok(done) => Ok(done.target.display().to_string()),
+        Err(s2g_core::Error::ChecksumMismatch {
+            expected, actual, ..
+        }) => Err(format!(
             "the copy on the device does not match what was built \
              (built {}, on the device {}); it has been removed",
-            &src_hash[..16],
-            &dst_hash[..16]
-        ));
+            &expected[..16],
+            &actual[..16]
+        )),
+        Err(e) => Err(e.to_string()),
     }
-    Ok(dst.display().to_string())
+}
+
+#[cfg(test)]
+mod resource_root_tests {
+    use super::*;
+
+    /// A macOS bundle puts the executable in `Contents/MacOS` and its resources in
+    /// `Contents/Resources`. Walking ancestors alone never reaches them, which is why a
+    /// packaged app resolved its root to "." and could not build anything (NFR-7).
+    #[test]
+    fn a_macos_bundle_layout_resolves_to_contents_resources() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("swisstopo2garmin.app");
+        let resources = app.join("Contents").join("Resources");
+        std::fs::create_dir_all(resources.join("devices")).unwrap();
+        std::fs::create_dir_all(resources.join("style")).unwrap();
+        std::fs::create_dir_all(app.join("Contents").join("MacOS")).unwrap();
+
+        let exe = app.join("Contents").join("MacOS").join("swisstopo2garmin");
+        let bases = exe.ancestors().map(Path::to_path_buf);
+        assert_eq!(resolve_resource_root(bases), Some(resources));
+    }
+
+    /// The Linux and Windows bundles put a lowercase `resources` beside the executable.
+    ///
+    /// Compared after canonicalising, because macOS is case-insensitive by default and
+    /// the search tries `Resources` first: it finds the right directory under a name
+    /// that differs from the one on disk, which is correct behaviour and a string
+    /// comparison would call a failure.
+    #[test]
+    fn a_sibling_resources_directory_resolves() {
+        let dir = tempfile::tempdir().unwrap();
+        let resources = dir.path().join("resources");
+        std::fs::create_dir_all(resources.join("devices")).unwrap();
+        std::fs::create_dir_all(resources.join("style")).unwrap();
+
+        let exe = dir.path().join("swisstopo2garmin");
+        let bases = exe.ancestors().map(Path::to_path_buf);
+        let found = resolve_resource_root(bases).expect("should resolve");
+        assert_eq!(
+            found.canonicalize().unwrap(),
+            resources.canonicalize().unwrap()
+        );
+    }
+
+    /// A development checkout must keep working: the root itself holds the files.
+    #[test]
+    fn a_development_checkout_resolves_to_the_repository_root() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("devices")).unwrap();
+        std::fs::create_dir_all(dir.path().join("style")).unwrap();
+        let exe = dir.path().join("target").join("debug").join("app");
+        let bases = exe.ancestors().map(Path::to_path_buf);
+        assert_eq!(resolve_resource_root(bases), Some(dir.path().to_path_buf()));
+    }
+
+    /// Half a layout must not be accepted: `style` alone is a common directory name.
+    #[test]
+    fn a_directory_with_only_one_marker_is_not_a_resource_root() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("style")).unwrap();
+        assert_eq!(
+            resolve_resource_root(std::iter::once(dir.path().to_path_buf())),
+            None
+        );
+    }
+
+    /// The real bundle, when one has been built. This is the only assertion here that
+    /// can fail because of a packaging change rather than a logic change, so it skips
+    /// rather than failing when there is no bundle to look at.
+    #[test]
+    fn the_real_bundle_is_self_sufficient() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let app = repo.join("target/release/bundle/macos/swisstopo2garmin.app");
+        if !app.is_dir() {
+            eprintln!("skipping: no macOS bundle built (cargo tauri build --bundles app)");
+            return;
+        }
+
+        let exe = app.join("Contents").join("MacOS").join("swisstopo2garmin");
+        let bases = exe.ancestors().map(Path::to_path_buf);
+        let root = resolve_resource_root(bases).expect("the bundle should carry its resources");
+        assert!(root.ends_with("Contents/Resources"), "{root:?}");
+
+        // Everything a build reads, present inside the bundle.
+        for needed in ["devices", "style", "typ", "estimator", "NOTICE", "LICENSE"] {
+            assert!(root.join(needed).exists(), "the bundle has no {needed}");
+        }
+
+        // And the toolchain, found from the layout. The env file the bundle also carries
+        // holds absolute paths into the machine that built it -- including a `vendor/jdk`
+        // that is deliberately not shipped -- so this is the assertion that a packaged
+        // app can compile a map at all.
+        let tc = s2g_core::garmin::Toolchain::discover(&root)
+            .expect("the bundled toolchain should be discoverable");
+        assert!(
+            tc.java.starts_with(&root),
+            "java came from outside the bundle: {:?}",
+            tc.java
+        );
+        assert!(tc.mkgmap_jar.starts_with(&root), "{:?}", tc.mkgmap_jar);
+        assert!(tc.splitter_jar.starts_with(&root), "{:?}", tc.splitter_jar);
+        assert!(
+            tc.mkgmap_version().is_some(),
+            "the bundled java could not run mkgmap"
+        );
+    }
 }

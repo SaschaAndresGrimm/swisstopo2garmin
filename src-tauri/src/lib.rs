@@ -56,6 +56,8 @@ pub fn run() {
             ipc::set_data_location,
             ipc::clear_elevation_cache,
             ipc::clear_build_files,
+            ipc::interrupted_builds,
+            ipc::discard_interrupted,
             ipc::import_track,
             ipc::list_admin_units,
             ipc::admin_extent,
@@ -64,11 +66,14 @@ pub fn run() {
             ipc::area_to_geojson,
             ipc::area_from_geojson,
             ipc::export_area,
+            ipc::area_outline,
+            ipc::edit_area,
             ipc::start_build,
             ipc::plan_install,
             ipc::install_map,
             ipc::export_map,
             ipc::install_instructions,
+            ipc::about,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start swisstopo2garmin");

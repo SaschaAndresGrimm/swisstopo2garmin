@@ -53,8 +53,18 @@ for (const lang of ["de", "fr", "it"]) {
       bad++;
     }
   }
+  // A missing key is an *error*, not a warning. English is the fallback (FR-4), so a
+  // missing German key silently renders the English string and a half-translated screen
+  // looks finished to anybody testing in English. Warning about it meant nothing noticed
+  // for as long as this file was not run in CI, which was its whole first year.
   const missing = Object.keys(en).filter((k) => !(k in b));
-  if (missing.length) console.warn(`${lang}.json falls back to English for ${missing.length} key(s)`);
+  if (missing.length) {
+    console.error(
+      `${lang}.json is missing ${missing.length} key(s), which will silently render in ` +
+        `English:\n    ${missing.join("\n    ")}`,
+    );
+    bad += missing.length;
+  }
 }
 
 if (bad) {

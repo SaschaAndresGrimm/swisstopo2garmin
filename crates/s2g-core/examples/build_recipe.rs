@@ -27,14 +27,16 @@ fn arg(name: &str) -> Option<String> {
 }
 
 fn root() -> PathBuf {
-    std::env::var("S2G_ROOT").map(PathBuf::from).unwrap_or_else(|_| {
-        std::env::current_dir()
-            .expect("cwd")
-            .ancestors()
-            .find(|c| c.join("devices").is_dir() && c.join("style").is_dir())
-            .expect("run from inside the repository")
-            .to_path_buf()
-    })
+    std::env::var("S2G_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::env::current_dir()
+                .expect("cwd")
+                .ancestors()
+                .find(|c| c.join("devices").is_dir() && c.join("style").is_dir())
+                .expect("run from inside the repository")
+                .to_path_buf()
+        })
 }
 
 #[tokio::main]
@@ -97,61 +99,69 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         None => match arg("--gpx") {
-        Some(path) => {
-            let gpx = s2g_core::gpx::Gpx::parse_file(std::path::Path::new(&path))?;
-            let points: Vec<[f64; 2]> = gpx
-                .tracks
-                .iter()
-                .flat_map(|t| t.points.iter())
-                .map(|p| {
-                    let (e, n) = s2g_core::proj::wgs84_to_lv95(p.lon, p.lat);
-                    [e, n]
-                })
-                .collect();
-            let buffer_km: f64 = arg("--buffer-km").unwrap_or_else(|| "3".into()).parse()?;
-            println!(
-                "track        : {} points, buffer {buffer_km} km",
-                points.len()
-            );
-            // --as-bbox builds the corridor's bounding box instead, for comparison.
-            if arg("--as-bbox").is_some() {
-                let es: Vec<f64> = points.iter().map(|p| p[0]).collect();
-                let ns: Vec<f64> = points.iter().map(|p| p[1]).collect();
-                let m = buffer_km * 1000.0;
-                AreaSelection::BBox {
-                    min_e: es.iter().cloned().fold(f64::INFINITY, f64::min) - m,
-                    min_n: ns.iter().cloned().fold(f64::INFINITY, f64::min) - m,
-                    max_e: es.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + m,
-                    max_n: ns.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + m,
-                }
-            } else {
-                AreaSelection::Corridor {
-                    name: gpx.tracks[0].name.clone().unwrap_or_else(|| "track".into()),
-                    buffer_km,
-                    points,
+            Some(path) => {
+                let gpx = s2g_core::gpx::Gpx::parse_file(std::path::Path::new(&path))?;
+                let points: Vec<[f64; 2]> = gpx
+                    .tracks
+                    .iter()
+                    .flat_map(|t| t.points.iter())
+                    .map(|p| {
+                        let (e, n) = s2g_core::proj::wgs84_to_lv95(p.lon, p.lat);
+                        [e, n]
+                    })
+                    .collect();
+                let buffer_km: f64 = arg("--buffer-km").unwrap_or_else(|| "3".into()).parse()?;
+                println!(
+                    "track        : {} points, buffer {buffer_km} km",
+                    points.len()
+                );
+                // --as-bbox builds the corridor's bounding box instead, for comparison.
+                if arg("--as-bbox").is_some() {
+                    let es: Vec<f64> = points.iter().map(|p| p[0]).collect();
+                    let ns: Vec<f64> = points.iter().map(|p| p[1]).collect();
+                    let m = buffer_km * 1000.0;
+                    AreaSelection::BBox {
+                        min_e: es.iter().cloned().fold(f64::INFINITY, f64::min) - m,
+                        min_n: ns.iter().cloned().fold(f64::INFINITY, f64::min) - m,
+                        max_e: es.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + m,
+                        max_n: ns.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + m,
+                    }
+                } else {
+                    AreaSelection::Corridor {
+                        name: gpx.tracks[0].name.clone().unwrap_or_else(|| "track".into()),
+                        buffer_km,
+                        points,
+                    }
                 }
             }
-        }
-        None => {
-            let hit = gpkg
-                .find_places(&place)?
-                .into_iter()
-                .next()
-                .ok_or_else(|| format!("no place called {place:?}"))?;
-            println!("place        : {} at {:.0} {:.0}", hit.name, hit.easting, hit.northing);
-            AreaSelection::Place {
-                name: hit.name.clone(),
-                radius_km,
-                easting: hit.easting,
-                northing: hit.northing,
+            None => {
+                let hit = gpkg
+                    .find_places(&place)?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| format!("no place called {place:?}"))?;
+                println!(
+                    "place        : {} at {:.0} {:.0}",
+                    hit.name, hit.easting, hit.northing
+                );
+                AreaSelection::Place {
+                    name: hit.name.clone(),
+                    radius_km,
+                    easting: hit.easting,
+                    northing: hit.northing,
+                }
             }
-        }
         },
     };
 
     // Comma-separated layer ids to leave out, as the layer panel would (FR-51).
     let excluded: Vec<String> = arg("--exclude")
-        .map(|v| v.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect())
+        .map(|v| {
+            v.split(',')
+                .map(|x| x.trim().to_string())
+                .filter(|x| !x.is_empty())
+                .collect()
+        })
         .unwrap_or_default();
 
     let palette = match arg("--palette").unwrap_or_else(|| "summer".into()).as_str() {
@@ -207,8 +217,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let report = pipeline::build(&ctx, &recipe, profile, &Cancel::new(), |u| {
         let i = Stage::all().iter().position(|s| *s == u.stage).unwrap_or(0) + 1;
         match u.fraction {
-            Some(f) => println!("  [{i}/{}] {:<28} {:5.1}%  {}", Stage::all().len(), u.stage.label(), f * 100.0, u.detail),
-            None => println!("  [{i}/{}] {:<28}         {}", Stage::all().len(), u.stage.label(), u.detail),
+            Some(f) => println!(
+                "  [{i}/{}] {:<28} {:5.1}%  {}",
+                Stage::all().len(),
+                u.stage.label(),
+                f * 100.0,
+                u.detail
+            ),
+            None => println!(
+                "  [{i}/{}] {:<28}         {}",
+                Stage::all().len(),
+                u.stage.label(),
+                u.detail
+            ),
         }
     })
     .await?;
@@ -217,10 +238,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("gmapsupp     : {}", report.gmapsupp.display());
     println!("size         : {} B", report.bytes);
     println!("tiles        : {}", report.tile_count);
-    println!("features     : {} ({} nodes, {} ways)", report.features, report.nodes, report.ways);
+    println!(
+        "features     : {} ({} nodes, {} ways)",
+        report.features, report.nodes, report.ways
+    );
     println!("contours     : {} lines", report.contour_lines);
     println!("slope areas  : {}", report.slope_areas);
-    println!("relief       : {}", if report.has_dem { "yes" } else { "no" });
+    println!(
+        "relief       : {}",
+        if report.has_dem { "yes" } else { "no" }
+    );
     println!("family id    : {}", report.family_id);
     for w in &report.warnings {
         println!("warning      : {w}");

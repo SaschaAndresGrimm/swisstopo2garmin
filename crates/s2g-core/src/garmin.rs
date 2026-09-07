@@ -46,8 +46,59 @@ impl Toolchain {
     }
 
     /// Look for the vendored toolchain relative to a repository or install root.
+    ///
+    /// The relative layout is tried **first**, and `vendor/toolchain.env` only as a
+    /// fallback. That file is written by `fetch_tools.py` with absolute paths into the
+    /// developer's checkout, so a packaged app that trusted it looked for the compiler
+    /// inside a directory that exists on exactly one machine — and reported the
+    /// toolchain missing everywhere else, with a suggestion to run a script that is not
+    /// shipped.
     pub fn discover(root: &Path) -> Result<Self> {
+        if let Some(tc) = Self::from_layout(root) {
+            return Ok(tc);
+        }
         Self::from_env_file(&root.join("vendor").join("toolchain.env"))
+    }
+
+    /// The vendored tools as they sit under `<root>/vendor`, by shape rather than by
+    /// recorded path. Version directories (`mkgmap-r4924`) are matched by prefix so a
+    /// tool update needs no code change.
+    fn from_layout(root: &Path) -> Option<Self> {
+        let vendor = root.join("vendor");
+        let jar = |prefix: &str, name: &str| -> Option<PathBuf> {
+            let direct = vendor.join(name);
+            if direct.is_file() {
+                return Some(direct);
+            }
+            std::fs::read_dir(&vendor).ok()?.flatten().find_map(|e| {
+                let p = e.path();
+                let matches = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().starts_with(prefix))
+                    .unwrap_or(false);
+                (matches && p.join(name).is_file()).then(|| p.join(name))
+            })
+        };
+        // The JRE is bundled for users; a JDK is what a development checkout has, and
+        // either runs the tools.
+        let java = ["jre", "jdk"].iter().find_map(|image| {
+            let base = vendor.join(image);
+            [
+                base.join("bin").join("java"),
+                base.join("Contents").join("Home").join("bin").join("java"),
+                base.join("bin").join("java.exe"),
+            ]
+            .into_iter()
+            .find(|p| p.is_file())
+        })?;
+
+        let tc = Self {
+            java,
+            splitter_jar: jar("splitter", "splitter.jar")?,
+            mkgmap_jar: jar("mkgmap", "mkgmap.jar")?,
+        };
+        tc.check().ok()?;
+        Some(tc)
     }
 
     fn check(&self) -> Result<()> {
@@ -272,6 +323,32 @@ fn at_low_priority(cmd: Command) -> Command {
     cmd
 }
 
+/// The command line as it was actually run, for a failure report.
+///
+/// SPEC.md §12 requires a Java non-zero exit to show the command line, not only the
+/// stderr tail: mkgmap takes thirty-odd arguments and its complaint is frequently about
+/// one of them. Written out here rather than reconstructed from the recipe, so what the
+/// report shows is what ran — including the `nice` wrapper and the style paths.
+///
+/// Arguments containing spaces are quoted so the line can be pasted into a shell, which
+/// is the first thing anybody investigating one of these does.
+fn describe(cmd: &Command) -> String {
+    let mut out = quote(&cmd.get_program().to_string_lossy());
+    for a in cmd.get_args() {
+        out.push(' ');
+        out.push_str(&quote(&a.to_string_lossy()));
+    }
+    out
+}
+
+fn quote(s: &str) -> String {
+    if s.contains(' ') || s.contains('"') {
+        format!("\"{}\"", s.replace('"', "\\\""))
+    } else {
+        s.to_string()
+    }
+}
+
 /// Run a child process, killing it if the build is cancelled.
 ///
 /// `Command::output` blocks until the child exits, so a build cancelled during
@@ -285,6 +362,7 @@ fn run(cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
     use std::io::Read;
 
     let mut cmd = at_low_priority(cmd);
+    let command_line = describe(&cmd);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -305,7 +383,10 @@ fn run(cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
     let err_thread = drain(child.stderr.take());
 
     let status = loop {
-        match child.try_wait().map_err(|e| Error::io(Path::new(what), e))? {
+        match child
+            .try_wait()
+            .map_err(|e| Error::io(Path::new(what), e))?
+        {
             Some(status) => break status,
             None => {
                 if cancel.is_cancelled() {
@@ -329,7 +410,13 @@ fn run(cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
             return Err(Error::Cancelled);
         }
         let tail: String = log.lines().rev().take(25).collect::<Vec<_>>().join("\n");
-        return Err(Error::Zip(format!("{what} failed:\n{tail}")));
+        return Err(Error::Zip(format!(
+            "{what} failed (exit {}):\n{command_line}\n{tail}",
+            status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "signal".into())
+        )));
     }
     // mkgmap exits 0 even after throwing, so the log has to be inspected.
     if log.contains("Exception:")
@@ -341,9 +428,41 @@ fn run(cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
             .take(10)
             .collect::<Vec<_>>()
             .join("\n");
-        return Err(Error::Zip(format!("{what} reported errors:\n{tail}")));
+        return Err(Error::Zip(format!(
+            "{what} reported errors:\n{command_line}\n{tail}"
+        )));
     }
     Ok(log)
+}
+
+/// The `--max-nodes` a build starts from.
+///
+/// Below splitter's own default of 1,600,000 (splitter r654 `--help`), because smaller
+/// tiles draw and pan faster on the wrist devices, which is where responsiveness is
+/// scarcest.
+pub const START_MAX_NODES: u32 = 700_000;
+
+/// The most this project will ask splitter for.
+///
+/// Splitter's documented default, and therefore the largest value its author treats as
+/// ordinary. Going beyond it to satisfy a tile budget would be trading a limit we know
+/// for one we would be guessing at.
+pub const CEILING_MAX_NODES: u32 = 1_600_000;
+
+/// The next `--max-nodes` to try when a split produced more tiles than the device
+/// accepts, or `None` when there is nothing left to try (SPEC.md §12, "Tile count
+/// exceeds device limit — auto-retune `--max-nodes`, else split into map sets").
+///
+/// Raising it packs more nodes into each tile and so produces fewer of them. Doubling
+/// rather than stepping, because each attempt is a full splitter run: a build that
+/// needs three minutes per attempt cannot afford ten attempts to creep up on a value.
+///
+/// Separated from the retry loop so the policy can be tested without running splitter.
+pub fn retune_max_nodes(current: u32, tiles: usize, max_tiles: usize) -> Option<u32> {
+    if tiles <= max_tiles || current >= CEILING_MAX_NODES {
+        return None;
+    }
+    Some((current.saturating_mul(2)).min(CEILING_MAX_NODES))
 }
 
 /// Split an OSM PBF into Garmin map tiles.
@@ -548,6 +667,166 @@ mod tests {
         let mut c = Command::new("sh");
         c.arg("-c").arg(script);
         c
+    }
+
+    /// A packaged app has no `toolchain.env` worth trusting: `fetch_tools.py` writes it
+    /// with absolute paths into the developer's checkout. Discovery must work from the
+    /// layout alone (NFR-7).
+    #[test]
+    fn the_toolchain_is_found_from_the_layout_without_the_env_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let vendor = root.join("vendor");
+        std::fs::create_dir_all(vendor.join("mkgmap-r4924")).unwrap();
+        std::fs::create_dir_all(vendor.join("splitter-r654")).unwrap();
+        std::fs::create_dir_all(vendor.join("jre").join("bin")).unwrap();
+        std::fs::write(vendor.join("mkgmap-r4924").join("mkgmap.jar"), b"jar").unwrap();
+        std::fs::write(vendor.join("splitter-r654").join("splitter.jar"), b"jar").unwrap();
+        std::fs::write(vendor.join("jre").join("bin").join("java"), b"#!/bin/sh\n").unwrap();
+
+        let tc = Toolchain::discover(root).expect("the layout alone should be enough");
+        assert!(
+            tc.mkgmap_jar.ends_with("mkgmap-r4924/mkgmap.jar"),
+            "{:?}",
+            tc.mkgmap_jar
+        );
+        assert!(tc.splitter_jar.ends_with("splitter-r654/splitter.jar"));
+        assert!(tc.java.ends_with("jre/bin/java"));
+    }
+
+    /// The layout must win over a stale env file, which is exactly what a bundle built
+    /// on a machine that had one would contain.
+    #[test]
+    fn the_layout_wins_over_a_stale_env_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let vendor = root.join("vendor");
+        std::fs::create_dir_all(vendor.join("mkgmap-r4924")).unwrap();
+        std::fs::create_dir_all(vendor.join("splitter-r654")).unwrap();
+        std::fs::create_dir_all(vendor.join("jre").join("Contents/Home/bin")).unwrap();
+        std::fs::write(vendor.join("mkgmap-r4924").join("mkgmap.jar"), b"jar").unwrap();
+        std::fs::write(vendor.join("splitter-r654").join("splitter.jar"), b"jar").unwrap();
+        std::fs::write(
+            vendor.join("jre").join("Contents/Home/bin").join("java"),
+            b"#!/bin/sh\n",
+        )
+        .unwrap();
+        std::fs::write(
+            vendor.join("toolchain.env"),
+            b"MKGMAP_JAR=/Users/somebody-else/mkgmap.jar\n\
+              SPLITTER_JAR=/Users/somebody-else/splitter.jar\n\
+              JAVA_BIN=/Users/somebody-else/java\n",
+        )
+        .unwrap();
+
+        let tc = Toolchain::discover(root).expect("the layout is present and valid");
+        assert!(
+            tc.mkgmap_jar.starts_with(root),
+            "took the path from the stale env file: {:?}",
+            tc.mkgmap_jar
+        );
+    }
+
+    /// With neither, the failure must say what to do rather than nothing.
+    #[test]
+    fn a_root_with_no_toolchain_says_how_to_get_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = Toolchain::discover(dir.path()).unwrap_err();
+        assert!(err.to_string().contains("toolchain.env"), "{err}");
+    }
+
+    /// SPEC.md §12: "Tile count exceeds device limit — auto-retune `--max-nodes`,
+    /// else split into map sets."
+    ///
+    /// Before this the build simply refused, telling the user to pick a smaller area
+    /// when denser tiles would have fitted the same map on the same device.
+    #[test]
+    fn a_tile_count_within_the_budget_is_not_retuned() {
+        assert_eq!(retune_max_nodes(START_MAX_NODES, 40, 100), None);
+        assert_eq!(retune_max_nodes(START_MAX_NODES, 100, 100), None);
+    }
+
+    #[test]
+    fn too_many_tiles_doubles_the_node_budget() {
+        assert_eq!(retune_max_nodes(700_000, 150, 100), Some(1_400_000));
+    }
+
+    /// The next step must not overshoot splitter's own documented default: past that
+    /// we would be trading a limit we know for one we would be guessing at.
+    #[test]
+    fn retuning_stops_at_the_ceiling_rather_than_doubling_past_it() {
+        assert_eq!(
+            retune_max_nodes(1_400_000, 150, 100),
+            Some(CEILING_MAX_NODES)
+        );
+        // At the ceiling there is nothing left to try, however far over budget it is.
+        assert_eq!(retune_max_nodes(CEILING_MAX_NODES, 10_000, 100), None);
+    }
+
+    /// The sequence must terminate, or a build would retry forever on an area that
+    /// cannot fit. Three attempts at most, and each one is a full splitter run.
+    #[test]
+    fn the_retune_sequence_terminates() {
+        let mut nodes = START_MAX_NODES;
+        let mut attempts = 0;
+        // A tile count that never improves: the worst case for termination.
+        while let Some(next) = retune_max_nodes(nodes, 10_000, 100) {
+            nodes = next;
+            attempts += 1;
+            assert!(attempts < 10, "retuning did not terminate");
+        }
+        assert_eq!(attempts, 2, "expected 700k -> 1.4M -> 1.6M");
+        assert_eq!(nodes, CEILING_MAX_NODES);
+    }
+
+    /// A zero budget must not loop or divide by anything.
+    #[test]
+    fn a_device_that_accepts_no_tiles_is_not_retuned_forever() {
+        assert_eq!(retune_max_nodes(CEILING_MAX_NODES, 1, 0), None);
+        assert_eq!(retune_max_nodes(START_MAX_NODES, 1, 0), Some(1_400_000));
+    }
+
+    /// SPEC.md §12: "Java tool non-zero exit — show stage, command line, stderr tail,
+    /// and a plain-language cause where recognized."
+    ///
+    /// The stage and the tail were reported; the command line was not, and mkgmap takes
+    /// thirty-odd arguments whose complaints are frequently about one of them.
+    #[test]
+    fn a_failure_reports_the_stage_the_exit_code_and_the_command_line() {
+        // The real mkgmap output for an oversized area, which is the failure users
+        // actually hit and the one `diagnose` has a rule for.
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(
+            "echo 'Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap \
+             space' >&2; exit 3",
+        );
+        let err = run(c, "mkgmap (tiles and overview)", &Cancel::new()).unwrap_err();
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("mkgmap (tiles and overview)"),
+            "no stage: {msg}"
+        );
+        assert!(msg.contains("exit 3"), "no exit code: {msg}");
+        assert!(msg.contains("sh -c"), "no command line: {msg}");
+        assert!(msg.contains("OutOfMemoryError"), "no stderr tail: {msg}");
+        // And the plain-language cause, derived from that same string.
+        let d = crate::diagnose::diagnose(&err);
+        assert!(d.recognised, "{msg}");
+        assert!(d.summary.contains("out of memory"), "{}", d.summary);
+    }
+
+    /// Arguments with spaces have to survive as one argument, so the line in the report
+    /// can be pasted into a shell to reproduce the failure.
+    #[test]
+    fn the_reported_command_line_is_pasteable() {
+        let mut c = Command::new("java");
+        c.arg("-jar").arg("/opt/mkgmap.jar");
+        c.arg("--style-file=/Users/me/My Maps/style");
+        assert_eq!(
+            describe(&c),
+            "java -jar /opt/mkgmap.jar \"--style-file=/Users/me/My Maps/style\""
+        );
     }
 
     /// A cancelled build must stop the child process, not wait for it.

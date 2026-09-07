@@ -193,12 +193,12 @@ mod tests {
         let m = manifest();
         let json = serde_json::to_string(&m).unwrap();
         for needed in [
-            "swisstlm3d_2026-02",  // which release
-            "1220abc",             // its published checksum
-            "mkgmap-r4924",        // which tools
-            "deadbeef",            // the output's own hash
-            "© swisstopo",         // the attribution the licence requires
-            "recipeKey",           // the identity it will carry on the device
+            "swisstlm3d_2026-02", // which release
+            "1220abc",            // its published checksum
+            "mkgmap-r4924",       // which tools
+            "deadbeef",           // the output's own hash
+            "© swisstopo",        // the attribution the licence requires
+            "recipeKey",          // the identity it will carry on the device
         ] {
             assert!(json.contains(needed), "manifest omits {needed}");
         }
@@ -246,11 +246,19 @@ mod tests {
             entry("VeloWeg.shp", 1_000, "ch.astra.veloland", "veloland"),
             entry("VeloWeg.dbf", 2_000, "ch.astra.veloland", "veloland"),
             entry("Route.shp", 3_000, "ch.astra.veloland", "veloland"),
-            entry("x.gpkg", 500, "ch.swisstopo.swisstlm3d", "swisstlm3d_2026-02"),
+            entry(
+                "x.gpkg",
+                500,
+                "ch.swisstopo.swisstlm3d",
+                "swisstlm3d_2026-02",
+            ),
         ]);
 
         assert_eq!(sources.len(), 2, "{sources:#?}");
-        let velo = sources.iter().find(|s| s.collection.contains("veloland")).unwrap();
+        let velo = sources
+            .iter()
+            .find(|s| s.collection.contains("veloland"))
+            .unwrap();
         assert_eq!(velo.files, 3);
         assert_eq!(velo.bytes, 6_000, "bytes must be the release's total");
         // Sorted, so two manifests of the same cache compare cleanly.

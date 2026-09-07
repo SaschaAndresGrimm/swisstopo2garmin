@@ -126,13 +126,19 @@ fn the_primary_asset_is_chosen_by_packaging_not_by_collection() {
     }
 
     // swissTLM3D and the SAC ski tours: a zipped GeoPackage.
-    let tlm = item("swisstlm3d_2026-02", &["swisstlm3d_2026-02_2056_5728.gpkg.zip"]);
+    let tlm = item(
+        "swisstlm3d_2026-02",
+        &["swisstlm3d_2026-02_2056_5728.gpkg.zip"],
+    );
     let (a, kind) = tlm.primary_asset().unwrap();
     assert_eq!(kind, AssetKind::ZippedGeoPackage);
     assert!(a.name.ends_with(".gpkg.zip"));
 
     // The ASTRA snowshoe and winter hiking trails: a bare GeoPackage, no archive.
-    let snow = item("schneeschuhwanderwege", &["schneeschuhwanderwege_2056.gpkg"]);
+    let snow = item(
+        "schneeschuhwanderwege",
+        &["schneeschuhwanderwege_2056.gpkg"],
+    );
     let (a, kind) = snow.primary_asset().unwrap();
     assert_eq!(kind, AssetKind::PlainGeoPackage);
     assert_eq!(a.name, "schneeschuhwanderwege_2056.gpkg");
@@ -142,7 +148,11 @@ fn the_primary_asset_is_chosen_by_packaging_not_by_collection() {
     // that must not be mistaken for either.
     let velo = item(
         "veloland",
-        &["veloland.zip", "veloland_2056.gdb.zip", "veloland_2056.shp.zip"],
+        &[
+            "veloland.zip",
+            "veloland_2056.gdb.zip",
+            "veloland_2056.shp.zip",
+        ],
     );
     let (a, kind) = velo.primary_asset().unwrap();
     assert_eq!(kind, AssetKind::ZippedShapefiles);
@@ -157,4 +167,132 @@ fn the_primary_asset_is_chosen_by_packaging_not_by_collection() {
     let err = none.primary_asset().unwrap_err().to_string();
     assert!(err.contains("meta-only"), "{err}");
     assert!(err.contains("readme.pdf"), "{err}");
+}
+
+/// SPEC.md §12: "STAC API unreachable — fall back to cached catalog; state that
+/// release info may be stale."
+///
+/// Release ids are never hard-coded, so before this an unreachable API meant the Data
+/// screen could say nothing at all about a dataset the user already had on disk.
+#[tokio::test]
+async fn an_unreachable_api_falls_back_to_the_last_answer_and_says_it_is_stale() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = "https://example.test/collections/ch.swisstopo.swisstlm3d/items?limit=100";
+
+    // First, a reachable API. The answer is remembered.
+    let online = FakeHttp::new().with_json(url, tlm3d_items());
+    let fresh = Stac::with_root(&online, "https://example.test")
+        .latest_cached(
+            "ch.swisstopo.swisstlm3d",
+            dir.path(),
+            "2026-09-07T12:00:00Z",
+        )
+        .await
+        .unwrap();
+    assert_eq!(fresh.item.id, "swisstlm3d_2026-02");
+    assert!(!fresh.stale, "a live answer must not be marked stale");
+
+    // Then the same lookup with nothing answering at all.
+    let offline = FakeHttp::new();
+    let remembered = Stac::with_root(&offline, "https://example.test")
+        .latest_cached(
+            "ch.swisstopo.swisstlm3d",
+            dir.path(),
+            "2026-09-14T12:00:00Z",
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(remembered.item.id, "swisstlm3d_2026-02");
+    assert!(remembered.stale, "a remembered answer must be marked stale");
+    // The timestamp is the one from the call that produced it, not from now, so the UI
+    // can say how old the answer is rather than only that it is old.
+    assert_eq!(remembered.fetched_at, "2026-09-07T12:00:00Z");
+    // The whole asset list survives, since acquiring needs the href and the checksum.
+    let (asset, _) = remembered.item.primary_asset().unwrap();
+    assert_eq!(asset.href, "https://example.test/2026.gpkg.zip");
+    assert!(asset.checksum.is_some(), "a stale item must still verify");
+}
+
+/// With no cached answer either, the reported error must be the connection failure.
+/// Inventing or guessing a release id would be worse than saying nothing.
+#[tokio::test]
+async fn an_unreachable_api_with_no_cached_answer_reports_the_connection_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let offline = FakeHttp::new();
+    let err = Stac::with_root(&offline, "https://example.test")
+        .latest_cached("ch.swisstopo.swisstlm3d", dir.path(), "now")
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        !msg.contains("swisstlm3d_"),
+        "the error must not name a release it did not learn: {msg}"
+    );
+}
+
+/// A half-written cache file must not be presented as a release.
+#[tokio::test]
+async fn a_corrupt_cached_answer_is_not_used() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("ch.swisstopo.swisstlm3d.json"),
+        b"{\"item\": {\"id\": \"trunca",
+    )
+    .unwrap();
+    let offline = FakeHttp::new();
+    assert!(Stac::with_root(&offline, "https://example.test")
+        .latest_cached("ch.swisstopo.swisstlm3d", dir.path(), "now")
+        .await
+        .is_err());
+}
+
+/// A later successful lookup must replace the remembered one, or the cache would pin
+/// the app to whatever release it first saw.
+#[tokio::test]
+async fn a_new_release_replaces_the_remembered_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = "https://example.test/collections/ch.swisstopo.swisstlm3d/items?limit=100";
+
+    let first = FakeHttp::new().with_json(url, tlm3d_items());
+    Stac::with_root(&first, "https://example.test")
+        .latest_cached(
+            "ch.swisstopo.swisstlm3d",
+            dir.path(),
+            "2026-09-07T12:00:00Z",
+        )
+        .await
+        .unwrap();
+
+    let mut newer = tlm3d_items();
+    newer["features"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "id": "swisstlm3d_2027-03",
+            "properties": {"datetime": "2027-03-01T00:00:00Z"},
+            "assets": {
+                "swisstlm3d_2027-03_2056_5728.gpkg.zip": {
+                    "href": "https://example.test/2027.gpkg.zip",
+                    "type": "application/x.geopackage+zip"
+                }
+            }
+        }));
+    let second = FakeHttp::new().with_json(url, newer);
+    Stac::with_root(&second, "https://example.test")
+        .latest_cached(
+            "ch.swisstopo.swisstlm3d",
+            dir.path(),
+            "2027-03-02T12:00:00Z",
+        )
+        .await
+        .unwrap();
+
+    let offline = FakeHttp::new();
+    let remembered = Stac::with_root(&offline, "https://example.test")
+        .latest_cached("ch.swisstopo.swisstlm3d", dir.path(), "later")
+        .await
+        .unwrap();
+    assert_eq!(remembered.item.id, "swisstlm3d_2027-03");
+    assert_eq!(remembered.fetched_at, "2027-03-02T12:00:00Z");
 }

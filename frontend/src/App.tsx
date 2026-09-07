@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { StepIndicator, type Step } from "./components/StepIndicator";
+import { AboutScreen } from "./steps/AboutScreen";
 import { DataScreen } from "./steps/DataScreen";
 import { DeviceStep } from "./steps/DeviceStep";
 import { AreaStep } from "./steps/AreaStep";
@@ -7,6 +8,7 @@ import { ContentStep } from "./steps/ContentStep";
 import { BuildStep } from "./steps/BuildStep";
 import { InstallStep } from "./steps/InstallStep";
 import { RecipeLibrary } from "./components/RecipeLibrary";
+import { RecoveryNotice } from "./components/RecoveryNotice";
 import { detectLang, makeT, type Lang } from "./i18n";
 import { api } from "./state/api";
 import type {
@@ -19,7 +21,7 @@ import type {
   ReliefDetail,
 } from "./state/api";
 
-type View = "data" | Step;
+type View = "data" | "about" | Step;
 
 export default function App() {
   const [lang, setLang] = useState<Lang>(detectLang);
@@ -121,10 +123,19 @@ export default function App() {
           </button>
           <button
             type="button"
-            className={view !== "data" ? "current" : ""}
+            className={view !== "data" && view !== "about" ? "current" : ""}
             onClick={() => go(deviceId ? "area" : "device")}
           >
             {t("nav.build")}
+          </button>
+          {/* FR-L1 requires the attribution to be visible in an About screen, not only
+              in the footer. FR-L3 and FR-L4 have nowhere else to live. */}
+          <button
+            type="button"
+            className={view === "about" ? "current" : ""}
+            onClick={() => go("about")}
+          >
+            {t("nav.about")}
           </button>
         </nav>
         <select
@@ -139,7 +150,7 @@ export default function App() {
         </select>
       </header>
 
-      {view !== "data" && (
+      {view !== "data" && view !== "about" && (
         <StepIndicator
           t={t}
           current={view as Step}
@@ -149,7 +160,12 @@ export default function App() {
       )}
 
       <main>
+        {/* Shown on whatever screen the app opens on: an interrupted build is wasting
+            disk and possibly a processor core right now, whichever step the user is on. */}
+        <RecoveryNotice t={t} onResume={(r) => void applyRecipe(r)} />
+
         {view === "data" && <DataScreen t={t} />}
+        {view === "about" && <AboutScreen t={t} />}
 
         {view === "device" && (
           <DeviceStep

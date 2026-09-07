@@ -127,9 +127,15 @@ impl SlopeField {
         for r in 0..rows as isize {
             for c in 0..cols as isize {
                 let z = [
-                    get(c - 1, r + 1), get(c, r + 1), get(c + 1, r + 1),
-                    get(c - 1, r),     get(c, r),     get(c + 1, r),
-                    get(c - 1, r - 1), get(c, r - 1), get(c + 1, r - 1),
+                    get(c - 1, r + 1),
+                    get(c, r + 1),
+                    get(c + 1, r + 1),
+                    get(c - 1, r),
+                    get(c, r),
+                    get(c + 1, r),
+                    get(c - 1, r - 1),
+                    get(c, r - 1),
+                    get(c + 1, r - 1),
                 ];
                 if z.iter().any(|v| v.is_nan()) {
                     // No data anywhere in the window: report flat rather than a cliff.
@@ -390,7 +396,11 @@ mod tests {
         assert!(field.degrees.iter().all(|d| *d < 0.01));
 
         let (areas, stats) = areas(&grid, &SlopeConfig::default());
-        assert!(areas.is_empty(), "flat ground produced {} areas", areas.len());
+        assert!(
+            areas.is_empty(),
+            "flat ground produced {} areas",
+            areas.len()
+        );
         assert_eq!(stats.dropped_small, 0);
     }
 
@@ -453,7 +463,10 @@ mod tests {
         let bands: std::collections::BTreeSet<i32> = found.iter().map(|a| a.min_deg).collect();
         assert!(bands.contains(&30), "{bands:?}");
         assert!(bands.contains(&40), "{bands:?}");
-        assert!(!bands.contains(&50), "a 45° cone must not reach the 50° band: {bands:?}");
+        assert!(
+            !bands.contains(&50),
+            "a 45° cone must not reach the 50° band: {bands:?}"
+        );
     }
 
     #[test]
@@ -487,13 +500,20 @@ mod tests {
         grid.samples[60 * 120 + 60] = 500.0;
 
         let (found, _) = areas(&grid, &SlopeConfig::default());
-        assert!(found.is_empty(), "a single spike became {} areas", found.len());
+        assert!(
+            found.is_empty(),
+            "a single spike became {} areas",
+            found.len()
+        );
 
         // At 2 m the same spike is a cliff, which is what makes a native-resolution
         // slope raster unusable.
         let (native, _) = SlopeField::from_grid(&grid, 2.0);
         let steepest = native.degrees.iter().cloned().fold(0.0f32, f32::max);
-        assert!(steepest > 80.0, "expected a false cliff at 2 m, got {steepest}°");
+        assert!(
+            steepest > 80.0,
+            "expected a false cliff at 2 m, got {steepest}°"
+        );
     }
 
     /// A genuinely steep but tiny area is dropped by the size filter.
@@ -528,12 +548,19 @@ mod tests {
             ..Default::default()
         };
         let (found, stats) = areas(&grid, &strict);
-        assert!(found.is_empty(), "{} areas survived a huge minimum", found.len());
+        assert!(
+            found.is_empty(),
+            "{} areas survived a huge minimum",
+            found.len()
+        );
         assert!(stats.dropped_small > 0, "nothing was reported as dropped");
 
         // With the default minimum the same patch is kept.
         let (kept, _) = areas(&grid, &SlopeConfig::default());
-        assert!(!kept.is_empty(), "the patch should survive the default minimum");
+        assert!(
+            !kept.is_empty(),
+            "the patch should survive the default minimum"
+        );
     }
 
     #[test]

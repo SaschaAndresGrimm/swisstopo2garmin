@@ -71,6 +71,47 @@ export interface Recipe {
   excludedLayers: string[];
 }
 
+/** Mirrors s2g_core ipc::InterruptedBuild. Hand-written for the same reason as
+ *  `Recipe`: it carries one, and ts-rs cannot export it. */
+export interface InterruptedBuild {
+  workDir: string;
+  recipeName: string;
+  recipe: Recipe;
+  startedAt: string;
+  bytes: number;
+  resumable: boolean;
+  strayProcesses: number;
+}
+
+/** Mirrors s2g_core::area_edit. Hand-written beside `Recipe` for the same reason:
+ *  these carry an AreaSelection, which ts-rs cannot export. */
+export type HandleRole = "vertex" | "midpoint" | "centre" | "radius";
+
+export interface AreaHandle {
+  lon: number;
+  lat: number;
+  role: HandleRole;
+  /** Which vertex, or which vertex a midpoint follows. */
+  index: number;
+}
+
+export interface AreaOutline {
+  /** One closed ring per part, WGS84 [lon, lat]. */
+  rings: [number, number][][];
+  handles: AreaHandle[];
+  editable: boolean;
+  /** Set when `editable` is false: what to do instead. */
+  notEditableBecause: string | null;
+}
+
+/** One drag, in LV95 — the coordinates the recipe holds. */
+export type AreaEdit =
+  | { kind: "moveVertex"; index: number; easting: number; northing: number }
+  | { kind: "insertVertex"; after: number; easting: number; northing: number }
+  | { kind: "removeVertex"; index: number }
+  | { kind: "translate"; dEasting: number; dNorthing: number }
+  | { kind: "setRadiusKm"; radiusKm: number };
+
 export const TLM3D = "ch.swisstopo.swisstlm3d";
 export const WANDERWEGE = "ch.swisstopo.swisstlm3d-wanderwege";
 
@@ -127,6 +168,18 @@ export const api = {
   /** `null` restores the platform default. */
   setDataLocation: (path: string | null) =>
     invoke<import("./bindings").DataLocation>("set_data_location", { path }),
+  /** Builds that never finished, found at startup (SPEC.md §12). */
+  interruptedBuilds: () => invoke<InterruptedBuild[]>("interrupted_builds"),
+  /** Kill any leftover Java processes for that build and delete its files. */
+  discardInterrupted: (workDir: string) =>
+    invoke<import("./bindings").DataLocation>("discard_interrupted", { workDir }),
+  /** The true outline and drag handles for a selection, in WGS84 (FR-31). */
+  areaOutline: (area: AreaSelection) => invoke<AreaOutline>("area_outline", { area }),
+  /** Apply one drag. The geometry, and the projection, stay in Rust. */
+  editArea: (area: AreaSelection, edit: AreaEdit) =>
+    invoke<AreaSelection>("edit_area", { area, edit }),
+  /** Attribution, licences and disclaimers (FR-L1..FR-L4). */
+  about: () => invoke<import("./bindings").AboutInfo>("about"),
   clearElevationCache: () =>
     invoke<import("./bindings").DataLocation>("clear_elevation_cache"),
   clearBuildFiles: () => invoke<import("./bindings").DataLocation>("clear_build_files"),
