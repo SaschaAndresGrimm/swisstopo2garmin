@@ -82,6 +82,8 @@ export function useAreaInfo(
   relief: string,
   /** Whether the estimate should include the road network. */
   routing = false,
+  /** Whether the estimate should include official addresses. */
+  addresses = false,
 ): { info: AreaInfo | null; error: string | null } {
   const [info, setInfo] = useState<AreaInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +96,7 @@ export function useAreaInfo(
     let live = true;
     const id = setTimeout(() => {
       api
-        .describeArea({ ...bboxOf(area), deviceId, preset, contourM, relief, routing })
+        .describeArea({ ...bboxOf(area), deviceId, preset, contourM, relief, routing, addresses })
         .then((d) => {
           // A response that arrived after the inputs changed must not be shown.
           if (live) {
@@ -108,7 +110,7 @@ export function useAreaInfo(
       live = false;
       clearTimeout(id);
     };
-  }, [area, deviceId, preset, contourM, relief, routing]);
+  }, [area, deviceId, preset, contourM, relief, routing, addresses]);
 
   return { info, error };
 }

@@ -68,6 +68,7 @@ export interface Recipe {
   palette: Palette;
   slopeClasses: boolean;
   routing: boolean;
+  addresses: boolean;
   labelLanguage: LabelLanguage;
   excludedLayers: string[];
 }
@@ -137,6 +138,7 @@ export const SOURCES = [
   { id: "ch.astra.wanderland", key: "source.wanderland", group: "cycling" },
   { id: "ch.swisstopo.swissnames3d", key: "source.names3d", group: "base" },
   { id: "ch.swisstopo.swissboundaries3d", key: "source.boundaries", group: "base" },
+  { id: "ch.swisstopo.amtliches-gebaeudeadressverzeichnis", key: "source.addresses", group: "base" },
 ] as const;
 
 export const api = {

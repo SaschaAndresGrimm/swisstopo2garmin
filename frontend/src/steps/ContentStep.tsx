@@ -34,6 +34,8 @@ export function ContentStep({
   slopeClasses,
   routing,
   onRouting,
+  addresses,
+  onAddresses,
   onSlopeClasses,
   labelLanguage,
   onLabelLanguage,
@@ -57,6 +59,8 @@ export function ContentStep({
   slopeClasses: boolean;
   routing: boolean;
   onRouting: (v: boolean) => void;
+  addresses: boolean;
+  onAddresses: (v: boolean) => void;
   onSlopeClasses: (on: boolean) => void;
   labelLanguage: LabelLanguage;
   onLabelLanguage: (l: LabelLanguage) => void;
@@ -79,7 +83,7 @@ export function ContentStep({
   // Routing is a content choice, so the estimate on this screen has to include it --
   // it is 12 % of a typical map and the whole point of showing a budget is that it
   // reflects what is about to be built.
-  const { info } = useAreaInfo(area, deviceId, preset, contourM, relief, routing);
+  const { info } = useAreaInfo(area, deviceId, preset, contourM, relief, routing, addresses);
 
   const intervals = [10, 20, 50, 100];
   const reliefOptions: ReliefDetail[] = ["off", "gentle", "detailed"];
@@ -223,6 +227,19 @@ export function ContentStep({
         </label>
         <p className="muted small">{t("content.routingHint")}</p>
         {routing && <p className="muted small">{t("content.routingWarning")}</p>}
+      </div>
+
+      {/* Address search. Its own dataset, so the Data screen has to have it. */}
+      <div className="field">
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={addresses}
+            onChange={(e) => onAddresses(e.target.checked)}
+          />
+          <span>{t("content.addresses")}</span>
+        </label>
+        <p className="muted small">{t("content.addressesHint")}</p>
       </div>
 
       <LayerPanel t={t} preset={preset} excluded={excluded} onExcluded={onExcluded} />

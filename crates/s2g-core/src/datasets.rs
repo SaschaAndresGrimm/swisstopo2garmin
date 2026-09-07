@@ -133,6 +133,25 @@ pub fn hut_geopackages(cache_root: &Path) -> Vec<PathBuf> {
     newest_per(found, winter_key)
 }
 
+/// The official address register's CSV, if it has been downloaded (SPEC.md §16 v2).
+///
+/// One file per release, and the newest wins — the register is republished daily, and a
+/// build should use the addresses that exist now rather than whichever release happened
+/// to be found first.
+pub fn address_csv(cache_root: &Path) -> Option<PathBuf> {
+    let mut found = Vec::new();
+    find_by_extension(&cache_root.join(stac::ADDRESSES), "csv", &mut found);
+    // Liechtenstein is published as its own item; the Swiss file is the one to build
+    // from, and taking both would double every address that exists in neither.
+    found.retain(|p| {
+        p.file_name()
+            .map(|n| !n.to_string_lossy().contains("_li_"))
+            .unwrap_or(false)
+    });
+    found.sort();
+    found.pop()
+}
+
 /// The route shapefiles present in the cache, one per dataset and layer.
 pub fn route_shapefiles(cache_root: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();

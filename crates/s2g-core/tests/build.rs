@@ -460,3 +460,88 @@ fn a_routable_build_writes_the_road_network_subfiles() {
         (size_on as f64 / size_off as f64 - 1.0) * 100.0
     );
 }
+
+/// Address search must reach the file, not just the PBF (SPEC.md §16 v2).
+///
+/// What "the device can search an address" means on disk is the NET subfile, which
+/// carries the street and house-number data, and a larger MDR search index. Neither is
+/// visible in a screenshot, and `--housenumbers` silently does nothing if the address
+/// points and the roads do not agree on the street name.
+#[test]
+fn addresses_reach_the_search_index() {
+    let Some(tc) = toolchain() else {
+        eprintln!("skipping: toolchain not vendored (run vendor/fetch_tools.py)");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let bbox = fixture_bbox();
+    let cancel = Cancel::new();
+
+    // Addresses on a street the fixture's road layer actually has, so the 150 m match
+    // has something to match against. Coordinates inside the fixture extent.
+    let csv = dir.path().join("addresses.csv");
+    let mut rows = String::from(
+        "STN_LABEL;ADR_NUMBER;ZIP_LABEL;ADR_STATUS;ADR_OFFICIAL;ADR_EASTING;ADR_NORTHING\n",
+    );
+    for i in 1..40 {
+        rows.push_str(&format!(
+            "Dorfstrasse;{i};3818 Grindelwald;real;true;{};{}\n",
+            2_645_100 + i * 10,
+            1_163_100 + i * 5
+        ));
+    }
+    std::fs::write(&csv, rows).unwrap();
+
+    let build = |with_addresses: bool, out: &str| {
+        let pbf = dir.path().join(format!("{out}.osm.pbf"));
+        let mut builder = RegionBuilder::create(&pbf, &bbox).unwrap();
+        let g = Gpkg::open(fixtures().join("grindelwald.gpkg")).unwrap();
+        builder
+            .add_vectors(&g, DEFAULT_LAYERS, &cancel, |_, _| {})
+            .unwrap();
+        if with_addresses {
+            let stats = builder.add_addresses(&csv, &cancel, |_| {}).unwrap();
+            assert_eq!(stats.kept, 39, "the test addresses should all be inside");
+        }
+        builder.finish().unwrap();
+
+        let identity = MapIdentity::for_recipe("test:addr", "address test");
+        let tiles = split(
+            &tc,
+            &pbf,
+            &dir.path().join(format!("{out}-tiles")),
+            &identity,
+            200_000,
+            2048,
+            &Cancel::new(),
+        )
+        .unwrap();
+        let mut opts = BuildOptions::new(
+            identity,
+            repo_root().join("style/swisstopo"),
+            repo_root().join("typ/swisstopo.txt"),
+        );
+        opts.housenumbers = with_addresses;
+        let built = compile(&tc, &tiles, &dir.path().join(out), &opts, &Cancel::new()).unwrap();
+        let info = img::read(&built.gmapsupp).unwrap();
+        (info.bytes_of_kind("NET"), info.bytes_of_kind("MDR"))
+    };
+
+    let (net_off, mdr_off) = build(false, "plain");
+    let (net_on, mdr_on) = build(true, "addressed");
+
+    assert_eq!(
+        net_off, 0,
+        "a map without addresses should have no NET subfile"
+    );
+    assert!(
+        net_on > 0,
+        "--housenumbers produced no NET subfile, so no address is searchable"
+    );
+    assert!(
+        mdr_on > mdr_off,
+        "the search index did not grow ({mdr_off} -> {mdr_on}), so the addresses were \
+         not indexed -- most likely addr:street does not match the road's mkgmap:street"
+    );
+    println!("addresses: NET {net_on} B, MDR {mdr_off} -> {mdr_on} B");
+}

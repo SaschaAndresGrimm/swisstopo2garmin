@@ -169,6 +169,8 @@ fn scale_predictors(p: &Predictors, n: usize) -> Predictors {
         slope_classes: p.slope_classes,
         // Roads divide with the features, so the routing cost follows the split.
         routing: p.routing,
+        // Addresses divide with the buildings.
+        addresses: p.addresses,
         // A split does not change which cartography the device gets.
         wrist: p.wrist,
     }
@@ -219,6 +221,7 @@ mod tests {
             relief: ReliefDetail::Off,
             slope_classes: false,
             routing: false,
+            addresses: false,
             wrist: false,
         }
     }

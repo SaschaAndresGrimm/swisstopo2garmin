@@ -52,7 +52,7 @@ pub fn region_key(recipe: &Recipe, source_release: &str) -> String {
     let layers_digest = layer_set_digest();
 
     let material = format!(
-        "v3|{source_release}|{layers_digest:x}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{}|{}|{}|{}",
+        "v4|{source_release}|{layers_digest:x}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{}|{}|{}|{}|{}",
         b.min_e,
         b.min_n,
         b.max_e,
@@ -66,6 +66,12 @@ pub fn region_key(recipe: &Recipe, source_release: &str) -> String {
         // Labels are written into the region PBF, so a language change is a different
         // region. Leaving this out served a French build from a German clip.
         recipe.label_language.id(),
+        // Addresses are extracted into the PBF too, so they belong here for exactly the
+        // same reason -- and leaving them out did the same thing a third time: the first
+        // build with addresses switched on was served from a clip made without them and
+        // silently produced a map with none. `routing` is deliberately *not* here: it is
+        // applied when the tiles are compiled, so it changes no byte of the region.
+        recipe.addresses,
         excluded
     );
     // FNV-1a: this only has to separate recipes, not resist an adversary.
@@ -222,6 +228,12 @@ mod tests {
                 name: "a different name".into(),
                 ..base.clone()
             },
+            // Routing is applied when the tiles are compiled, so it changes no byte of
+            // the region PBF and must not throw the clip away.
+            Recipe {
+                routing: true,
+                ..base.clone()
+            },
         ] {
             assert_eq!(
                 region_key(&changed, "swisstlm3d_2026-02"),
@@ -244,6 +256,8 @@ mod tests {
         excluded.excluded_layers = vec!["tlm_bauten_gebaeude_footprint".into()];
         let mut language = base.clone();
         language.label_language = crate::names::LabelLanguage::French;
+        let mut addresses = base.clone();
+        addresses.addresses = true;
         let mut area = base.clone();
         area.area = AreaSelection::BBox {
             min_e: 2_600_000.0,
@@ -257,6 +271,7 @@ mod tests {
             slope,
             excluded,
             language,
+            addresses,
             area,
             base.clone().with_preset(Preset::Skimo),
         ] {

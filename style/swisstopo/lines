@@ -4,7 +4,10 @@
 # (verified in Milestone 0; see docs/m0-findings.md). A rule with actions but no
 # [type] performs the action and falls through to the rules below.
 # ---------------------------------------------------------------------------
-tlm:strassenname=* { name '${tlm:strassenname}' }
+# The name, and the same value as `mkgmap:street` -- which is what
+# `--housenumbers` matches an address point's `addr:street` against, within 150 m.
+# Without it every address is indexed with no street to belong to.
+tlm:strassenname=* { name '${tlm:strassenname}'; set mkgmap:street='${tlm:strassenname}' }
 tlm:name=*         { name '${tlm:name}' }
 
 # swissTLM3D -> Garmin line types.

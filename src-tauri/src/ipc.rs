@@ -1058,6 +1058,7 @@ pub async fn partition_plan(recipe: Recipe) -> IpcResult<PartitionPlan> {
         relief: recipe.relief,
         slope_classes: recipe.slope_classes,
         routing: recipe.routing,
+        addresses: recipe.addresses,
         wrist: profile.is_wrist(),
     };
     let model = estimate::current_model(
@@ -1100,6 +1101,8 @@ pub struct AreaQuery {
     pub relief: Option<String>,
     /// Whether the estimate should include the road network (SPEC.md §16 v2).
     pub routing: Option<bool>,
+    /// Whether the estimate should include official addresses.
+    pub addresses: Option<bool>,
 }
 
 /// Export an area selection as GeoJSON (SPEC.md FR-42).
@@ -1653,6 +1656,7 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
         contour_m,
         relief,
         routing,
+        addresses,
     } = query;
     let bbox = BBox::new(min_e, min_n, max_e, max_n);
     let profiles = profiles()?;
@@ -1687,6 +1691,7 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
     .with_preset(preset);
     probe.relief = relief;
     probe.routing = routing.unwrap_or(false);
+    probe.addresses = addresses.unwrap_or(false);
     if let Some(m) = contour_m {
         probe.contours.interval_m = m;
     }
@@ -1712,6 +1717,7 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
         relief,
         slope_classes: probe.slope_classes,
         routing: probe.routing,
+        addresses: probe.addresses,
         // The wrist cartography drops layers and labels, so the same area compiles
         // considerably smaller and the estimate has to know which one this device gets.
         // An unrecognised device id falls back to the full cartography, which

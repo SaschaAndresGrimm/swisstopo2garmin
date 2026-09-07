@@ -226,6 +226,23 @@ in this order — the first item is the one that matters:
 
 Record what the device did, not what it should have done.
 
+### C.8 Address search
+
+Build a map with **Address search** ticked ([docs/addresses.md](addresses.md)) and check:
+
+1. **An address resolves.** Search a street and house number that exists in the area —
+   the manifest lists how many addresses went in, and the register is the authority on
+   what they are. "Dorfstrasse 1" style searches are the point.
+2. **It lands in the right place.** Compare against the coordinates in the register.
+3. **The postcode and locality show.** They are indexed as `mkgmap:postal_code` and
+   `mkgmap:city`; if they are missing, a street name shared between villages is
+   ambiguous on the device.
+4. **A street with no house number is still findable** by name alone.
+
+If nothing is searchable at all, the likely cause is that `addr:street` and the road's
+`mkgmap:street` did not match — which is invisible in the map and would mean the 150 m
+association never happened.
+
 ---
 
 ## D. Recording results

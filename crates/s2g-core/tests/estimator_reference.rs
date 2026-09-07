@@ -82,6 +82,7 @@ fn evaluate() -> Vec<Case> {
                 relief: m.recipe.relief,
                 slope_classes: m.recipe.slope_classes,
                 routing: m.recipe.routing,
+                addresses: m.recipe.addresses,
                 wrist,
             });
             let actual = m.output.bytes;

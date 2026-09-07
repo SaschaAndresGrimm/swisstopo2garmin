@@ -125,6 +125,7 @@ fn predictors_from(m: &Manifest) -> Predictors {
         relief: m.recipe.relief,
         slope_classes: m.recipe.slope_classes,
         routing: m.recipe.routing,
+        addresses: m.recipe.addresses,
         wrist: wrist_device(&m.recipe.device_id),
     }
 }

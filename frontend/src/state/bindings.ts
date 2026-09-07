@@ -80,7 +80,11 @@ preset: string | null, contourM: number | null, relief: string | null,
 /**
  * Whether the estimate should include the road network (SPEC.md §16 v2).
  */
-routing: boolean | null, };
+routing: boolean | null, 
+/**
+ * Whether the estimate should include official addresses.
+ */
+addresses: boolean | null, };
 
 /**
  * A build failure, interpreted (SPEC.md FR-73).

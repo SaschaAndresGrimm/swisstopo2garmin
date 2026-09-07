@@ -274,6 +274,11 @@ pub struct BuildOptions {
     /// does. Off unless the recipe asks: it costs size and nothing about it has been
     /// checked on hardware.
     pub routing: bool,
+    /// Match `addr:housenumber` points to streets, so the device can search an address.
+    ///
+    /// Needs `mkgmap:street` on the roads, which `style/*/lines` sets, and address
+    /// points within 150 m of the street they name.
+    pub housenumbers: bool,
     /// Draw above other enabled maps on the device.
     pub draw_priority: u8,
     pub code_page: u16,
@@ -322,6 +327,7 @@ impl BuildOptions {
             dem_dists: Vec::new(),
             max_nodes: 700_000,
             routing: false,
+            housenumbers: false,
             draw_priority: 30,
             // 1252 keeps mixed case and Swiss characters; validated on hardware.
             code_page: 1252,
@@ -663,6 +669,11 @@ pub fn compile(
     // neither subfile and the device treats every road as scenery.
     if opts.routing {
         cmd.arg("--route");
+    }
+    // Address search. Only on the first pass: the second combines finished tiles, and
+    // the housenumber-to-street matching has already happened by then.
+    if opts.housenumbers {
+        cmd.arg("--housenumbers");
     }
 
     if let Some(dem) = &opts.dem_dir {

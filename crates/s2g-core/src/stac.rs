@@ -30,6 +30,13 @@ pub const SKITOUREN: &str = "ch.swisstopo-karto.skitouren";
 pub const SCHNEESCHUH: &str = "ch.astra.schneeschuhwanderwege";
 pub const WINTERWANDERN: &str = "ch.astra.winterwanderwege";
 
+/// The official directory of building addresses (SPEC.md §16 v2).
+///
+/// swissTLM3D has street *names* and no house numbers, so address search needs this: the
+/// register that is binding for Swiss public authorities, 3.3 million addresses as a
+/// semicolon-separated CSV in LV95, under the same OGD terms as everything else here.
+pub const ADDRESSES: &str = "ch.swisstopo.amtliches-gebaeudeadressverzeichnis";
+
 /// Mountain huts and winter accommodation, with contact details (SPEC.md FR-50).
 pub const UNTERKUENFTE: &str = "ch.swisstopo.unterkuenfte-winter";
 

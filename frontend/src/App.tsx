@@ -39,6 +39,7 @@ export default function App() {
   const [palette, setPalette] = useState<Palette>("summer");
   const [slopeClasses, setSlopeClasses] = useState(false);
   const [routing, setRouting] = useState(false);
+  const [addresses, setAddresses] = useState(false);
   const [labelLanguage, setLabelLanguage] = useState<LabelLanguage>("local");
   const [excluded, setExcluded] = useState<string[]>([]);
   const [built, setBuilt] = useState<BuildFinished | null>(null);
@@ -65,10 +66,11 @@ export default function App() {
       palette,
       slopeClasses,
       routing,
+      addresses,
       labelLanguage,
       excludedLayers: excluded,
     };
-  }, [deviceId, area, preset, contourM, indexM, relief, palette, slopeClasses, routing, labelLanguage, excluded, t]);
+  }, [deviceId, area, preset, contourM, indexM, relief, palette, slopeClasses, routing, addresses, labelLanguage, excluded, t]);
 
   // A step is reachable only once the steps it depends on are satisfied, so the
   // indicator cannot jump to a screen that would have nothing to work with.
@@ -103,6 +105,7 @@ export default function App() {
       setPalette(r.palette ?? "summer");
       setSlopeClasses(r.slopeClasses ?? false);
       setRouting(r.routing ?? false);
+      setAddresses(r.addresses ?? false);
       setLabelLanguage(r.labelLanguage ?? "local");
       setExcluded(r.excludedLayers);
       setBuilt(null);
@@ -213,6 +216,8 @@ export default function App() {
             slopeClasses={slopeClasses}
             routing={routing}
             onRouting={setRouting}
+            addresses={addresses}
+            onAddresses={setAddresses}
             onSlopeClasses={setSlopeClasses}
             labelLanguage={labelLanguage}
             onLabelLanguage={setLabelLanguage}

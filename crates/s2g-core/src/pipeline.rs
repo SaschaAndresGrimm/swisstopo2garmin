@@ -267,6 +267,40 @@ async fn build_region(
     // ---- elevation, contours and relief ----------------------------------
     let mut elevation: Option<crate::elevation::Grid> = None;
 
+    // Official building addresses, so the device can search for one (SPEC.md §16 v2).
+    // A national CSV scanned line by line and clipped to the area: 3.3 million rows in
+    // about 1.5 seconds, at constant memory. Holding it would be 468 MB (NFR-2).
+    if recipe.addresses {
+        match crate::datasets::address_csv(&ctx.cache_root) {
+            Some(csv) => {
+                on_stage(StageUpdate {
+                    stage: Stage::Extract,
+                    fraction: None,
+                    detail: "official addresses".into(),
+                });
+                let stats = builder.add_addresses(&csv, cancel, |n| {
+                    on_stage(StageUpdate {
+                        stage: Stage::Extract,
+                        fraction: None,
+                        detail: format!("{n} addresses"),
+                    });
+                })?;
+                if stats.kept == 0 {
+                    warnings.push(
+                        "no official addresses fall inside this area, so address search \
+                         will find nothing"
+                            .into(),
+                    );
+                }
+            }
+            None => warnings.push(
+                "the official address register is not downloaded, so addresses were \
+                 left out"
+                    .into(),
+            ),
+        }
+    }
+
     // Glacier and firn outlines, for drawing contours blue over ice as the Landeskarte
     // does. Read while the connection is open, used later.
     let ice = if recipe.contours.interval_m > 0 {
@@ -809,6 +843,14 @@ pub async fn build(
     // Routing, when the recipe asks and the device can use it. A profile that records
     // `supportsRoutableMaps: false` gets a warning rather than a silently bigger map
     // that its device cannot navigate with.
+    // Address search needs the housenumber matching, and there is no point paying for
+    // it when no addresses were extracted.
+    opts.housenumbers = recipe.addresses
+        && stats
+            .per_layer
+            .iter()
+            .any(|(l, n)| l == "addresses" && *n > 0);
+
     if recipe.routing {
         if profile.rendering.supports_routable_maps {
             opts.routing = true;
@@ -876,6 +918,7 @@ pub async fn build(
                 relief: recipe.relief,
                 slope_classes: recipe.slope_classes,
                 routing: opts.routing,
+                addresses: opts.housenumbers,
                 // Which cartography was compiled, so the sample records the thing that
                 // changes its size by a quarter.
                 wrist: profile.is_wrist(),

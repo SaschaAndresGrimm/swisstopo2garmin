@@ -67,6 +67,9 @@ pub struct Predictors {
     /// the output. Defaults so older logs still load.
     #[serde(default)]
     pub routing: bool,
+    /// Whether official building addresses are included and indexed.
+    #[serde(default)]
+    pub addresses: bool,
     /// True for a wrist device, which is compiled with the reduced cartography.
     ///
     /// Not a feature of the area but of the style applied to it, and it changes the
@@ -214,6 +217,35 @@ pub const WRIST_SLOPE_FACTOR: f64 = 0.55;
 /// feature count is already known before a build starts.
 pub const ROUTING_BYTES_PER_TRANSPORT_FEATURE: f64 = 33.7;
 
+/// What one official address adds to the output.
+///
+/// **Measured** from two builds of the same recipe with and without addresses:
+///
+/// | area | addresses | added | B/address |
+/// |---|---:|---:|---:|
+/// | Grindelwald 6 km | 4,888 | 49,664 | 10.2 |
+/// | Bellinzona 7 km | 14,829 | 158,720 | 10.7 |
+///
+/// Three times apart in count and within 5 %, so the per-address cost is stable.
+pub const ADDRESS_BYTES: f64 = 10.5;
+
+/// How many official addresses to expect per building feature.
+///
+/// This is the weak half of the address term, and deliberately so. The count cannot be
+/// known before a build without scanning a 468 MB CSV, which is far too slow for an
+/// estimate that refires on every drag — so it is predicted from the building count,
+/// which the R-tree answers instantly.
+///
+/// The ratio is *not* stable: Grindelwald gives 0.75 and Bellinzona 0.42, because alpine
+/// barns and huts are buildings without official addresses while a town has apartment
+/// blocks with one address each. 0.59 is the middle of that.
+///
+/// It matters less than it looks. On Grindelwald the whole address term is 4.4 % of the
+/// map, so being 30 % wrong about the count moves the estimate by about 1.3 % — inside
+/// FR-60's ±25 % with room to spare. Predicting the term at all is worth more than
+/// predicting it precisely.
+pub const ADDRESSES_PER_BUILDING: f64 = 0.59;
+
 /// What the slope classes add to a build of this area.
 ///
 /// Kept outside the fitted model deliberately: it is added here and subtracted before
@@ -224,6 +256,15 @@ pub const ROUTING_BYTES_PER_TRANSPORT_FEATURE: f64 = 33.7;
 /// Outside the fitted model for the same reason as the slope term: it is measured
 /// separately and subtracted before fitting, so a routable build in somebody's
 /// calibration log does not teach the model that roads cost twice what they do.
+/// What the official addresses add to this build.
+fn address_adjustment(p: &Predictors) -> f64 {
+    if !p.addresses {
+        return 0.0;
+    }
+    let built = *p.group_counts.get(LayerGroup::Built.id()).unwrap_or(&0) as f64;
+    built * ADDRESSES_PER_BUILDING * ADDRESS_BYTES
+}
+
 fn routing_adjustment(p: &Predictors) -> f64 {
     if !p.routing {
         return 0.0;
@@ -251,7 +292,7 @@ impl SizeModel {
         // Slope is additive -- it draws extra polygons -- and stays outside the fit so a
         // slope build does not attribute its extra bytes to the feature coefficients.
         // The wrist reduction is already in the row.
-        (y + slope_adjustment(p) + routing_adjustment(p)).max(0.0) as u64
+        (y + slope_adjustment(p) + routing_adjustment(p) + address_adjustment(p)).max(0.0) as u64
     }
 
     /// Refit from samples, pulled toward `prior` by `lambda` (ridge regression).
@@ -276,7 +317,8 @@ impl SizeModel {
             // rest of the model is asked to explain the bytes.
             let y = (s.actual_bytes as f64
                 - slope_adjustment(&s.predictors)
-                - routing_adjustment(&s.predictors))
+                - routing_adjustment(&s.predictors)
+                - address_adjustment(&s.predictors))
             .max(0.0);
             for i in 0..TERMS {
                 rhs[i] += x[i] * y;
@@ -754,6 +796,7 @@ mod tests {
             relief,
             slope_classes: false,
             routing: false,
+            addresses: false,
             wrist: false,
         }
     }
@@ -1185,6 +1228,7 @@ mod adjustment_tests {
             relief: ReliefDetail::Off,
             slope_classes: slope,
             routing: false,
+            addresses: false,
             wrist: false,
         }
     }
@@ -1286,10 +1330,12 @@ mod adjustment_tests {
                 relief: ReliefDetail::Gentle,
                 slope_classes: false,
                 routing: false,
+                addresses: false,
                 wrist: false,
             };
             let with_routing = Predictors {
                 routing: true,
+                addresses: false,
                 ..base.clone()
             };
             let added = model.predict(&with_routing) as f64 - model.predict(&base) as f64;
@@ -1315,10 +1361,12 @@ mod adjustment_tests {
             relief: ReliefDetail::Off,
             slope_classes: false,
             routing: true,
+            addresses: false,
             wrist: false,
         };
         let off = Predictors {
             routing: false,
+            addresses: false,
             ..empty.clone()
         };
         assert_eq!(model.predict(&empty), model.predict(&off));
@@ -1333,6 +1381,7 @@ mod adjustment_tests {
         let base = alpine_area();
         let routable = Predictors {
             routing: true,
+            addresses: false,
             ..base.clone()
         };
 
@@ -1370,6 +1419,7 @@ mod adjustment_tests {
         let json = serde_json::to_string(&Sample {
             predictors: Predictors {
                 routing: true,
+                addresses: false,
                 ..alpine_area()
             },
             actual_bytes: 1,
@@ -1400,6 +1450,87 @@ mod adjustment_tests {
         );
     }
 
+    // ---- official addresses (SPEC.md §16 v2) ---------------------------
+
+    /// The two builds the constants came from, reproduced through `predict` using each
+    /// area's real building count.
+    #[test]
+    fn the_address_term_reproduces_the_builds_it_was_measured_from() {
+        let model = SizeModel::default();
+        // (built features, bytes the addresses actually added)
+        for (built, measured) in [(6_507.0, 49_664.0), (35_022.0, 158_720.0)] {
+            let base = Predictors {
+                group_counts: [("built".to_string(), built as u64)].into_iter().collect(),
+                area_km2: 144.0,
+                contour_interval_m: 20,
+                relief: ReliefDetail::Gentle,
+                slope_classes: false,
+                routing: false,
+                addresses: false,
+                wrist: false,
+            };
+            let with_addresses = Predictors {
+                addresses: true,
+                ..base.clone()
+            };
+            let added = model.predict(&with_addresses) as f64 - model.predict(&base) as f64;
+            // Loose on purpose: the per-address cost is stable to 5 % but the *count*
+            // is predicted from buildings, and that ratio ran 0.42 to 0.75 across these
+            // two areas. The term is a few per cent of a map, so this is the accuracy
+            // that matters -- and the constant sits in the middle of the spread by
+            // construction, so neither area should be more than half of it out.
+            let error = (added - measured) / measured;
+            assert!(
+                error.abs() < 0.5,
+                "predicted {added:.0} B for {built:.0} buildings against a measured \
+                 {measured:.0}, which is {:.0}% out",
+                error * 100.0
+            );
+        }
+    }
+
+    /// An area with no buildings has no addresses to index.
+    #[test]
+    fn addresses_cost_nothing_where_there_are_no_buildings() {
+        let model = SizeModel::default();
+        let wild = Predictors {
+            group_counts: [("landCover".to_string(), 400)].into_iter().collect(),
+            area_km2: 300.0,
+            contour_interval_m: 20,
+            relief: ReliefDetail::Off,
+            slope_classes: false,
+            routing: false,
+            addresses: true,
+            wrist: false,
+        };
+        let off = Predictors {
+            addresses: false,
+            ..wild.clone()
+        };
+        assert_eq!(model.predict(&wild), model.predict(&off));
+    }
+
+    #[test]
+    fn the_address_flag_survives_the_calibration_log() {
+        let json = serde_json::to_string(&Sample {
+            predictors: Predictors {
+                addresses: true,
+                ..alpine_area()
+            },
+            actual_bytes: 1,
+            stage_seconds: vec![],
+            at: 0,
+        })
+        .unwrap();
+        assert!(json.contains("\"addresses\":true"), "{json}");
+        assert!(
+            serde_json::from_str::<Sample>(&json)
+                .unwrap()
+                .predictors
+                .addresses
+        );
+    }
+
     // ---- the wrist cartography factor (FR-60) ---------------------------
 
     /// A 144 km² area with the feature mix of the Grindelwald reference build.
@@ -1418,6 +1549,7 @@ mod adjustment_tests {
             relief: ReliefDetail::Gentle,
             slope_classes: false,
             routing: false,
+            addresses: false,
             wrist: false,
         }
     }

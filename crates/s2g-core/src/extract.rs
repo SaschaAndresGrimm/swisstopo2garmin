@@ -416,6 +416,62 @@ impl RegionBuilder {
     /// Tagged `slope=<degrees>` so the style keys on the class directly. Each area is a
     /// closed way; the TYP draws steeper classes over shallower ones, so overlapping
     /// bands read as the steeper of the two without any polygon arithmetic here.
+    /// Add official building addresses as searchable points (SPEC.md §16 v2).
+    ///
+    /// Written as POIs rather than interned vertices: an address must never merge with a
+    /// road vertex, or the road inherits a house number.
+    ///
+    /// The tags are the ones mkgmap's `--housenumbers` looks for — `addr:housenumber`
+    /// and `addr:street`, matched against a road's `mkgmap:street` within 150 m — plus
+    /// `mkgmap:city` and `mkgmap:postal_code`, which the option's own documentation asks
+    /// for so that a street running through two villages can still resolve.
+    pub fn add_addresses(
+        &mut self,
+        csv: &std::path::Path,
+        cancel: &Cancel,
+        mut on_progress: impl FnMut(u64),
+    ) -> Result<crate::addresses::AddressStats> {
+        let mask = self.mask.clone();
+        let mut n = 0u64;
+        let mut cancelled = false;
+        let stats = crate::addresses::read_in_bbox(csv, &self.bbox, |a| {
+            if cancel.is_cancelled() {
+                cancelled = true;
+                return false;
+            }
+            // A corridor or a canton is not its bounding box.
+            if let Some(mask) = &mask {
+                if !mask.contains(crate::geom::Coord::new(a.easting, a.northing)) {
+                    return true;
+                }
+            }
+            let (lon, lat) = lv95_to_wgs84(a.easting, a.northing);
+            let mut tags = vec![
+                ("addr:housenumber".to_string(), a.number.clone()),
+                ("addr:street".to_string(), a.street.clone()),
+            ];
+            if !a.postcode.is_empty() {
+                tags.push(("addr:postcode".to_string(), a.postcode.clone()));
+                tags.push(("mkgmap:postal_code".to_string(), a.postcode.clone()));
+            }
+            if !a.locality.is_empty() {
+                tags.push(("addr:city".to_string(), a.locality.clone()));
+                tags.push(("mkgmap:city".to_string(), a.locality.clone()));
+            }
+            self.writer.poi(lon, lat, tags);
+            n += 1;
+            if n % 2_000 == 0 {
+                on_progress(n);
+            }
+            true
+        })?;
+        if cancelled {
+            return Err(crate::Error::Cancelled);
+        }
+        self.stats.per_layer.push(("addresses".to_string(), n));
+        Ok(stats)
+    }
+
     pub fn add_slope_areas(
         &mut self,
         areas: &[crate::slope::SlopeArea],

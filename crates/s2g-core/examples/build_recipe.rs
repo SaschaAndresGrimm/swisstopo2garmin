@@ -183,6 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         palette,
         slope_classes: arg("--slope").is_some() || std::env::args().any(|a| a == "--slope"),
         routing: std::env::args().any(|a| a == "--route"),
+        addresses: std::env::args().any(|a| a == "--addresses"),
         excluded_layers: excluded,
         // `--name` overrides the default, because the map's name is what the device's
         // map manager lists and a test set of six maps of one place needs six names.

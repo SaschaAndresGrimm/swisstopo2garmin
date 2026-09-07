@@ -87,6 +87,8 @@ another drive before the first download.
   the map underneath stays readable.
 - **Cycling**: Veloland, Mountainbikeland and the official Wanderland route numbers.
 - **SAC huts and public transport stops**, named.
+- **Optional turn-by-turn routing and address search**, both off by default because
+  neither has been on a device yet.
 - **Place names** in German, French, Italian or Romansh where swissNAMES3D has them.
 - **A size estimate before you build**, fitted on real builds and refined by yours.
 - **A manifest** beside every map: the recipe, the exact dataset releases, the tool
@@ -100,7 +102,10 @@ another drive before the first download.
   carriageway is digitised in the direction of travel. That assumption is verified against
   the data ([docs/routing.md](docs/routing.md)) and not on hardware, which are different
   things. Check any route it gives you against the road signs.
-- **No address search** and **no raster/paper-map view**, both deferred past v1.
+- **Address search is built but unverified**, and off by default. It needs a separate
+  137 MB download — swissTLM3D has street names and no house numbers, so the house numbers
+  come from the official address register ([docs/addresses.md](docs/addresses.md)).
+- **No raster/paper-map view**, deferred past v1.
 - **Not verified on hardware since Milestone 6.** Maps render correctly on an Edge 840
   (firmware 3133) and a fēnix 5 Plus (firmware 1930), but the winter colours, slope
   classes, hut symbols, transit stops and night palette have never been on a device.
@@ -234,6 +239,8 @@ From [CLAUDE.md](CLAUDE.md), and they are load-bearing:
   limits
 - **[docs/routing.md](docs/routing.md)** — the road network: what is mapped, what it
   costs, and the one assumption that was checked
+- **[docs/addresses.md](docs/addresses.md)** — where house numbers come from, and how
+  they reach the device's search index
 - **[docs/performance.md](docs/performance.md)** — what is measured, and what is not
 - **[docs/release.md](docs/release.md)** — how a release is built, signed and documented
 - **[docs/accessibility.md](docs/accessibility.md)**,

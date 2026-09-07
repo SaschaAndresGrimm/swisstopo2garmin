@@ -560,6 +560,15 @@ pub struct Recipe {
     /// different things.
     #[serde(default)]
     pub routing: bool,
+    /// Include official building addresses, so the device can search for one
+    /// (SPEC.md §16 v2).
+    ///
+    /// Needs `ch.swisstopo.amtliches-gebaeudeadressverzeichnis` downloaded — swissTLM3D
+    /// has street names and no house numbers. Off by default: it is a separate 137 MB
+    /// download and it adds a searchable point per building, which is a great many
+    /// points in a town.
+    #[serde(default)]
+    pub addresses: bool,
     /// Layer ids explicitly switched off in the layer panel (FR-51).
     #[serde(default)]
     pub excluded_layers: Vec<String>,
@@ -578,6 +587,7 @@ impl Recipe {
             palette: Palette::Summer,
             slope_classes: false,
             routing: false,
+            addresses: false,
             label_language: crate::names::LabelLanguage::Local,
             excluded_layers: Vec::new(),
         }
