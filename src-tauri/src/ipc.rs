@@ -759,14 +759,14 @@ pub struct PresetInfo {
 #[tauri::command]
 pub fn list_presets() -> IpcResult<Vec<PresetInfo>> {
     let root = Cache::default_root();
-    let winter_ready = std::fs::read_dir(root.join("winter"))
-        .map(|rd| {
-            rd.flatten()
-                .any(|e| e.path().extension().map(|x| x == "gpkg").unwrap_or(false))
-        })
-        .unwrap_or(false);
-    let cycle_ready =
-        root.join("routes").is_dir() && walk_has_extension(&root.join("routes"), "shp");
+    // Through datasets:: like the pipeline and the estimator. This used to probe
+    // `winter/` and `routes/` directly -- the flat directories the Milestone 5 Python
+    // spikes wrote -- so once the spike copies were deleted, every preset reported its
+    // data missing while the app's own downloads sat in the content-addressed layout,
+    // unseen. That is finding 5.2 for the third time; there is now a test asserting no
+    // caller probes those paths itself.
+    let winter_ready = !s2g_core::datasets::winter_geopackages(&root).is_empty();
+    let cycle_ready = !s2g_core::datasets::route_shapefiles(&root).is_empty();
 
     Ok(Preset::all()
         .iter()
@@ -894,24 +894,6 @@ pub fn load_recipe(id: String) -> IpcResult<Recipe> {
 #[tauri::command]
 pub fn delete_recipe(id: String) -> IpcResult<()> {
     library::delete(&recipes_dir(), &id).map_err(|e| e.to_string())
-}
-
-fn walk_has_extension(root: &Path, ext: &str) -> bool {
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for e in rd.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.extension().map(|x| x == ext).unwrap_or(false) {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

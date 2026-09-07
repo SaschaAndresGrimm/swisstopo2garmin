@@ -302,3 +302,61 @@ fn usage_of_a_missing_root_is_zero_rather_than_an_error() {
     assert_eq!(u, Default::default());
     assert_eq!(u.total(), 0);
 }
+
+/// Nothing outside `datasets` may guess where a dataset lives.
+///
+/// Two cache layouts exist — the app's `<collection>/<item>/` and the flat `winter/`
+/// and `routes/` directories the Milestone 5 spikes wrote — and code that probes one of
+/// them directly works on the machine it was written on and fails on everyone else's.
+/// This has now happened three times: the pipeline (finding 5.2), the estimator, and
+/// `list_presets`, where every preset reported its data missing while the downloads sat
+/// unseen in the other layout.
+///
+/// A test rather than a comment, because the failure looks like missing data rather
+/// than like a bug.
+#[test]
+fn only_the_datasets_module_knows_where_datasets_live() {
+    use std::path::Path;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("repo root");
+
+    let mut offenders = Vec::new();
+    let mut stack = vec![root.join("crates"), root.join("src-tauri").join("src")];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // target/ holds generated code that may legitimately contain anything.
+                if path.file_name().map(|n| n == "target").unwrap_or(false) {
+                    continue;
+                }
+                stack.push(path);
+                continue;
+            }
+            if path.extension().map(|x| x != "rs").unwrap_or(true) {
+                continue;
+            }
+            // datasets.rs is where this knowledge belongs; its tests build both layouts.
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            if name == "datasets.rs" || name == "cache.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            for probe in ["join(\"winter\")", "join(\"routes\")"] {
+                if text.contains(probe) {
+                    offenders.push(format!("{}: {probe}", path.display()));
+                }
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "these probe a dataset layout directly instead of asking datasets::\n  {}",
+        offenders.join("\n  ")
+    );
+}

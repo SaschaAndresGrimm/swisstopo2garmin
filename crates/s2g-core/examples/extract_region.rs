@@ -129,102 +129,61 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ---- winter routes ----
     if want_winter {
-        let winter_dir = Cache::default_root().join("winter");
-        let mut found = 0;
-        // Each winter GeoPackage holds only its own layers, so every source reports
-        // the others as missing. Track what was actually found and report only the
-        // specs no source provided.
+        // Through datasets:: rather than probing a directory: two cache layouts exist
+        // and this used to see only the one the Milestone 5 spikes wrote.
+        let sources = s2g_core::datasets::winter_geopackages(&Cache::default_root());
+        if sources.is_empty() {
+            return Err("no winter route data in the cache; download it in the app or \
+                        with the acquire example"
+                .into());
+        }
         let mut winter_found: Vec<String> = Vec::new();
-        for entry in std::fs::read_dir(&winter_dir)
-            .map_err(|e| {
-                format!(
-                    "{}: {e}; run spikes/s0/fetch_winter.py",
-                    winter_dir.display()
-                )
-            })?
-            .flatten()
-        {
-            let p = entry.path();
-            if p.extension().map(|x| x != "gpkg").unwrap_or(true) {
-                continue;
-            }
-            let src = Gpkg::open(&p)?;
-            builder.add_vectors(&src, WINTER_LAYERS, &cancel, |layer, n| {
-                winter_found.push(layer.to_string());
-                if n > 0 {
-                    println!("  {layer:<40} {n:>8}");
+        for path in &sources {
+            let src = Gpkg::open(path)?;
+            for spec in WINTER_LAYERS {
+                let before = builder.stats().features;
+                builder.add_vectors(&src, std::slice::from_ref(spec), &cancel, |_, _| {})?;
+                if builder.stats().features > before {
+                    winter_found.push(spec.layer.to_string());
                 }
-            })?;
-            found += 1;
+            }
         }
-        if found == 0 {
-            return Err("no winter GeoPackages cached; run spikes/s0/fetch_winter.py".into());
-        }
-        let absent: Vec<&str> = WINTER_LAYERS
-            .iter()
-            .map(|l| l.layer)
-            .filter(|want| !winter_found.iter().any(|got| got.starts_with(*want)))
-            .collect();
-        if !absent.is_empty() {
-            println!("winter layers not found in any source: {absent:?}");
-        }
+        println!(
+            "winter: {} source(s), layers {}",
+            sources.len(),
+            winter_found.join(", ")
+        );
     }
 
     // ---- cycle and MTB routes (ASTRA shapefiles) ----
     if want_cycle {
-        let routes = Cache::default_root().join("routes");
+        let sources = s2g_core::datasets::route_shapefiles(&Cache::default_root());
         let mut matched = 0;
-        // Each dataset unpacks into its own directory with a year in the name, so the
-        // files are found by walking rather than by a fixed path.
-        let mut stack = vec![routes.clone()];
-        while let Some(dir) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&dir) else {
+        for path in &sources {
+            let stem = path
+                .file_stem()
+                .map(|x| x.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let Some(spec) = CYCLE_LAYERS.iter().find(|l| l.layer == stem) else {
                 continue;
             };
-            for e in rd.flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    stack.push(p);
-                    continue;
-                }
-                if p.extension().map(|x| x != "shp").unwrap_or(true) {
-                    continue;
-                }
-                let stem = p
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                let Some(spec) = CYCLE_LAYERS.iter().find(|l| l.layer == stem) else {
-                    continue;
-                };
-                // All three datasets ship a Route.shp, so the layer tag is qualified
-                // with the dataset directory (veloland / mountainbikeland / wanderland).
-                let dataset = p
-                    .parent()
-                    .and_then(|d| d.parent())
-                    .and_then(|d| d.file_name())
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                let layer_tag = if stem == "Route" {
-                    format!("{dataset}_Route")
-                } else {
-                    stem.clone()
-                };
-                let shp = s2g_core::shapefile::Shapefile::open(&p)?;
-                let n = builder.add_shapefile_as(&shp, spec, &layer_tag, &cancel)?;
-                if n > 0 {
-                    println!("  {layer_tag:<40} {n:>8}");
-                }
-                matched += 1;
-            }
+            // All three datasets ship a Route.shp, so the tag is qualified by dataset.
+            let dataset = s2g_core::datasets::route_dataset_of(path).unwrap_or_default();
+            let tag = if stem == "Route" {
+                format!("{dataset}_{stem}")
+            } else {
+                stem.clone()
+            };
+            let shp = s2g_core::shapefile::Shapefile::open(path)?;
+            builder.add_shapefile_as(&shp, spec, &tag, &cancel)?;
+            matched += 1;
         }
         if matched == 0 {
-            return Err(format!(
-                "no route shapefiles under {}; run spikes/s0/fetch_routes.py",
-                routes.display()
-            )
-            .into());
+            return Err("no cycle route data in the cache; download it in the app or \
+                        with the acquire example"
+                .into());
         }
+        println!("routes: {matched} shapefile(s)");
     }
 
     // ---- contours ----

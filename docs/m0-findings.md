@@ -365,6 +365,17 @@ A reader that walks local headers fails on `Etappe.cpg`, the first zero-length m
 now keeps one file per dataset — for routes, per dataset *and* layer, because all three
 ASTRA datasets ship a `Route.shp` — preferring the app layout and the newest release.
 
+**Finding 5.10 — the same bug, a third time.** `list_presets` still probed `winter/` and
+`routes/` directly, so once the spike copies were deleted every preset reported its data
+missing while the app's own downloads sat unseen in the content-addressed layout. The
+pipeline (5.2) and the estimator had been fixed; this one had not. A test now fails if
+any file outside `datasets.rs` contains `join("winter")` or `join("routes")` — it
+immediately found two more occurrences in `examples/extract_region.rs`.
+
+The lesson is not "be careful": it is that two layouts plus per-caller discovery is a
+defect generator, and the fix is one module that owns the question with a test that
+nobody else may answer it.
+
 ---
 
 ## 5c. Corridor masking
