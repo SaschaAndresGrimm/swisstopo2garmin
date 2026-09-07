@@ -176,6 +176,25 @@ async fn build_region(
         builder.add_vectors(&gpkg, std::slice::from_ref(*spec), cancel, |_, _| {})?;
     }
 
+    // Huts first, and for every preset: a hut is where a hiker is walking to, not a
+    // winter feature. The device test set caught this -- the hiking map had none.
+    for path in crate::datasets::hut_geopackages(&ctx.cache_root) {
+        cancel.check_cancelled()?;
+        on_stage(StageUpdate {
+            stage: Stage::Extract,
+            fraction: None,
+            detail: "SAC huts".into(),
+        });
+        let src = Gpkg::open(&path)?;
+        let specs: Vec<_> = crate::extract::HUT_LAYERS
+            .iter()
+            .filter(|l| keep(l.layer))
+            .collect();
+        for spec in specs {
+            builder.add_vectors(&src, std::slice::from_ref(spec), cancel, |_, _| {})?;
+        }
+    }
+
     if recipe.preset.needs_winter() {
         let sources = crate::datasets::winter_geopackages(&ctx.cache_root);
         for p in &sources {

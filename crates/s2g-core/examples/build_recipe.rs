@@ -175,6 +175,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         excluded_layers: excluded,
         ..Recipe::new(format!("{place} {}", preset.id()), &device_id, area).with_preset(preset)
     };
+    // The preset sets a default interval; --contour overrides it.
+    let mut recipe = recipe;
+    if let Some(m) = arg("--contour").and_then(|v| v.parse::<i32>().ok()) {
+        recipe.contours.interval_m = m;
+    }
+    println!("contour      : {} m", recipe.contours.interval_m);
     println!("recipe key   : {}", recipe.cache_key());
 
     let profiles = devices::load_profiles(&root.join("devices"))?;

@@ -112,6 +112,23 @@ pub fn winter_geopackages(cache_root: &Path) -> Vec<PathBuf> {
     newest_per(found, winter_key)
 }
 
+/// GeoPackages holding the SAC hut list.
+///
+/// Separate from `winter_geopackages` because huts are wanted by every preset: they
+/// arrive in the winter accommodation dataset, but a hut is not a winter feature.
+pub fn hut_geopackages(cache_root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    find_by_extension(&cache_root.join(stac::UNTERKUENFTE), "gpkg", &mut found);
+    // The spike-era flat directory held it too.
+    find_by_extension(&cache_root.join("winter"), "gpkg", &mut found);
+    found.retain(|p| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().contains("unterkuenfte"))
+            .unwrap_or(false)
+    });
+    newest_per(found, winter_key)
+}
+
 /// The route shapefiles present in the cache, one per dataset and layer.
 pub fn route_shapefiles(cache_root: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();

@@ -35,8 +35,8 @@ parking and orchards.
 | 5 | **Trail classes on a wrist screen** | Yellow / red-white / blue-white must stay distinguishable at 1.3 inch. |
 | 6 | **Both maps installed together** | Confirms the family id and overview map number allocation avoids collisions (§4.6). |
 
-Then the limits in section B, which is what promotes `edge-840` from `community` to
-`measured` confidence.
+Then the cartography sweep in section B, and the limits in section C — the latter is
+what promotes `edge-840` from `community` to `measured` confidence.
 
 ### If the map lists but nothing draws
 
@@ -80,7 +80,74 @@ before product code starts.
 
 ---
 
-## B. Measuring the real limits
+## B. Cartography sweep (added after Milestone 6)
+
+Everything in this section has been built, compiled, style-checked and rendered on a
+desktop — and none of it has been on a device. The desktop renderer is not Garmin's: it
+draws the compiled map's own geometry with the same TYP colours, but it approximates
+line casing and pattern fills and cannot show night mode at all. That is the gap these
+files close.
+
+Build them with:
+
+```
+sh tools/device_test_set.sh Grindelwald 6
+```
+
+Grindelwald at 6 km covers, in one 144 km² extent: the Eiger north face (slope classes
+to over 50°), the Unterer Grindelwaldgletscher (blue contours over ice), SAC huts
+(Gleckstein, Bäregg), two cableways and the Wengernalpbahn, bus stops through the
+valley, and the town itself.
+
+| File | Device | Content | Scheme | Relief | Slope |
+|---|---|---|---|:--:|:--:|
+| `edge-1-hiking-summer.img` | Edge 840 | hiking, 20 m | summer | gentle | – |
+| `edge-2-slope-no-relief.img` | Edge 840 | hiking, 20 m | summer | – | yes |
+| `edge-3-skimo-winter-slope.img` | Edge 840 | ski touring, 20 m | **winter** | gentle | yes |
+| `edge-4-full-10m.img` | Edge 840 | full topo, 10 m | summer | gentle | – |
+| `fenix-1-hiking-summer.img` | fēnix 5 Plus | hiking, 20 m | summer | gentle | – |
+| `fenix-2-skimo-winter-slope.img` | fēnix 5 Plus | ski touring, 20 m | **winter** | – | yes |
+
+### Installing them
+
+The **Edge 840** holds several map sets, so all four `edge-*.img` files can sit in
+`/Garmin/` at once under their own names, and be switched in the map settings. Each has
+its own family id, so they will not collide.
+
+The **fēnix 5 Plus** requires the exact name `gmapsupp.img` and holds one map set, so
+copy one file at a time to `/Garmin/gmapsupp.img`, renaming it. Delete the previous one
+first.
+
+If either device is in MTP mode it will not mount as a drive — switch USB mode to
+Garmin, or use the app's "Save to a folder" and copy with a transfer tool.
+
+### What needs your eyes
+
+| # | File | Check | Why hardware is the only way |
+|---|---|---|---|
+| 1 | `edge-3` | **Winter scheme.** Does the base map step back far enough for the violet SAC ski routes to read on top of it? | The colours are measured from swisstopo's Winter national map, but "the base steps back" is a judgement about legibility on a 2.6" transflective screen in daylight. |
+| 2 | `edge-2` | **Slope hatch.** Are the five classes distinguishable, and does the map underneath stay readable through the hatch? | A Garmin TYP polygon has no alpha, so the classes are a 50% diagonal dither. Whether that reads as a tint or as visual noise cannot be judged from a PNG. |
+| 3 | `edge-2` vs `edge-3` | **Slope with and without relief.** Is slope hatching legible over shaded relief, or does relief-plus-hatch become mud? | Both are rendered by the device, compositing in a way nothing on the desktop reproduces. |
+| 4 | **all** | **Night mode.** Switch the device to night colours on each file. | Night colours are in the same `.img` — the device swaps to them, so there is no separate file. This palette is the only one in the project that is *derived* rather than measured (swisstopo publishes no night map), so it is the most likely to be wrong. Check especially: is the ground dark enough, do the pale road classes stay distinguishable, and do contours stay visible without glaring? |
+| 5 | `edge-1` | **SAC huts and bus stops.** Are the hut and stop symbols distinguishable from each other and from settlements, and are their labels legible? | These POI types are new. The hut symbol is a 7×7 gable, the stop a hollow square; at device scale they may simply look like dots. This extent has 2 named SAC huts and 117 stops. |
+| 6 | `edge-4` | **Density at 10 m contours with everything on.** Is full topo usable, or a wall of ink? | This is the largest content setting the app offers, and nobody has looked at it on a screen. |
+| 7 | `fenix-1` | **Wrist cartography.** Trail classes still distinguishable at 1.3"? Labels readable? | The wrist variant thins lines to 60% and pushes detail a zoom level later; whether that is enough is a judgement. |
+| 8 | `fenix-2` | **Winter and slope on a watch.** Does the winter scheme survive at wrist size, and is the slope hatch anything but noise at 1.3"? | The hatch is a fixed 32×32 pattern regardless of screen size, so this is where it is most likely to fail. |
+| 9 | `edge-1` + `edge-3` | **Two schemes installed together.** Both in `/Garmin/`, switch between them on the device. | Confirms the colour scheme really is part of the map identity and the two do not overwrite each other. |
+| 10 | **any** | **Blue contours over ice.** On the Unterer Grindelwaldgletscher, are the contours blue rather than bistre? | Verified in the data, never seen rendered. |
+
+### Report back
+
+For each numbered check: works, or does not, and if not what it looked like. Anything in
+1–4 that fails is a cartography change rather than a bug; 5, 6 and 10 would be data or
+style faults.
+
+The sizes and feature counts are in the `.manifest.json` beside each file, along with
+the dataset releases and tool versions that produced it.
+
+---
+
+## C. Measuring the real limits
 
 Only after A passes. Each measurement promotes a profile field from `community`/`assumed`
 to `measured`.
@@ -111,14 +178,14 @@ by maps before behaviour degrades.
 
 ---
 
-## C. Recording results
+## D. Recording results
 
 Update the device's JSON profile with the measured values, set
 `confidence.level = "measured"`, set `confidence.lastVerified`, and note the method in
 `confidence.notes`. Append a dated entry below and open a pull request — community
 measurements are accepted this way (FR-DEV4).
 
-## D. Verification log
+## E. Verification log
 
 | Date | Device | Firmware | Result | Measured limits | By |
 |---|---|---|---|---|---|

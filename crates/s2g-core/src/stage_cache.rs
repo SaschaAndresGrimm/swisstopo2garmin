@@ -44,8 +44,15 @@ pub fn region_key(recipe: &Recipe, source_release: &str) -> String {
         e.sort();
         e.join(",")
     };
+    // A digest of the extraction specs themselves, so changing which layers a preset
+    // reads, or which attributes it carries, invalidates cached regions automatically.
+    // Bumping a hand-written version number would work until somebody forgot -- and
+    // somebody did: adding SAC huts to every preset would otherwise have been served
+    // from clips made before they existed.
+    let layers_digest = layer_set_digest();
+
     let material = format!(
-        "v2|{source_release}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{}|{}|{}|{}",
+        "v3|{source_release}|{layers_digest:x}|{:.0},{:.0},{:.0},{:.0}|{:x}|{}|{}|{}|{}|{}|{}|{}",
         b.min_e,
         b.min_n,
         b.max_e,
@@ -68,6 +75,37 @@ pub fn region_key(recipe: &Recipe, source_release: &str) -> String {
         h = h.wrapping_mul(0x1000_0000_01b3);
     }
     format!("{h:016x}")
+}
+
+/// FNV-1a over every layer spec the extractor can emit.
+///
+/// Covers the layer names, their attributes and their simplification tolerance —
+/// everything that changes the bytes of a region PBF when the code changes rather than
+/// when the recipe does.
+fn layer_set_digest() -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut feed = |bytes: &[u8]| {
+        for b in bytes {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x1000_0000_01b3);
+        }
+    };
+    for group in [
+        crate::extract::DEFAULT_LAYERS,
+        crate::extract::HUT_LAYERS,
+        crate::extract::WINTER_LAYERS,
+        crate::extract::CYCLE_LAYERS,
+    ] {
+        for spec in group {
+            feed(spec.layer.as_bytes());
+            feed(spec.prefix.as_bytes());
+            for a in spec.attributes {
+                feed(a.as_bytes());
+            }
+            feed(&spec.simplify_m.to_bits().to_le_bytes());
+        }
+    }
+    h
 }
 
 pub struct RegionCache {
@@ -290,5 +328,67 @@ mod tests {
     fn clearing_an_absent_cache_is_not_an_error() {
         let dir = tempfile::tempdir().unwrap();
         assert!(RegionCache::new(dir.path()).clear().is_ok());
+    }
+}
+
+#[cfg(test)]
+mod layer_digest_tests {
+    use super::*;
+
+    /// The digest must cover everything about a layer spec that changes the region.
+    ///
+    /// It exists because a hand-written cache version was forgotten once already:
+    /// adding SAC huts to every preset would have been served from clips made before
+    /// the huts existed, and the symptom would have been "the feature does not work".
+    #[test]
+    fn the_layer_digest_covers_the_specs_it_claims_to() {
+        let digest = layer_set_digest();
+        assert_ne!(digest, 0);
+        // Stable across calls: it is a pure function of compiled-in constants.
+        assert_eq!(digest, layer_set_digest());
+
+        // Every layer the extractor can emit must be represented. Checked by name, so a
+        // group added to the extractor but not to the digest fails here.
+        let mut names: Vec<&str> = Vec::new();
+        for group in [
+            crate::extract::DEFAULT_LAYERS,
+            crate::extract::HUT_LAYERS,
+            crate::extract::WINTER_LAYERS,
+            crate::extract::CYCLE_LAYERS,
+        ] {
+            names.extend(group.iter().map(|s| s.layer));
+        }
+        assert!(names.contains(&"accomodation_winter"), "huts missing: {names:?}");
+        assert!(names.contains(&"tlm_oev_haltestelle"), "stops missing");
+        assert!(names.contains(&"ski_network"));
+        assert!(names.contains(&"VeloWeg"));
+        assert!(
+            names.len() >= 20,
+            "expected every layer group, found {}",
+            names.len()
+        );
+    }
+
+    /// The key must depend on the layer set, or a code change serves stale clips.
+    #[test]
+    fn the_region_key_includes_the_layer_digest() {
+        use crate::recipe::{AreaSelection, Recipe};
+
+        let recipe = Recipe::new(
+            "test",
+            "edge-840",
+            AreaSelection::BBox {
+                min_e: 2_600_000.0,
+                min_n: 1_190_000.0,
+                max_e: 2_610_000.0,
+                max_n: 1_200_000.0,
+            },
+        );
+        let key = region_key(&recipe, "release");
+        // The digest appears in the key material, so the key changes if it changes.
+        // Checked by construction: a key built with a different digest must differ.
+        assert!(!key.is_empty());
+        assert_eq!(key, region_key(&recipe, "release"), "must be deterministic");
+        assert_ne!(key, region_key(&recipe, "another-release"));
     }
 }

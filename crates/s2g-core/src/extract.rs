@@ -203,6 +203,24 @@ pub const DEFAULT_LAYERS: &[LayerSpec] = &[
     },
 ];
 
+/// Named SAC huts, available to **every** preset.
+///
+/// They arrive in the winter accommodation dataset, but a hut is not a winter feature
+/// any more than a cableway is: it is where a hiker is walking to. Kept out of
+/// `WINTER_LAYERS` so a summer hiking map gets them too — without this, every hut on a
+/// hiking map was an unlabelled rectangle, which is what the device test set revealed.
+pub const HUT_LAYERS: &[LayerSpec] = &[
+    // Contact details and opening hours are not in this dataset -- they live behind the
+    // SAC portal, and the url_sac_* columns only link there.
+    LayerSpec {
+        layer: "accomodation_winter",
+        attributes: &["name"],
+        simplify_m: 0.0,
+        prefix: "sac",
+        group: LayerGroup::Built,
+    },
+];
+
 /// Winter sport routes, from three separate swisstopo/ASTRA GeoPackages.
 ///
 /// Layer names, attributes and value domains all verified against the real files:
@@ -238,17 +256,6 @@ pub const WINTER_LAYERS: &[LayerSpec] = &[
         simplify_m: 2.0,
         prefix: "sac",
         group: LayerGroup::Winter,
-    },
-    // SAC huts, 506 of them with their proper names. swissTLM3D marks the buildings
-    // (nutzung=Schutzhuette) but cannot name them, so a hut was a rectangle labelled
-    // nothing. Contact details and opening hours are not in this dataset -- they live
-    // behind the SAC portal, and the url_sac_* columns only link there.
-    LayerSpec {
-        layer: "accomodation_winter",
-        attributes: &["name"],
-        simplify_m: 0.0,
-        prefix: "sac",
-        group: LayerGroup::Built,
     },
     // ASTRA / SchweizMobil signposted snowshoe trails.
     LayerSpec {
