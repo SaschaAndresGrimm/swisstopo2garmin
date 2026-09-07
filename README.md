@@ -7,6 +7,8 @@ Map data © swisstopo. Licensed GPL-3.0-or-later.
 - **[SPEC.md](SPEC.md)** — what it does and why
 - **[PLAN.md](PLAN.md)** — implementation plan and milestone status
 - **[docs/getting-started.md](docs/getting-started.md)** — first map, start to finish
+- **[docs/sample-maps.md](docs/sample-maps.md)** — six ready-made maps attached to each
+  release, to try on a device before building anything
 - **[docs/device-verification.md](docs/device-verification.md)** — what to check on real
   hardware, and why CI cannot
 - **[docs/cartography.md](docs/cartography.md)** — how swissTLM3D becomes Garmin types,

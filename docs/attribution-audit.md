@@ -7,7 +7,7 @@ satisfied. Two findings are recorded at the end: one fixed, one open.
 
 | Required in | Where | Verified by |
 |---|---|---|
-| About screen | `frontend/src/steps/AboutScreen.tsx`, reachable from the header on every screen | `tools/check_i18n.py` (the strings exist in all four languages) |
+| About screen | `frontend/src/steps/AboutScreen.tsx`, reachable from the header on every screen | `frontend/scripts/check-i18n.mjs` (the strings exist in all four languages) |
 | Build report | `manifest.attribution`, written beside every `.img` | `a_manifest_round_trips_through_disk` |
 | Map metadata | `MapIdentity::description` → mkgmap `--description`, so it is inside the file | `builds_a_verified_gmapsupp_from_the_fixture` |
 
@@ -60,21 +60,29 @@ descriptive use this covers.
 
 ## Findings
 
-**Fixed: NOTICE and SPEC.md asserted splitter is GPL-2.0.** Nothing available supports
-that. The bundled r654 distribution ships `doc/LICENSE-gpl-3.0.txt` and no GPL v2 text;
-its jar contains no licence file; the project's download and documentation pages state no
-version; the source browser at `mkgmap.org.uk/websvn` returns 401. Both claims are now
-reduced to what is checkable — splitter is GPL, and the text shipped with it is GPL v3 —
-with the discrepancy written down rather than silently swapped for a different guess.
+**Fixed: NOTICE and SPEC.md asserted splitter is GPL-2.0, and it is GPL-3.0-only.**
+Nothing in the distribution supported the GPL-2.0 claim — r654 ships
+`doc/LICENSE-gpl-3.0.txt` and no GPL v2 text, its jar carries no licence file, and neither
+the project's download nor its documentation pages name a version (the source browser at
+`mkgmap.org.uk/websvn` returns 401).
 
-This changes nothing about compliance. Both tools are invoked as separate processes and
-never linked, so no combined work is formed and their licence does not reach this code
-under any version. The process boundary is what makes the arrangement clean, and SPEC.md
-§14 now says so explicitly instead of resting on the version.
+Settled from splitter's own source headers, consistent across four files and two
+independent mirrors of the subversion trunk:
 
-**Open: the licence version should be confirmed from the source.** A checkout of
-splitter's subversion trunk would settle it from the file headers. Until then NOTICE says
-what is shipped and marks the version unresolved.
+> Copyright (c) 2009, Steve Ratcliffe
+> This program is free software; you can redistribute it and/or modify it under the terms
+> of the **GNU General Public License version 3** as published by the Free Software
+> Foundation.
+
+"version 3" with no "or later" — GPL-3.0-only, matching the licence text shipped beside
+it.
+
+Compliance is unaffected, and the reason is worth stating rather than assuming: both tools
+are invoked as separate processes and never linked, so no combined work is formed and
+neither licence reaches this code. The sharper point is that **GPL-2.0 and GPL-3.0-only
+cannot be combined by linking at all** — so the process boundary is what makes bundling
+mkgmap *and* splitter lawful in the first place, not merely what makes it tidy. SPEC.md
+§14 now says that.
 
 *(A third item was recorded here and withdrawn: Temurin's licence text is bundled, under
 `legal/` inside the distribution, and the About screen now shows its path like the other

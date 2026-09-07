@@ -126,9 +126,8 @@ def vendored_components() -> list[dict]:
 
     Versions are read from the directory names written by `fetch_tools.py`, so an SBOM
     generated after a tool update reports the new version without anybody editing this.
-    Splitter's licence is recorded as `GPL-2.0-or-later OR GPL-3.0-or-later` because the
-    exact version is unresolved -- see the note in NOTICE. An SBOM that stated one of
-    them as fact would be asserting something nobody has checked.
+    Splitter is GPL-3.0-only, settled from its source headers rather than from the
+    version this project's NOTICE used to assert; see the note there.
     """
     vendor = ROOT / "vendor"
     found = []
@@ -158,11 +157,10 @@ def vendored_components() -> list[dict]:
                 "type": "application",
                 "name": "splitter",
                 "version": splitter,
-                "licenses": spdx("GPL-2.0-or-later OR GPL-3.0-or-later"),
+                "licenses": spdx("GPL-3.0-only"),
                 "description": (
-                    "OSM tile splitter, invoked as a separate process. Exact GPL "
-                    "version unresolved: the distribution ships a GPL-3.0 text and "
-                    "states no version. See NOTICE."
+                    "OSM tile splitter, invoked as a separate process. GPL-3.0-only "
+                    "per its own source headers; see NOTICE."
                 ),
                 "externalReferences": refs("https://www.mkgmap.org.uk/"),
             }

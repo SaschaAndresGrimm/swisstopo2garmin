@@ -31,20 +31,24 @@ not linked into this program.
 
   mkgmap    GPL-2.0        https://www.mkgmap.org.uk/
                            Licence text: vendor/mkgmap-r4924/LICENCE (GPL v2, verbatim)
-  splitter  GPL            https://www.mkgmap.org.uk/
+  splitter  GPL-3.0-only   https://www.mkgmap.org.uk/
                            Licence text: vendor/splitter-r654/doc/LICENSE-gpl-3.0.txt
-  Eclipse Temurin JRE/JDK  GPL-2.0 with Classpath Exception
-                           https://adoptium.net/
-                           Licence text: vendor/jre/**/legal/java.base/ -- the GPL v2
-                           text, ASSEMBLY_EXCEPTION and ADDITIONAL_LICENSE_INFO, which
-                           carries the Classpath Exception, as shipped by Temurin.
 
-Note on splitter's version (2026-09-07, unresolved). This file previously stated
-GPL-2.0 for splitter. The distribution we bundle, r654, ships doc/LICENSE-gpl-3.0.txt
-and no GPL v2 text, and neither the project's download page nor its documentation
-states a version; its source repository browser requires authentication. The claim of
-GPL-2.0 was therefore not supported by anything we can check, and it has been reduced
-to what is verifiable: splitter is GPL, and the text shipped with it is GPL v3.
+Note on splitter's version (resolved 2026-09-07). This file previously stated GPL-2.0
+for splitter, which nothing supported: the bundled r654 distribution ships
+doc/LICENSE-gpl-3.0.txt and no GPL v2 text, its jar carries no licence file, and
+neither the project's download page nor its documentation names a version.
+
+Settled from splitter's own source headers, consistent across every file checked and
+across two independent mirrors of the subversion trunk:
+
+    Copyright (c) 2009, Steve Ratcliffe
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3 as
+    published by the Free Software Foundation.
+
+"version 3", without "or later" -- so splitter is GPL-3.0-only, which is exactly what
+the licence text shipped alongside it says.
 
 This does not change anything about whether bundling is lawful. mkgmap and splitter
 are invoked as separate processes and are never linked into this program, so no

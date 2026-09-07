@@ -70,6 +70,15 @@ jobs:
         working-directory: frontend
       - run: npm run lint
         working-directory: frontend
+      # These two existed from Milestone 6 and were never wired in, so nothing ran them.
+      # English is the fallback (FR-4): a missing German key renders the English string,
+      # and a half-translated screen looks finished to anybody testing in English.
+      - run: npm run check:i18n
+        working-directory: frontend
+      # Static only -- control names, labels, live regions. Not a screen-reader pass;
+      # docs/accessibility.md says what is still missing.
+      - run: npm run check:a11y
+        working-directory: frontend
       - run: npm run build
         working-directory: frontend
 
@@ -112,11 +121,6 @@ jobs:
         run: python3 tools/make_typ.py
       - name: TYP matches the style
         run: python3 spikes/s0/checkstyle.py
-      # A missing key in one language falls back to English silently, so a
-      # half-translated screen looks finished to anyone testing in English (FR-4).
-      - name: Language bundles agree and every key used exists
-        run: python3 tools/check_i18n.py
-
   supply-chain:
     name: SBOM
     runs-on: ubuntu-latest

@@ -171,7 +171,7 @@ table change is an edit to [`tools/make_typ.py`](../tools/make_typ.py). Then:
 ```sh
 python3 tools/make_typ.py          # regenerate the TYP
 python3 spikes/s0/checkstyle.py    # every emitted type is drawn, and in a draw order
-python3 tools/check_i18n.py        # if you added a UI string for it
+npm --prefix frontend run check:i18n   # if you added a UI string for it
 ```
 
 CI regenerates the TYP and fails if the committed one differs, so a hand edit to

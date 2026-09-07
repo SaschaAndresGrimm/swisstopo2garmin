@@ -1559,10 +1559,9 @@ pub fn about() -> IpcResult<AboutInfo> {
         Component {
             name: "splitter".into(),
             version: toolchain.as_ref().and_then(|t| t.splitter_version()),
-            // The bundled distribution ships a GPL-3.0 text and no GPL-2 text; see the
-            // note in NOTICE. Stated as what is shipped rather than as a version we
-            // have not confirmed from the project itself.
-            license: "GPL (see bundled licence text)".into(),
+            // GPL-3.0-only, from splitter's own source headers ("version 3", with no
+            // "or later"); see the note in NOTICE for how that was settled.
+            license: "GPL-3.0-only".into(),
             license_path: present(root.join("vendor/splitter-r654/doc/LICENSE-gpl-3.0.txt")),
             url: "https://www.mkgmap.org.uk/".into(),
         },

@@ -62,44 +62,115 @@ Then install it and check **About → Licences** shows real versions rather than
 installed". That one line is the cheapest end-to-end proof that the packaged app found its
 toolchain.
 
-## Signing: what is configured and what is missing
+## The pipeline
 
-The configuration is in place; **the credentials are not, so no signed artefact has ever
-been produced**. Nothing below has been executed end to end.
+`.github/workflows/release.yml` builds all four platforms on a `v*` tag, and on demand via
+**Actions → Release → Run workflow** so an unsigned build can be produced and tried at any
+time. Each runner:
+
+1. installs Rust and Node, and `npm ci` in `frontend/` — which is where the Tauri CLI is
+   pinned, so CI does not spend five minutes compiling it;
+2. runs `vendor/fetch_tools.py`, which downloads mkgmap, splitter and a **per-platform**
+   JRE, because the bundled runtime has to match the runner's architecture;
+3. builds the bundle;
+4. on macOS, runs `cargo test -p swisstopo2garmin resource_root`, which resolves the
+   resource root from the bundle's own executable path and runs the **bundled** Java
+   against the **bundled** mkgmap. This is the check that would have caught the three
+   packaging defects below;
+5. uploads the installers as artefacts, and on a tag opens a **draft** release with
+   `SHA256SUMS` and `sbom.json`.
+
+A draft, never a published release: whether an unsigned build should be offered to the
+public is a person's decision, not a workflow's.
+
+Three details worth knowing if you edit it, or if you build a bundle by hand.
+
+* **The CLI must run from the repository root.** It finds the project by searching below
+  the working directory, so an `npm run` inside `frontend/` searches `frontend/` and finds
+  nothing.
+* **Ubuntu 22.04, not latest.** An AppImage built against a newer glibc will not start on
+  an older distribution.
+* **`CI=true` is required for the DMG**, and its absence fails silently. Tauri's DMG step
+  drives Finder through AppleScript to position the icons, which simply hangs in a
+  non-interactive shell — no error, no timeout, no output. GitHub Actions sets `CI`
+  itself, so the workflow is fine; building one locally is not:
+
+  ```sh
+  CI=true npx --prefix frontend tauri build --bundles dmg
+  ```
+
+### Verified locally, 2026-09-07
+
+A macOS arm64 build produced `swisstopo2garmin_0.1.0_aarch64.dmg`, 51 MB. Mounted, the app
+carries `style`, `typ`, `devices`, `estimator`, `NOTICE`, `LICENSE` and `vendor` in
+`Contents/Resources`, and **the bundled Java runs the bundled tools from inside the
+mounted image**:
+
+```
+Mkgmap version 4924
+splitter 654 compiled 2025-04-13T22:39:53+01:00
+```
+
+`codesign` reports `adhoc, linker-signed`, which is what unsigned looks like. That is the
+end-to-end evidence that the distributable is self-contained; the Windows and Linux
+bundles have not been built or opened by anybody.
+
+## Signing: wired, and inert until the secrets exist
+
+Every signing step is guarded on **its secret being present**, so today the workflow
+produces working unsigned bundles, and the day certificates exist it produces signed ones
+with no edit to the file. Nothing below has been executed end to end — **no signed
+artefact has ever been produced.**
 
 ### macOS
 
-```sh
-export APPLE_SIGNING_IDENTITY="Developer ID Application: NAME (TEAMID)"
-export APPLE_ID="you@example.com"
-export APPLE_PASSWORD="app-specific-password"   # not the account password
-export APPLE_TEAM_ID="TEAMID"
-cargo tauri build --target aarch64-apple-darwin
-cargo tauri build --target x86_64-apple-darwin
-```
+Set these repository secrets:
 
-Tauri signs and then submits for notarisation when all four are set, and skips signing
-entirely when `APPLE_SIGNING_IDENTITY` is absent — which is why an unsigned local build
-still works.
+| Secret | What it is |
+|---|---|
+| `APPLE_CERTIFICATE` | the Developer ID Application `.p12`, base64-encoded |
+| `APPLE_CERTIFICATE_PASSWORD` | its export password |
+| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: NAME (TEAMID)` |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | notarisation; `APPLE_PASSWORD` is an **app-specific** password, not the account one |
 
-Requires a paid Apple Developer account. **Not obtained.** Until it is, macOS users get
-Gatekeeper's "cannot be opened because the developer cannot be verified", and the only
-honest thing to do is say so in the release notes with the right-click → Open workaround.
+The workflow imports the certificate into a throwaway keychain that is discarded with the
+job, so the runner's login keychain is never touched. Tauri signs when
+`APPLE_SIGNING_IDENTITY` is set and notarises when the other three are too; with none set
+it builds unsigned rather than failing. Those variable names were read out of the CLI
+binary rather than assumed — an earlier draft of this file invented a Windows one that
+does not exist.
+
+Needs a paid Apple Developer account. **Not obtained.** Until it is, macOS shows
+Gatekeeper's "cannot be opened because the developer cannot be verified", and the honest
+thing is to say so in the release notes with the right-click → Open workaround, which the
+draft notes do.
 
 ### Windows
 
-```sh
-export TAURI_WINDOWS_SIGNTOOL_PATH="C:/Program Files (x86)/Windows Kits/10/bin/x64/signtool.exe"
-# and set bundle.windows.certificateThumbprint in tauri.conf.json
-cargo tauri build
-```
+Set `WINDOWS_CERT_THUMBPRINT`. There is no environment variable for Authenticode — the
+thumbprint is a config field — so the workflow writes a one-line override that
+`tauri build --config` merges over `tauri.conf.json`, and writes `{}` when the secret is
+absent. One build step either way, rather than two that drift apart.
 
-Requires an Authenticode certificate. **Not obtained.** Unsigned, Windows SmartScreen
-warns until the binary accumulates reputation.
+Needs an Authenticode certificate. **Not obtained.** Unsigned, SmartScreen warns until the
+binary accumulates reputation.
 
 ### Linux
 
-Unsigned by design. The AppImage and `.deb` are reproducible from the same sources.
+Unsigned by design. Signing a `.deb` is a repository's job, and there is no repository.
+
+## Is it standalone?
+
+Yes, with one caveat that matters more than the packaging.
+
+The bundle carries the map compiler, the splitter, a private JRE, the cartography, the TYP
+files, the device profiles, the size model, `NOTICE` and `LICENSE`. Nothing needs to be
+installed — no Java, no GDAL, no Python. On macOS it is about **147 MB**, almost all of it
+the JRE.
+
+What it does **not** carry is the geodata. swissTLM3D is 4.5 GB over the wire and 10.0 GB
+unpacked, and the app downloads it on first run. So the installer is standalone; the first
+launch is not, and `docs/getting-started.md` opens by saying so.
 
 ## SBOM
 
@@ -119,9 +190,10 @@ npm **dev** dependencies are excluded: they are build tools, nothing of them rea
 bundle, and listing 240 of them would bury the four a redistributor has obligations about.
 The count is recorded as a property so the omission is visible.
 
-Splitter's licence is `GPL-2.0-or-later OR GPL-3.0-or-later`, deliberately. Its exact
-version is unresolved — see the note in `NOTICE` — and an SBOM asserting one of them would
-be stating something nobody has checked.
+Splitter is recorded as `GPL-3.0-only`, settled from its own source headers rather than
+from the GPL-2.0 this project's `NOTICE` used to assert. That matters beyond bookkeeping:
+GPL-2.0 (mkgmap) and GPL-3.0-only (splitter) cannot be combined by linking, so the process
+boundary is what makes shipping both of them lawful.
 
 ## NFR-10's other two clauses
 
@@ -135,6 +207,20 @@ be stating something nobody has checked.
 * **Dependencies audited.** `cargo audit` and `npm audit` are not in CI. Worth adding;
   neither has been run as part of a release process, because there has not been one.
 
+## Sample maps
+
+Six ready-made `.img` files go up with each release so the cartography can be looked at on
+a device without a 10 GB download first — `docs/sample-maps.md` describes them, and they
+carry a clear warning that they have not been verified on hardware.
+
+They cannot be built in CI, because that needs swissTLM3D and no runner is going to fetch
+it. Build them locally and attach them:
+
+```sh
+sh tools/device_test_set.sh
+sh tools/publish_samples.sh v0.1.0
+```
+
 ## Release checklist
 
 1. Device sweep, `docs/device-verification.md`, recorded in its log table.
@@ -142,8 +228,13 @@ be stating something nobody has checked.
    `cargo test --workspace`.
 3. `cargo test --release -p s2g-core --test perf -- --nocapture`, and record the numbers in
    `docs/performance.md` if they have moved.
-4. `python3 tools/check_i18n.py`, `python3 spikes/s0/checkstyle.py`.
+4. `npm --prefix frontend run check:i18n`, `python3 spikes/s0/checkstyle.py`.
 5. `python3 tools/sbom.py --check`, then generate `sbom.json`.
-6. Build each platform's bundle; **install one and check About → Licences shows versions**.
-7. Build one real map from the installed app and put it on a device.
-8. Changelog, with before/after images for cartography changes.
+6. Tag, or run the Release workflow by hand. It builds all four platforms and opens a
+   draft release.
+7. **Install one bundle and check About → Licences shows real versions** rather than "not
+   installed". That one line is the cheapest end-to-end proof that the packaged app found
+   its own toolchain.
+8. Build one real map from the installed app and put it on a device.
+9. `sh tools/device_test_set.sh && sh tools/publish_samples.sh <tag>`.
+10. Changelog, with before/after images for cartography changes. Publish the draft.

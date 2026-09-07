@@ -1,0 +1,254 @@
+name: Release
+
+# Builds the complete, standalone application for every platform SPEC.md NFR-7 lists.
+#
+# The bundle is self-contained: it carries the map compiler, the splitter, a private JRE,
+# the cartography and the device profiles, so a user needs nothing installed. What it does
+# not carry is the geodata — 10 GB of swissTLM3D that the app downloads on first run.
+#
+# Signing is wired but inert. Every signing step is guarded on its secret being present,
+# so today this produces working unsigned bundles, and the day certificates exist it
+# produces signed ones with no edit to this file. docs/release.md lists exactly which
+# secrets, and what users see until they are set.
+
+on:
+  push:
+    tags: ["v*"]
+  # So an unsigned build can be produced and tried at any time, without a tag.
+  workflow_dispatch:
+    inputs:
+      draft_release:
+        description: "Also create a draft GitHub release from the artefacts"
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bundle:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS 14 runners are arm64, macOS 13 are x64. Both are built natively rather
+          # than cross-compiled, because the bundled JRE is per-architecture and
+          # `fetch_tools.py` downloads the one for the host.
+          - os: macos-14
+            label: macOS arm64
+            artefact: macos-arm64
+          - os: macos-13
+            label: macOS x64
+            artefact: macos-x64
+          - os: ubuntu-22.04
+            label: Linux x64
+            artefact: linux-x64
+          - os: windows-latest
+            label: Windows x64
+            artefact: windows-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Ubuntu 22.04 rather than latest: the AppImage produced on a newer glibc will not
+      # run on older distributions, and the oldest supported runner gives the widest
+      # compatibility.
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libgtk-3-dev
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      # The Java tools and a private JRE for this platform. Roughly 140 MB of the bundle,
+      # and the reason the result needs nothing installed on the user's machine.
+      - name: Vendor the Garmin toolchain and JRE
+        run: python3 vendor/fetch_tools.py
+
+      # --- signing, inert until the secrets exist ---------------------------------
+      #
+      # Guarded on the secret rather than on a flag, so nothing has to be remembered when
+      # certificates are added. Tauri skips code signing when the identity is empty, and
+      # skips notarisation when the Apple credentials are empty.
+      - name: Import the Apple signing certificate
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # A throwaway keychain, so the runner's default keychain is untouched and the
+          # key material lives no longer than the job.
+          KEYCHAIN=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 900 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      # Windows Authenticode has no environment variable: the thumbprint is a config
+      # field. `tauri build --config` merges JSON over tauri.conf.json, which is the
+      # documented way in, so the secret goes into a file that is `{}` when unset. One
+      # build step either way, rather than two that can drift apart.
+      - name: Prepare the Windows signing override
+        shell: bash
+        env:
+          WINDOWS_CERT_THUMBPRINT: ${{ secrets.WINDOWS_CERT_THUMBPRINT }}
+        run: |
+          CONF="$RUNNER_TEMP/signing.conf.json"
+          if [ "$RUNNER_OS" = "Windows" ] && [ -n "$WINDOWS_CERT_THUMBPRINT" ]; then
+            printf '{"bundle":{"windows":{"certificateThumbprint":"%s"}}}' \
+              "$WINDOWS_CERT_THUMBPRINT" > "$CONF"
+            echo "windows code signing: enabled"
+          else
+            echo '{}' > "$CONF"
+            echo "windows code signing: not configured"
+          fi
+          echo "SIGN_CONFIG=$CONF" >> "$GITHUB_ENV"
+
+      # Run from the repository root, not from frontend/: the CLI locates the project by
+      # searching for tauri.conf.json below the working directory, so `npm run` inside
+      # frontend cannot work -- it would search frontend/ and find nothing. The binary
+      # comes from frontend/node_modules, where package-lock.json pins its version.
+      - name: Build the bundle
+        shell: bash
+        env:
+          # Verified against the CLI binary's own strings, not assumed: Tauri signs when
+          # APPLE_SIGNING_IDENTITY is set and notarises when the other three are too.
+          # With none set it builds unsigned rather than failing.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx --prefix frontend tauri build --config "$SIGN_CONFIG"
+
+      # The check that matters, and the one that would have caught the three defects the
+      # Milestone 7 audit found: a bundle that carries no resources, or that looks for the
+      # map compiler at a path from the machine that built it, is useless in a way no unit
+      # test notices. This resolves the resource root from the bundle's own executable
+      # path and runs the *bundled* Java against the *bundled* mkgmap.
+      - name: The bundle is self-sufficient
+        if: runner.os == 'macOS'
+        run: cargo test -p swisstopo2garmin resource_root -- --nocapture
+
+      - name: Report what was built
+        shell: bash
+        run: |
+          echo "### ${{ matrix.label }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${{ secrets.APPLE_SIGNING_IDENTITY }}${{ secrets.WINDOWS_CERT_THUMBPRINT }}" ]; then  # zizmor: ignore[template-injection]
+            echo "signed: yes" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "signed: **no** — see docs/release.md for what users will see" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+          find target/release/bundle -maxdepth 2 -type f \
+            \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \
+               -o -name '*.AppImage' -o -name '*.deb' \) \
+            -exec ls -lh {} \; >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swisstopo2garmin-${{ matrix.artefact }}
+          if-no-files-found: error
+          path: |
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/deb/*.deb
+
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - name: Vendor the Garmin toolchain and JRE
+        run: python3 vendor/fetch_tools.py
+      - run: python3 tools/sbom.py --check
+      - run: python3 tools/sbom.py > sbom.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
+  draft:
+    name: Draft release
+    needs: [bundle, sbom]
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.draft_release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+
+      - name: Collect the installers and checksums
+        run: |
+          mkdir -p release
+          find artefacts -type f \
+            \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \
+               -o -name '*.AppImage' -o -name '*.deb' -o -name 'sbom.json' \) \
+            -exec cp {} release/ \;
+          cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      # A draft, never a published release: whether an unsigned build should be offered to
+      # the public is a decision for a person, not for a workflow.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('untagged-{0}', github.sha) }}
+        run: |
+          NOTES=$(cat <<'EOF'
+          Built by `.github/workflows/release.yml`. Verify against `SHA256SUMS`.
+
+          **These installers are not code-signed.** macOS will refuse to open the app
+          ("the developer cannot be verified") until you right-click it and choose Open;
+          Windows SmartScreen will warn. `docs/release.md` explains why and what would
+          change it.
+
+          Each bundle is self-contained — it carries the map compiler, the splitter, a
+          private Java runtime, the cartography and the device profiles. It does **not**
+          carry the geodata: the app downloads swissTLM3D (10 GB unpacked) on first run.
+          See `docs/getting-started.md`.
+
+          `sbom.json` is a CycloneDX 1.5 inventory of everything shipped, including the
+          bundled Java tools and the swisstopo datasets.
+          EOF
+          )
+          gh release create "$TAG" release/* \
+            --draft \
+            --title "swisstopo2garmin $TAG" \
+            --notes "$NOTES" \
+            || gh release upload "$TAG" release/* --clobber
