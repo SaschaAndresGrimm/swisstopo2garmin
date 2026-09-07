@@ -99,6 +99,20 @@ Three details worth knowing if you edit it, or if you build a bundle by hand.
   CI=true npx --prefix frontend tauri build --bundles dmg
   ```
 
+### The icons
+
+`src-tauri/icons/` holds only what the four desktop bundles need: `icon.ico` for the
+Windows resource file, `icon.icns` for the macOS bundle, and PNGs for Linux. `tauri icon`
+also generates Android and iOS sets, which are deleted — this ships to four desktop
+platforms and unused assets in a repository get mistaken for intent.
+
+Two things about them are worth knowing. Windows **fails to build at all** without
+`icon.ico` — that is what the release pipeline's first Windows run reported, after five
+years of nobody building for Windows. And the source is 256×256 where `tauri icon` wants
+1024×1024, so anything larger than 256 is upscaled: the `.icns` will look soft at large
+sizes on macOS. Cosmetic, and worth replacing the source with a real 1024px artwork
+before a release anybody sees.
+
 ### Verified locally, 2026-09-07
 
 A macOS arm64 build produced `swisstopo2garmin_0.1.0_aarch64.dmg`, 51 MB. Mounted, the app
