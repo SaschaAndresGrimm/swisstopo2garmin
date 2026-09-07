@@ -35,7 +35,9 @@ What works:
   and the three ASTRA route networks, each acquired by its own packaging (zipped
   GeoPackage, bare GeoPackage, or zipped shapefiles).
 - **Areas**: a rectangle drawn on the swisstopo basemap, a radius around a searched
-  place, a corridor around an imported GPX track or FIT course, or all of Switzerland.
+  place, a corridor around an imported GPX track or FIT course, or all of Switzerland —
+  and once drawn, editable: drag a corner to reshape it, the middle to move it, a
+  midpoint to add a corner.
 - **Content**: four presets (hiking, cycling, ski touring, full topo), a per-layer panel,
   contour interval, shaded relief, and a summer or winter colour scheme measured from
   swisstopo's own sheets.
