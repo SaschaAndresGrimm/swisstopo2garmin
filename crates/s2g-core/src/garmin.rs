@@ -268,6 +268,12 @@ pub struct BuildOptions {
     /// be a fixed list — use [`BuildOptions::with_dem`].
     pub dem_dists: Vec<u32>,
     pub max_nodes: u32,
+    /// Write the NET and NOD subfiles, so the device can navigate along the roads.
+    ///
+    /// Needs the style to set `road_class` and `road_speed`, which `style/*/lines`
+    /// does. Off unless the recipe asks: it costs size and nothing about it has been
+    /// checked on hardware.
+    pub routing: bool,
     /// Draw above other enabled maps on the device.
     pub draw_priority: u8,
     pub code_page: u16,
@@ -315,6 +321,7 @@ impl BuildOptions {
             // Empty until with_dem() derives one value per style level.
             dem_dists: Vec::new(),
             max_nodes: 700_000,
+            routing: false,
             draw_priority: 30,
             // 1252 keeps mixed case and Swiss characters; validated on hardware.
             code_page: 1252,
@@ -651,6 +658,13 @@ pub fn compile(
         // Explicit, or two of our own maps share mkgmap's default and collide.
         .arg(format!("--overview-mapnumber={}", id.overview_mapnumber()));
 
+    // NET and NOD, so the device can navigate along the roads rather than only draw
+    // them. The style sets road_class and road_speed; without --route mkgmap computes
+    // neither subfile and the device treats every road as scenery.
+    if opts.routing {
+        cmd.arg("--route");
+    }
+
     if let Some(dem) = &opts.dem_dir {
         let levels = style_level_count(&opts.style_dir)?;
         if opts.dem_dists.len() != levels {
@@ -736,6 +750,9 @@ pub fn compile(
         // project in the device's map manager.
         .arg(format!("--x-mapset-name={}", id.family_name))
         .arg(format!("--copyright-message={COPYRIGHT}"));
+    if opts.routing {
+        cmd.arg("--route");
+    }
     for t in &tile_imgs {
         cmd.arg(t);
     }

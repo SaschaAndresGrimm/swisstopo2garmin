@@ -546,6 +546,20 @@ pub struct Recipe {
     /// map they are noise. Defaults rather than being required, so older recipes load.
     #[serde(default)]
     pub slope_classes: bool,
+    /// Build a routable map: a road graph the device can navigate along (SPEC.md §16).
+    ///
+    /// Costs size — the NET and NOD subfiles are a substantial share of the output —
+    /// and needs the device to support routable maps, which the profile records.
+    ///
+    /// **Off by default, and deliberately so.** Nothing about routing has been checked
+    /// on hardware: not the road classes, not the access rules, and not the assumption
+    /// that a directionally-separated carriageway is digitised the way traffic moves.
+    /// That last one is the reason for caution rather than optimism — if it is wrong,
+    /// a device sends a cyclist the wrong way down a dual carriageway. It is *verified
+    /// against the data* (docs/routing.md) and unverified on a device, and those are
+    /// different things.
+    #[serde(default)]
+    pub routing: bool,
     /// Layer ids explicitly switched off in the layer panel (FR-51).
     #[serde(default)]
     pub excluded_layers: Vec<String>,
@@ -563,6 +577,7 @@ impl Recipe {
             relief: ReliefDetail::Gentle,
             palette: Palette::Summer,
             slope_classes: false,
+            routing: false,
             label_language: crate::names::LabelLanguage::Local,
             excluded_layers: Vec::new(),
         }

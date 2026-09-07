@@ -76,7 +76,11 @@ export type AreaQuery = { minE: number, minN: number, maxE: number, maxN: number
 /**
  * Absent until the content step has been visited.
  */
-preset: string | null, contourM: number | null, relief: string | null, };
+preset: string | null, contourM: number | null, relief: string | null, 
+/**
+ * Whether the estimate should include the road network (SPEC.md §16 v2).
+ */
+routing: boolean | null, };
 
 /**
  * A build failure, interpreted (SPEC.md FR-73).

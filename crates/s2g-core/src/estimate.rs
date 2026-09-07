@@ -63,6 +63,10 @@ pub struct Predictors {
     /// Defaults so logs written before slope classes existed still load.
     #[serde(default)]
     pub slope_classes: bool,
+    /// Whether the map carries a road network (NET and NOD), which is a real share of
+    /// the output. Defaults so older logs still load.
+    #[serde(default)]
+    pub routing: bool,
     /// True for a wrist device, which is compiled with the reduced cartography.
     ///
     /// Not a feature of the area but of the style applied to it, and it changes the
@@ -190,11 +194,44 @@ pub const WRIST_FEATURE_FACTOR: f64 = 0.41;
 /// Fitted from the two wrist builds with slope classes, which is thin. It is here because
 /// the alternative — pretending the cost is identical — was 66 % out on one of them.
 pub const WRIST_SLOPE_FACTOR: f64 = 0.55;
+/// What a road network adds, per transport feature.
+///
+/// **Measured** from two builds of the same recipe with and without `--route`:
+///
+/// | area | transport features | plain | routable | added | B/feature |
+/// |---|---:|---:|---:|---:|---:|
+/// | Grindelwald 6 km, gentle relief | 4,018 | 1,105,408 | 1,243,648 | 138,240 | 34.4 |
+/// | Bellinzona 7 km, detailed relief | 14,238 | 2,089,984 | 2,560,000 | 470,016 | 33.0 |
+///
+/// Two areas 3.5× apart in road density agree to within 4 %, which is what makes this
+/// a constant rather than a guess.
+///
+/// Per *feature* rather than per km², because NET and NOD describe the road graph:
+/// nodes, segments and the turns between them. Area has nothing to do with it — an
+/// empty alpine square kilometre adds no roads and a town adds a great many. That is
+/// precisely the mistake [`SLOPE_BYTES_PER_KM2`] is stuck with, and the reason it is
+/// the weakest term in the model; routing does not have to repeat it, because the
+/// feature count is already known before a build starts.
+pub const ROUTING_BYTES_PER_TRANSPORT_FEATURE: f64 = 33.7;
+
 /// What the slope classes add to a build of this area.
 ///
 /// Kept outside the fitted model deliberately: it is added here and subtracted before
 /// fitting, so a user who builds with slope classes on does not have their extra bytes
 /// attributed to the feature-count coefficients.
+/// What the road network adds to this build.
+///
+/// Outside the fitted model for the same reason as the slope term: it is measured
+/// separately and subtracted before fitting, so a routable build in somebody's
+/// calibration log does not teach the model that roads cost twice what they do.
+fn routing_adjustment(p: &Predictors) -> f64 {
+    if !p.routing {
+        return 0.0;
+    }
+    let transport = *p.group_counts.get(LayerGroup::Transport.id()).unwrap_or(&0) as f64;
+    transport * ROUTING_BYTES_PER_TRANSPORT_FEATURE
+}
+
 fn slope_adjustment(p: &Predictors) -> f64 {
     if !p.slope_classes {
         return 0.0;
@@ -214,7 +251,7 @@ impl SizeModel {
         // Slope is additive -- it draws extra polygons -- and stays outside the fit so a
         // slope build does not attribute its extra bytes to the feature coefficients.
         // The wrist reduction is already in the row.
-        (y + slope_adjustment(p)).max(0.0) as u64
+        (y + slope_adjustment(p) + routing_adjustment(p)).max(0.0) as u64
     }
 
     /// Refit from samples, pulled toward `prior` by `lambda` (ridge regression).
@@ -237,7 +274,10 @@ impl SizeModel {
             let x = s.predictors.row();
             // The slope term is not fitted, so its contribution is removed before the
             // rest of the model is asked to explain the bytes.
-            let y = (s.actual_bytes as f64 - slope_adjustment(&s.predictors)).max(0.0);
+            let y = (s.actual_bytes as f64
+                - slope_adjustment(&s.predictors)
+                - routing_adjustment(&s.predictors))
+            .max(0.0);
             for i in 0..TERMS {
                 rhs[i] += x[i] * y;
                 for j in 0..TERMS {
@@ -713,6 +753,7 @@ mod tests {
             contour_interval_m: interval,
             relief,
             slope_classes: false,
+            routing: false,
             wrist: false,
         }
     }
@@ -1143,6 +1184,7 @@ mod adjustment_tests {
             contour_interval_m: 20,
             relief: ReliefDetail::Off,
             slope_classes: slope,
+            routing: false,
             wrist: false,
         }
     }
@@ -1225,6 +1267,139 @@ mod adjustment_tests {
         assert!(!s.predictors.slope_classes);
     }
 
+    // ---- the road network (SPEC.md §16 v2) ------------------------------
+
+    /// The two builds the constant was measured from, reproduced through `predict`.
+    /// If the constant or the term moves, this says by how much.
+    #[test]
+    fn the_routing_term_reproduces_the_builds_it_was_measured_from() {
+        let model = SizeModel::default();
+        // Grindelwald 6 km: 4,018 transport features added 138,240 bytes.
+        // Bellinzona 7 km: 14,238 added 470,016.
+        for (transport, measured) in [(4_018.0, 138_240.0), (14_238.0, 470_016.0)] {
+            let base = Predictors {
+                group_counts: [("transport".to_string(), transport as u64)]
+                    .into_iter()
+                    .collect(),
+                area_km2: 144.0,
+                contour_interval_m: 20,
+                relief: ReliefDetail::Gentle,
+                slope_classes: false,
+                routing: false,
+                wrist: false,
+            };
+            let with_routing = Predictors {
+                routing: true,
+                ..base.clone()
+            };
+            let added = model.predict(&with_routing) as f64 - model.predict(&base) as f64;
+            let error = (added - measured) / measured;
+            assert!(
+                error.abs() < 0.05,
+                "predicted {added:.0} B for {transport:.0} features against a measured \
+                 {measured:.0}, which is {:.1}% out",
+                error * 100.0
+            );
+        }
+    }
+
+    /// An area with no roads must cost nothing to make routable, which is the property
+    /// that distinguishes a per-feature term from a per-km2 one.
+    #[test]
+    fn routing_costs_nothing_where_there_are_no_roads() {
+        let model = SizeModel::default();
+        let empty = Predictors {
+            group_counts: [("landCover".to_string(), 500)].into_iter().collect(),
+            area_km2: 500.0,
+            contour_interval_m: 20,
+            relief: ReliefDetail::Off,
+            slope_classes: false,
+            routing: true,
+            wrist: false,
+        };
+        let off = Predictors {
+            routing: false,
+            ..empty.clone()
+        };
+        assert_eq!(model.predict(&empty), model.predict(&off));
+    }
+
+    /// Inverted before fitting, exactly as the slope term is: a routable build in
+    /// somebody's calibration log must not teach the model that roads cost twice what
+    /// they do.
+    #[test]
+    fn a_routable_sample_does_not_inflate_the_transport_coefficient() {
+        let prior = SizeModel::default();
+        let base = alpine_area();
+        let routable = Predictors {
+            routing: true,
+            ..base.clone()
+        };
+
+        let samples = vec![
+            Sample {
+                predictors: base.clone(),
+                actual_bytes: prior.predict(&base),
+                stage_seconds: vec![],
+                at: 0,
+            },
+            Sample {
+                predictors: routable.clone(),
+                actual_bytes: prior.predict(&routable),
+                stage_seconds: vec![],
+                at: 0,
+            },
+        ];
+
+        let fitted = SizeModel::fit(&samples, &prior, 1e7);
+        for (i, (a, b)) in fitted
+            .coefficients
+            .iter()
+            .zip(prior.coefficients.iter())
+            .enumerate()
+        {
+            assert!(
+                (a - b).abs() < b.abs() * 0.02 + 1.0,
+                "coefficient {i} moved from {b} to {a}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_routing_flag_survives_the_calibration_log() {
+        let json = serde_json::to_string(&Sample {
+            predictors: Predictors {
+                routing: true,
+                ..alpine_area()
+            },
+            actual_bytes: 1,
+            stage_seconds: vec![],
+            at: 0,
+        })
+        .unwrap();
+        assert!(json.contains("\"routing\":true"), "{json}");
+        assert!(
+            serde_json::from_str::<Sample>(&json)
+                .unwrap()
+                .predictors
+                .routing
+        );
+    }
+
+    /// The sixteen shipped training samples predate routing and must load as
+    /// non-routable, which is what they are.
+    #[test]
+    fn a_log_written_before_routing_existed_loads_as_non_routable() {
+        let json = r#"{"predictors":{"groupCounts":{"transport":100},"areaKm2":10.0,
+                       "contourIntervalM":20,"relief":"gentle"},"actualBytes":1000}"#;
+        assert!(
+            !serde_json::from_str::<Sample>(json)
+                .unwrap()
+                .predictors
+                .routing
+        );
+    }
+
     // ---- the wrist cartography factor (FR-60) ---------------------------
 
     /// A 144 km² area with the feature mix of the Grindelwald reference build.
@@ -1242,6 +1417,7 @@ mod adjustment_tests {
             contour_interval_m: 20,
             relief: ReliefDetail::Gentle,
             slope_classes: false,
+            routing: false,
             wrist: false,
         }
     }

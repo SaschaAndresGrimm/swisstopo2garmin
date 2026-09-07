@@ -32,6 +32,8 @@ export function ContentStep({
   palette,
   onPalette,
   slopeClasses,
+  routing,
+  onRouting,
   onSlopeClasses,
   labelLanguage,
   onLabelLanguage,
@@ -53,6 +55,8 @@ export function ContentStep({
   palette: Palette;
   onPalette: (p: Palette) => void;
   slopeClasses: boolean;
+  routing: boolean;
+  onRouting: (v: boolean) => void;
   onSlopeClasses: (on: boolean) => void;
   labelLanguage: LabelLanguage;
   onLabelLanguage: (l: LabelLanguage) => void;
@@ -72,7 +76,10 @@ export function ContentStep({
     api.listPresets().then(setPresets).catch((e) => setError(String(e)));
   }, []);
 
-  const { info } = useAreaInfo(area, deviceId, preset, contourM, relief);
+  // Routing is a content choice, so the estimate on this screen has to include it --
+  // it is 12 % of a typical map and the whole point of showing a budget is that it
+  // reflects what is about to be built.
+  const { info } = useAreaInfo(area, deviceId, preset, contourM, relief, routing);
 
   const intervals = [10, 20, 50, 100];
   const reliefOptions: ReliefDetail[] = ["off", "gentle", "detailed"];
@@ -200,6 +207,22 @@ export function ContentStep({
           <span>{t("content.slope")}</span>
         </label>
         <p className="muted small">{t("content.slopeHint")}</p>
+      </div>
+
+      {/* Routing. Off by default and labelled as untested, because nothing about it
+          has been on a device -- including the assumption that a directionally
+          separated carriageway is digitised the way traffic moves. */}
+      <div className="field">
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={routing}
+            onChange={(e) => onRouting(e.target.checked)}
+          />
+          <span>{t("content.routing")}</span>
+        </label>
+        <p className="muted small">{t("content.routingHint")}</p>
+        {routing && <p className="muted small">{t("content.routingWarning")}</p>}
       </div>
 
       <LayerPanel t={t} preset={preset} excluded={excluded} onExcluded={onExcluded} />

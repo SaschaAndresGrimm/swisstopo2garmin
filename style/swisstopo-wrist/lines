@@ -12,7 +12,10 @@ tlm:name=*         { name '${tlm:name}' }
 
 # swissTLM3D -> Garmin line types.
 # Layer and attribute names verified against docs/tlm3d-schema.md (CLAUDE.md rule 2).
-# v1 is NOT routable (SPEC.md §1.4), so no road_class/road_speed are set.
+# Roads carry road_class and road_speed and the map is routable when the recipe
+# asks for it (SPEC.md §16 v2). Types are unchanged by that: routing rides on the
+# same standard Garmin types the cartography already used, which is why it was
+# possible at all -- an extended type cannot be a road.
 
 # ---------------------------------------------------------------------------
 # Hiking network -- the flagship feature (SPEC.md FR-CART3).
@@ -22,6 +25,80 @@ tlm:name=*         { name '${tlm:name}' }
 #   Alpinwanderweg  blue/white    0x10103
 # Matched before the generic road rules so trails win over their base geometry.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Routing (SPEC.md §16 v2). Everything here is action-only and falls through to
+# the type rules below, which carry road_class and road_speed.
+#
+# swissTLM3D has all of it: verkehrsbeschraenkung (legal restriction),
+# befahrbarkeit (drivable at all), richtungsgetrennt (one direction per
+# geometry), kunstbaute (bridge/tunnel/steps), belagsart (surface) and stufe
+# (level). Values are from docs/tlm3d-schema.md; none is invented.
+# ---------------------------------------------------------------------------
+
+# One direction per geometry, and the geometry runs the way traffic does.
+# Verified against the data rather than assumed -- see docs/routing.md: motorway
+# ramps agree with travel direction in 100% of the cases clear enough to judge.
+tlm:richtungsgetrennt=Wahr { add oneway=yes }
+
+# Legal restrictions. "Allgemeine Verkehrsbeschraenkung" is the common one --
+# 127,868 of them, mostly forest and farm tracks where motor traffic needs
+# permission -- so it becomes a through-route ban rather than a hard closure,
+# which keeps the road usable as a destination and out of transit routes.
+tlm:verkehrsbeschraenkung='Allgemeine Verkehrsbeschraenkung' { add motor_vehicle=private }
+tlm:verkehrsbeschraenkung='Allgemeines Fahrverbot'           { add motor_vehicle=no }
+tlm:verkehrsbeschraenkung='Zeitlich geregelt'                { add motor_vehicle=private }
+tlm:verkehrsbeschraenkung=Gesperrt                           { add access=no }
+tlm:verkehrsbeschraenkung=Militaerstrasse                    { add access=no; add foot=yes }
+tlm:verkehrsbeschraenkung=Panzerpiste                        { add access=no; add foot=yes }
+tlm:verkehrsbeschraenkung=Teststrecke                        { add access=no }
+tlm:verkehrsbeschraenkung=Rennstrecke                        { add access=no }
+# A secured climbing pitch is not a path anybody should be routed along.
+tlm:verkehrsbeschraenkung='Gesicherte Kletterpartie'         { add access=no }
+
+# Not drivable by a vehicle, whatever its width suggests.
+tlm:befahrbarkeit=Falsch { add motor_vehicle=no }
+
+# Structures. Steps are walkable and nothing else; a ford is passable on foot.
+tlm:kunstbaute~'Bruecke.*'          { add bridge=yes }
+tlm:kunstbaute='Gedeckte Bruecke'   { add bridge=yes }
+tlm:kunstbaute=Steg                 { add bridge=yes; add motor_vehicle=no }
+tlm:kunstbaute=Tunnel               { add tunnel=yes }
+tlm:kunstbaute=Galerie              { add tunnel=yes }
+tlm:kunstbaute~'Unterfuehrung.*'    { add tunnel=yes }
+tlm:kunstbaute~'.*Treppe.*'         { add foot=yes; add motor_vehicle=no; add bicycle=no }
+tlm:kunstbaute=Furt                 { add foot=yes; add motor_vehicle=no }
+
+# Surface and level. Garmin uses the unpaved flag when avoiding rough roads, and
+# the level keeps a bridge from connecting to what passes underneath it.
+tlm:belagsart=Natur { add mkgmap:unpaved=1 }
+tlm:stufe=*         { add layer='${tlm:stufe}' }
+
+# A ferry is a route, not a road.
+tlm:objektart=Faehre { add mkgmap:ferry=1; add motor_vehicle=yes }
+
+# --- the tags above, as the travel modes mkgmap actually reads ---------------
+#
+# mkgmap resolves plain OSM access tags only in its own default style; a custom
+# style has to do it. Written out rather than guessed: the tag names come from
+# mkgmap's own styles/default/inc/access.
+access=no {
+  add mkgmap:foot=no; add mkgmap:bicycle=no; add mkgmap:car=no;
+  add mkgmap:truck=no; add mkgmap:bus=no; add mkgmap:taxi=no;
+  add mkgmap:delivery=no; add mkgmap:emergency=no
+}
+motor_vehicle=no {
+  add mkgmap:car=no; add mkgmap:truck=no; add mkgmap:bus=no;
+  add mkgmap:taxi=no; add mkgmap:delivery=no
+}
+# Reachable as a destination, not usable as a shortcut.
+motor_vehicle=private { add mkgmap:throughroute=no }
+bicycle=no            { add mkgmap:bicycle=no }
+# `set`, not `add`: this overrides a blanket closure above, which is the point.
+foot=yes              { set mkgmap:foot=yes }
+
+# A closed one-way has no through traffic to check for a dead end.
+oneway=yes & access=no { add mkgmap:dead-end-check=false }
+
 tlm:wanderwege=Alpinwanderweg  [0x10103 resolution 23 continue with_actions]
 tlm:wanderwege=Bergwanderweg   [0x10102 resolution 22 continue with_actions]
 tlm:wanderwege=Wanderweg       [0x10101 resolution 21 continue with_actions]
@@ -32,25 +109,25 @@ tlm:objektart=Klettersteig     [0x10104 resolution 23]
 # ---------------------------------------------------------------------------
 # Road network, by TLM objektart
 # ---------------------------------------------------------------------------
-tlm:objektart=Autobahn                          [0x01 resolution 18]
-tlm:objektart=Autostrasse                       [0x02 resolution 19]
-tlm:objektart='10m Strasse'                     [0x03 resolution 19]
-tlm:objektart='8m Strasse'                      [0x04 resolution 20]
-tlm:objektart='6m Strasse'                      [0x05 resolution 20]
-tlm:objektart='4m Strasse'                      [0x06 resolution 21]
-tlm:objektart='3m Strasse'                      [0x06 resolution 22]
-tlm:objektart='2m Weg'                          [0x0a resolution 23]
-tlm:objektart='1m Weg'                          [0x16 resolution 24]
-tlm:objektart='1m Wegfragment'                  [0x16 resolution 24]
-tlm:objektart='2m Wegfragment'                  [0x16 resolution 24]
-tlm:objektart='Markierte Spur'                  [0x16 resolution 24]
-tlm:objektart=Verbindung                        [0x07 resolution 23]
-tlm:objektart=Zufahrt                           [0x07 resolution 23]
-tlm:objektart=Dienstzufahrt                     [0x07 resolution 23]
-tlm:objektart=Einfahrt                          [0x08 resolution 22]
-tlm:objektart=Ausfahrt                          [0x08 resolution 22]
-tlm:objektart=Platz                             [0x07 resolution 22]
-tlm:objektart=Faehre                            [0x1a resolution 19]
+tlm:objektart=Autobahn                          [0x01 road_class=4 road_speed=7 resolution 18]
+tlm:objektart=Autostrasse                       [0x02 road_class=4 road_speed=5 resolution 19]
+tlm:objektart='10m Strasse'                     [0x03 road_class=3 road_speed=4 resolution 19]
+tlm:objektart='8m Strasse'                      [0x04 road_class=2 road_speed=4 resolution 20]
+tlm:objektart='6m Strasse'                      [0x05 road_class=2 road_speed=3 resolution 20]
+tlm:objektart='4m Strasse'                      [0x06 road_class=1 road_speed=3 resolution 21]
+tlm:objektart='3m Strasse'                      [0x06 road_class=1 road_speed=2 resolution 22]
+tlm:objektart='2m Weg'                          [0x0a road_class=0 road_speed=1 resolution 23]
+tlm:objektart='1m Weg'                          [0x16 road_class=0 road_speed=0 resolution 24]
+tlm:objektart='1m Wegfragment'                  [0x16 road_class=0 road_speed=0 resolution 24]
+tlm:objektart='2m Wegfragment'                  [0x16 road_class=0 road_speed=0 resolution 24]
+tlm:objektart='Markierte Spur'                  [0x16 road_class=0 road_speed=0 resolution 24]
+tlm:objektart=Verbindung                        [0x07 road_class=0 road_speed=1 resolution 23]
+tlm:objektart=Zufahrt                           [0x07 road_class=0 road_speed=1 resolution 23]
+tlm:objektart=Dienstzufahrt                     [0x07 road_class=0 road_speed=1 resolution 23]
+tlm:objektart=Einfahrt                          [0x08 road_class=3 road_speed=3 resolution 22]
+tlm:objektart=Ausfahrt                          [0x08 road_class=3 road_speed=3 resolution 22]
+tlm:objektart=Platz                             [0x07 road_class=0 road_speed=1 resolution 22]
+tlm:objektart=Faehre                            [0x1a road_class=0 road_speed=1 resolution 19]
 
 # ---------------------------------------------------------------------------
 # Rail

@@ -167,6 +167,8 @@ fn scale_predictors(p: &Predictors, n: usize) -> Predictors {
         contour_interval_m: p.contour_interval_m,
         relief: p.relief,
         slope_classes: p.slope_classes,
+        // Roads divide with the features, so the routing cost follows the split.
+        routing: p.routing,
         // A split does not change which cartography the device gets.
         wrist: p.wrist,
     }
@@ -216,6 +218,7 @@ mod tests {
             contour_interval_m: 20,
             relief: ReliefDetail::Off,
             slope_classes: false,
+            routing: false,
             wrist: false,
         }
     }

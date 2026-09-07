@@ -386,3 +386,77 @@ fn the_img_header_holds_its_description_in_two_chunks() {
         "{whole:?} is longer than the header allows"
     );
 }
+
+/// A routable build must actually produce a road network (SPEC.md §16 v2).
+///
+/// The claim "the map is routable" is exactly one thing on disk: the NOD and NET
+/// subfiles. Without `--route` mkgmap writes neither and the device treats every road
+/// as scenery, which looks identical on a screenshot.
+#[test]
+fn a_routable_build_writes_the_road_network_subfiles() {
+    let Some(tc) = toolchain() else {
+        eprintln!("skipping: toolchain not vendored (run vendor/fetch_tools.py)");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let bbox = fixture_bbox();
+    let cancel = Cancel::new();
+
+    let pbf = dir.path().join("region.osm.pbf");
+    let mut builder = RegionBuilder::create(&pbf, &bbox).unwrap();
+    let g = Gpkg::open(fixtures().join("grindelwald.gpkg")).unwrap();
+    builder
+        .add_vectors(&g, DEFAULT_LAYERS, &cancel, |_, _| {})
+        .unwrap();
+    builder.finish().unwrap();
+
+    let identity = MapIdentity::for_recipe("test:routing", "routing test");
+    let tiles = split(
+        &tc,
+        &pbf,
+        &dir.path().join("tiles"),
+        &identity,
+        200_000,
+        2048,
+        &Cancel::new(),
+    )
+    .unwrap();
+
+    let build = |routing: bool, out: &str| {
+        let mut opts = BuildOptions::new(
+            identity.clone(),
+            repo_root().join("style/swisstopo"),
+            repo_root().join("typ/swisstopo.txt"),
+        );
+        opts.routing = routing;
+        let out = compile(&tc, &tiles, &dir.path().join(out), &opts, &Cancel::new()).unwrap();
+        let info = img::read(&out.gmapsupp).unwrap();
+        (
+            info.bytes_of_kind("NOD"),
+            info.bytes_of_kind("NET"),
+            out.bytes,
+        )
+    };
+
+    let (nod_off, net_off, size_off) = build(false, "plain");
+    let (nod_on, net_on, size_on) = build(true, "routable");
+
+    assert_eq!(nod_off, 0, "a non-routable build must not write NOD");
+    assert_eq!(net_off, 0, "a non-routable build must not write NET");
+    assert!(
+        nod_on > 0,
+        "--route produced no NOD subfile, so nothing routes"
+    );
+    assert!(net_on > 0, "--route produced no NET subfile");
+    assert!(
+        size_on > size_off,
+        "routing added no bytes ({size_off} -> {size_on}), which cannot be right"
+    );
+    println!(
+        "routing costs {} B on the fixture: NOD {} B, NET {} B ({:.0}% larger)",
+        size_on - size_off,
+        nod_on,
+        net_on,
+        (size_on as f64 / size_off as f64 - 1.0) * 100.0
+    );
+}

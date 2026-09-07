@@ -94,9 +94,12 @@ another drive before the first download.
 
 ## What it does not do yet
 
-- **No on-device routing.** The maps draw and search; they will not navigate you along a
-  road. This is the one substantial gap against the commercial Garmin TOPO Schweiz and it
-  is planned for v2.
+- **Routing is built but unverified.** Turn-by-turn navigation along the roads and paths
+  can be switched on in the content step, and it is **off by default** because nothing
+  about it has been checked on a device — including the assumption that a divided
+  carriageway is digitised in the direction of travel. That assumption is verified against
+  the data ([docs/routing.md](docs/routing.md)) and not on hardware, which are different
+  things. Check any route it gives you against the road signs.
 - **No address search** and **no raster/paper-map view**, both deferred past v1.
 - **Not verified on hardware since Milestone 6.** Maps render correctly on an Edge 840
   (firmware 3133) and a fēnix 5 Plus (firmware 1930), but the winter colours, slope
@@ -229,6 +232,8 @@ From [CLAUDE.md](CLAUDE.md), and they are load-bearing:
   behaviour, its test, and what is not covered
 - **[docs/size-model.md](docs/size-model.md)** — the size and time estimates, and their
   limits
+- **[docs/routing.md](docs/routing.md)** — the road network: what is mapped, what it
+  costs, and the one assumption that was checked
 - **[docs/performance.md](docs/performance.md)** — what is measured, and what is not
 - **[docs/release.md](docs/release.md)** — how a release is built, signed and documented
 - **[docs/accessibility.md](docs/accessibility.md)**,

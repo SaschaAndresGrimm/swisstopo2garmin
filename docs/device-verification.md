@@ -197,6 +197,35 @@ of seconds on a 1 MB map, so use the largest map you have. Then reconnect and re
 
 Repeat once with "back up the existing map" ticked and once without.
 
+### C.7 Routing
+
+Routing is off by default and labelled unverified in the app because of this section.
+Build a map with **Turn-by-turn routing** ticked ([docs/routing.md](routing.md)) and check,
+in this order — the first item is the one that matters:
+
+1. **Direction on a dual carriageway.** Ask the device to route along a stretch of
+   motorway or a divided main road and confirm it goes *with* the traffic. This is the one
+   assumption that can hurt somebody: `richtungsgetrennt=Wahr` becomes `oneway=yes`, and
+   that is only right if swisstopo digitises in the direction of travel. It is verified
+   against the data — motorway ramps agree 100 % of the time in the cases clear enough to
+   judge — and **not** verified on a device. If it is wrong, turn routing off and say so
+   immediately.
+2. **A route is offered at all.** Pick two points on the road network and ask for a route.
+   Nothing at all means NET/NOD did not reach the device, or the device does not accept a
+   third-party routable map.
+3. **Trails are usable on foot.** A hiking route along a `2m Weg` should be offered in
+   pedestrian mode and refused for a car.
+4. **Restricted roads are not used as shortcuts.** A forest track with
+   `Allgemeine Verkehrsbeschraenkung` should be reachable as a destination but not appear
+   in a through route.
+5. **A via ferrata is never routed along.** `Klettersteig` carries no road class at all, so
+   the device should refuse to route on it even in pedestrian mode.
+6. **Steps and fords** are offered on foot and not to a bicycle.
+7. **Coexistence.** A routable map alongside the factory map: no crash, no double
+   guidance.
+
+Record what the device did, not what it should have done.
+
 ---
 
 ## D. Recording results

@@ -806,6 +806,20 @@ pub async fn build(
         style_dir.clone(),
         typ_for(profile, &ctx.typ_root, recipe.palette),
     );
+    // Routing, when the recipe asks and the device can use it. A profile that records
+    // `supportsRoutableMaps: false` gets a warning rather than a silently bigger map
+    // that its device cannot navigate with.
+    if recipe.routing {
+        if profile.rendering.supports_routable_maps {
+            opts.routing = true;
+        } else {
+            warnings.push(format!(
+                "{} does not support routable maps, so routing was left out",
+                profile.display_name
+            ));
+        }
+    }
+
     if let (Some(dir), Some(res)) = (dem_dir.clone(), recipe.relief.resolution()) {
         let levels = style_level_count(&style_dir)?;
         opts.dem_dists = dem::dem_dists(res, levels);
@@ -861,6 +875,7 @@ pub async fn build(
                 contour_interval_m: recipe.contours.interval_m,
                 relief: recipe.relief,
                 slope_classes: recipe.slope_classes,
+                routing: opts.routing,
                 // Which cartography was compiled, so the sample records the thing that
                 // changes its size by a quarter.
                 wrist: profile.is_wrist(),

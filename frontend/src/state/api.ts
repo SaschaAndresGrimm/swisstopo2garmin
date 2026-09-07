@@ -67,6 +67,7 @@ export interface Recipe {
   relief: ReliefDetail;
   palette: Palette;
   slopeClasses: boolean;
+  routing: boolean;
   labelLanguage: LabelLanguage;
   excludedLayers: string[];
 }

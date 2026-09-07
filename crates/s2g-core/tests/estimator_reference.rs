@@ -81,6 +81,7 @@ fn evaluate() -> Vec<Case> {
                 contour_interval_m: m.recipe.contours.interval_m,
                 relief: m.recipe.relief,
                 slope_classes: m.recipe.slope_classes,
+                routing: m.recipe.routing,
                 wrist,
             });
             let actual = m.output.bytes;
