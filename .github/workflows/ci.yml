@@ -73,6 +73,25 @@ jobs:
       - run: npm run build
         working-directory: frontend
 
+  performance:
+    name: performance thresholds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Release, because the ceilings are calibrated against an optimised build -- the
+      # test skips its rate assertions otherwise rather than measuring the wrong thing.
+      # Linux, because it is the only platform in the matrix that reports a true peak RSS
+      # (VmHWM), which is what NFR-2 is about.
+      #
+      # Scale is the honest limitation: CI is offline, so the canton and national budgets
+      # of NFR-1 are checked by extrapolating a rate measured on the committed 1 km2
+      # fixture. See docs/performance.md.
+      - name: Rates and peak memory (NFR-1, NFR-2)
+        run: cargo test --release -p s2g-core --test perf -- --nocapture
+
   cartography:
     name: cartography consistency
     runs-on: ubuntu-latest

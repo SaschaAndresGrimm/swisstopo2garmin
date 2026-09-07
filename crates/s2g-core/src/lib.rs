@@ -37,6 +37,7 @@ pub mod mask;
 pub mod names;
 pub mod partition;
 pub mod pbf;
+pub mod perf;
 pub mod pipeline;
 pub mod proj;
 pub mod recipe;
