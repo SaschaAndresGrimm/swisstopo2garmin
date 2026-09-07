@@ -1035,9 +1035,15 @@ across releases to catch regressions.
 
 ## 14. Distribution
 
-- **License:** GPLv3 (or GPLv2-or-later). Chosen deliberately: bundling and invoking
-  `mkgmap` and `splitter` (both GPLv2) is then unambiguously clean, and existing mkgmap
-  style files and prior art can be reused.
+- **License:** GPLv3-or-later. Chosen deliberately: bundling and invoking `mkgmap`
+  (GPLv2, text verbatim in `vendor/mkgmap-r4924/LICENCE`) and `splitter` is then
+  unambiguously clean, and existing mkgmap style files and prior art can be reused.
+  Both are run as **separate processes** and never linked, so no combined work is formed
+  and the arrangement is clean under any GPL version either of them turns out to be
+  under. *Correction 2026-09-07: this section previously asserted both tools are GPLv2.
+  The bundled splitter r654 ships only a GPL v3 text and states no version anywhere we
+  can check, so the assertion was unsupported — see the note in `NOTICE`. The conclusion
+  is unaffected, because it rests on the process boundary rather than on the version.*
 - **Public repository** with issues, and device profiles accepted as community pull requests.
 - **Releases:** signed installers per platform (NFR-7), a published SBOM, and a changelog
   that calls out cartography changes with before/after images.

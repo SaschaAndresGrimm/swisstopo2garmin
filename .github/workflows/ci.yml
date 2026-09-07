@@ -107,6 +107,11 @@ jobs:
         run: python3 tools/make_typ.py
       - name: TYP matches the style
         run: python3 spikes/s0/checkstyle.py
+      # A missing key in one language falls back to English silently, so a
+      # half-translated screen looks finished to anyone testing in English (FR-4).
+      - name: Language bundles agree and every key used exists
+        run: python3 tools/check_i18n.py
+
       - name: TYP is in sync with palette.json
         run: |
           if ! git diff --quiet -- typ/swisstopo.txt; then

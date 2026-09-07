@@ -144,6 +144,8 @@ export const api = {
   /** Kill any leftover Java processes for that build and delete its files. */
   discardInterrupted: (workDir: string) =>
     invoke<import("./bindings").DataLocation>("discard_interrupted", { workDir }),
+  /** Attribution, licences and disclaimers (FR-L1..FR-L4). */
+  about: () => invoke<import("./bindings").AboutInfo>("about"),
   clearElevationCache: () =>
     invoke<import("./bindings").DataLocation>("clear_elevation_cache"),
   clearBuildFiles: () => invoke<import("./bindings").DataLocation>("clear_build_files"),

@@ -1479,6 +1479,83 @@ pub async fn discard_interrupted(work_dir: String) -> IpcResult<DataLocation> {
     Ok(describe_location(root).await)
 }
 
+/// One third-party component, its licence, and where its licence text can be read.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct Component {
+    pub name: String,
+    pub version: Option<String>,
+    pub license: String,
+    /// Path to the licence text shipped with the app, when one is present. `None` means
+    /// the component's licence is named in NOTICE but its text is not bundled — which
+    /// the About screen says, rather than implying a file that is not there.
+    pub license_path: Option<String>,
+    pub url: String,
+}
+
+/// Everything FR-L1…FR-L4 require to be visible in the app.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct AboutInfo {
+    pub app_version: String,
+    /// The exact string embedded in every generated map, so what the user reads here is
+    /// what travels with the file (FR-L1).
+    pub map_copyright: String,
+    pub components: Vec<Component>,
+    /// Path to this installation's NOTICE, for the full text (FR-L2).
+    pub notice_path: Option<String>,
+}
+
+/// The About screen's content (FR-L1…FR-L4).
+///
+/// Assembled here rather than written into the frontend so that the attribution the user
+/// reads is the same string the pipeline embeds in the map, and the tool versions are the
+/// ones actually installed rather than the ones the documentation remembers.
+#[tauri::command]
+pub fn about() -> IpcResult<AboutInfo> {
+    let root = resource_root();
+    let toolchain = s2g_core::garmin::Toolchain::discover(&root).ok();
+    let present = |p: PathBuf| p.is_file().then(|| p.display().to_string());
+
+    let mut components = vec![
+        Component {
+            name: "mkgmap".into(),
+            version: toolchain.as_ref().and_then(|t| t.mkgmap_version()),
+            license: "GPL-2.0".into(),
+            license_path: present(root.join("vendor/mkgmap-r4924/LICENCE")),
+            url: "https://www.mkgmap.org.uk/".into(),
+        },
+        Component {
+            name: "splitter".into(),
+            version: toolchain.as_ref().and_then(|t| t.splitter_version()),
+            // The bundled distribution ships a GPL-3.0 text and no GPL-2 text; see the
+            // note in NOTICE. Stated as what is shipped rather than as a version we
+            // have not confirmed from the project itself.
+            license: "GPL (see bundled licence text)".into(),
+            license_path: present(root.join("vendor/splitter-r654/doc/LICENSE-gpl-3.0.txt")),
+            url: "https://www.mkgmap.org.uk/".into(),
+        },
+        Component {
+            name: "Eclipse Temurin".into(),
+            version: toolchain.as_ref().and_then(|t| t.java_version()),
+            license: "GPL-2.0 with Classpath Exception".into(),
+            license_path: None,
+            url: "https://adoptium.net/".into(),
+        },
+    ];
+    components.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(AboutInfo {
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        // Taken from the same place the build takes it, so the two cannot drift.
+        map_copyright: s2g_core::garmin::MapIdentity::for_recipe("about", "about").description,
+        components,
+        notice_path: present(root.join("NOTICE")),
+    })
+}
+
 #[tauri::command]
 pub async fn data_location() -> IpcResult<DataLocation> {
     Ok(describe_location(Cache::default_root()).await)

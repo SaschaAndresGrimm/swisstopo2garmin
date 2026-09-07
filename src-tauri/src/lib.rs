@@ -71,6 +71,7 @@ pub fn run() {
             ipc::install_map,
             ipc::export_map,
             ipc::install_instructions,
+            ipc::about,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start swisstopo2garmin");

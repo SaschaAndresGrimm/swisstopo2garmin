@@ -246,6 +246,21 @@ fn builds_a_verified_gmapsupp_from_the_fixture() {
     let verdict = img::verify_gmapsupp(&info, false);
     assert!(verdict.ok(), "verification failed: {:?}", verdict.problems);
 
+    // FR-L1: the attribution must be embedded in the file, so it travels with the map
+    // onto the device and to whoever the file is passed to. A footer in the app does not
+    // satisfy this -- the file leaves the app.
+    let bytes = std::fs::read(&out.gmapsupp).unwrap();
+    let attribution = identity.description.as_bytes();
+    assert!(
+        contains(&bytes, attribution),
+        "the copyright string {:?} is not in the built map",
+        identity.description
+    );
+    assert!(
+        contains(&bytes, b"swisstopo"),
+        "the word swisstopo does not appear anywhere in the built map"
+    );
+
     let maps = info.maps();
     assert!(
         maps.iter().any(|m| m.ends_with("0000")),
@@ -300,4 +315,10 @@ fn dem_dists_are_derived_per_style_and_mismatches_are_caught() {
     }
 
     assert!(style_level_count(Path::new("/definitely/not/a/style")).is_err());
+}
+
+/// Whether `haystack` contains `needle`. Garmin stores these strings in the map header
+/// as plain bytes, so a byte search is the right test and needs no IMG parsing.
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
 }
