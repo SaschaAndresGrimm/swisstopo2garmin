@@ -42,6 +42,7 @@ pub mod pbf;
 pub mod perf;
 pub mod pipeline;
 pub mod proj;
+pub mod raster;
 pub mod recipe;
 pub mod recovery;
 pub mod settings;
@@ -50,6 +51,7 @@ pub mod slope;
 pub mod stac;
 pub mod stage_cache;
 pub mod zip;
+pub mod zip_write;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
