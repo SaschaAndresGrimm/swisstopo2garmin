@@ -220,10 +220,19 @@ mod tests {
     #[test]
     fn an_area_that_fits_is_not_split() {
         let model = SizeModel::default();
-        let p = plan(&recipe(100.0), &model, &predictors(100.0), 4_000_000_000, 4096);
+        let p = plan(
+            &recipe(100.0),
+            &model,
+            &predictors(100.0),
+            4_000_000_000,
+            4096,
+        );
         assert!(!p.is_split());
         assert_eq!(p.parts.len(), 1);
-        assert_eq!(p.parts[0].recipe.name, "Test", "a whole build keeps its name");
+        assert_eq!(
+            p.parts[0].recipe.name, "Test",
+            "a whole build keeps its name"
+        );
         assert!(p.reason.is_empty());
     }
 
@@ -266,8 +275,16 @@ mod tests {
         );
 
         // Corners of the union match the original.
-        let min_e = p.parts.iter().map(|x| part_bbox(x).min_e).fold(f64::INFINITY, f64::min);
-        let max_n = p.parts.iter().map(|x| part_bbox(x).max_n).fold(f64::NEG_INFINITY, f64::max);
+        let min_e = p
+            .parts
+            .iter()
+            .map(|x| part_bbox(x).min_e)
+            .fold(f64::INFINITY, f64::min);
+        let max_n = p
+            .parts
+            .iter()
+            .map(|x| part_bbox(x).max_n)
+            .fold(f64::NEG_INFINITY, f64::max);
         assert!((min_e - whole.min_e).abs() < 1e-6);
         assert!((max_n - whole.max_n).abs() < 1e-6);
     }
@@ -280,13 +297,21 @@ mod tests {
 
         let names: std::collections::BTreeSet<_> =
             p.parts.iter().map(|x| x.recipe.name.clone()).collect();
-        assert_eq!(names.len(), p.parts.len(), "names must be unique: {names:?}");
+        assert_eq!(
+            names.len(),
+            p.parts.len(),
+            "names must be unique: {names:?}"
+        );
         assert!(names.iter().all(|n| n.starts_with("Test ")));
 
         // And the identities differ, so the device keeps them apart.
         let keys: std::collections::BTreeSet<_> =
             p.parts.iter().map(|x| x.recipe.cache_key()).collect();
-        assert_eq!(keys.len(), p.parts.len(), "each part needs its own identity");
+        assert_eq!(
+            keys.len(),
+            p.parts.len(),
+            "each part needs its own identity"
+        );
     }
 
     /// Splitting has a cost: the fixed per-map overhead is paid once per part.
@@ -309,7 +334,10 @@ mod tests {
         let model = SizeModel::default();
         // Below the model's fixed intercept: no split can ever fit.
         let p = plan(&recipe(1_000.0), &model, &predictors(1_000.0), 1_000, 4096);
-        assert!(p.columns <= 32 && p.rows <= 32, "the search must be bounded");
+        assert!(
+            p.columns <= 32 && p.rows <= 32,
+            "the search must be bounded"
+        );
         assert!(p.is_split());
         // And it must say that the split does not actually solve the problem.
         assert!(!p.fits);

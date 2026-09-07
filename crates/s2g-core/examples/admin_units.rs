@@ -8,7 +8,9 @@ use s2g_core::cache::Cache;
 
 fn arg(name: &str) -> Option<String> {
     let a: Vec<String> = std::env::args().collect();
-    a.iter().position(|x| x == name).and_then(|i| a.get(i + 1).cloned())
+    a.iter()
+        .position(|x| x == name)
+        .and_then(|i| a.get(i + 1).cloned())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -53,7 +55,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let bbox = boundaries::extent(&root, level, &numbers)?;
             println!(
                 "\nextent      : {:.0},{:.0} .. {:.0},{:.0}  ({:.0} km²)",
-                bbox.min_e, bbox.min_n, bbox.max_e, bbox.max_n, bbox.area_km2()
+                bbox.min_e,
+                bbox.min_n,
+                bbox.max_e,
+                bbox.max_n,
+                bbox.area_km2()
             );
 
             let polys = boundaries::load_geometry(&root, level, &numbers)?;
@@ -62,11 +68,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let started = std::time::Instant::now();
             let mask = s2g_core::mask::Mask::polygons_buffered(polys, buffer_km * 1000.0);
-            println!("mask built  : {:.0} ms", started.elapsed().as_secs_f64() * 1000.0);
+            println!(
+                "mask built  : {:.0} ms",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
             let mb = mask.bbox();
             println!(
                 "mask extent : {:.0},{:.0} .. {:.0},{:.0}  ({:.0} km²)",
-                mb.min_e, mb.min_n, mb.max_e, mb.max_n, mb.area_km2()
+                mb.min_e,
+                mb.min_n,
+                mb.max_e,
+                mb.max_n,
+                mb.area_km2()
             );
 
             // How much of the bounding box the unit actually covers: the point of a

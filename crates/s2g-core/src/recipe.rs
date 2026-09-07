@@ -167,8 +167,12 @@ fn closed_ring(points: &[[f64; 2]]) -> Vec<crate::geom::Coord> {
 
 /// Bounding box of a point set, grown by `margin`.
 fn bbox_of(points: &[[f64; 2]], margin: f64) -> BBox {
-    let (mut e0, mut n0, mut e1, mut n1) =
-        (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let (mut e0, mut n0, mut e1, mut n1) = (
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
     for p in points {
         e0 = e0.min(p[0]);
         n0 = n0.min(p[1]);
@@ -201,7 +205,10 @@ impl AreaSelection {
     ///
     /// Takes the cache root because an administrative selection stores unit numbers
     /// rather than geometry, and the geometry lives in swissBOUNDARIES3D.
-    pub fn mask(&self, cache_root: &std::path::Path) -> crate::error::Result<Option<crate::mask::Mask>> {
+    pub fn mask(
+        &self,
+        cache_root: &std::path::Path,
+    ) -> crate::error::Result<Option<crate::mask::Mask>> {
         Ok(match self {
             AreaSelection::Corridor {
                 buffer_km, points, ..
@@ -212,9 +219,9 @@ impl AreaSelection {
                     .collect()],
                 buffer_km * 1000.0,
             )),
-            AreaSelection::Polygon { points } => Some(crate::mask::Mask::polygons(vec![vec![
-                closed_ring(points),
-            ]])),
+            AreaSelection::Polygon { points } => {
+                Some(crate::mask::Mask::polygons(vec![vec![closed_ring(points)]]))
+            }
             AreaSelection::Circle {
                 easting,
                 northing,
@@ -271,8 +278,12 @@ impl AreaSelection {
                 points, buffer_km, ..
             } => {
                 let m = buffer_km * 1000.0;
-                let (mut e0, mut n0, mut e1, mut n1) =
-                    (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+                let (mut e0, mut n0, mut e1, mut n1) = (
+                    f64::INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::NEG_INFINITY,
+                );
                 for p in points {
                     e0 = e0.min(p[0]);
                     n0 = n0.min(p[1]);

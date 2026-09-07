@@ -257,9 +257,7 @@ impl SizeModel {
     /// Returns the model and the chosen lambda. The grid spans "essentially free" to
     /// "essentially the prior", so the data decides how much it is trusted.
     pub fn fit_cv(samples: &[Sample], prior: &SizeModel) -> (SizeModel, f64) {
-        const GRID: [f64; 11] = [
-            0.0, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11,
-        ];
+        const GRID: [f64; 11] = [0.0, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11];
         let best = GRID
             .iter()
             .map(|l| (*l, SizeModel::loocv_mape(samples, prior, *l)))
@@ -384,6 +382,84 @@ impl CalibrationLog {
 ///
 /// Averaged as fractions of each build, exactly as [`stage_weights`] averages the log,
 /// so a measured seed and a refitted one mean the same thing.
+/// A way of getting a too-large map under the device budget.
+///
+/// An enum rather than a sentence, because the UI translates into four languages and a
+/// remedy that does not apply to the recipe at hand is worse than no advice: telling
+/// somebody to coarsen contours that are already off reads as the app not knowing what
+/// it is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Remedy {
+    /// Select less ground. Always available.
+    SmallerArea,
+    /// Widen the contour interval. Contours are the largest single contributor.
+    CoarserContours,
+    /// Turn off layers that are currently on.
+    FewerLayers,
+    /// Drop the shaded-relief DEM, which is a fixed cost per square kilometre.
+    NoRelief,
+    /// Drop the slope classes.
+    NoSlopeClasses,
+    /// Build several map sets and let the device switch between them (FR-36).
+    SplitIntoMapSets,
+}
+
+/// Whether a predicted size fits the device, and what would help if it does not
+/// (SPEC.md §12, "Estimate exceeds device limit — block with explanation; offer smaller
+/// area, coarser contours, fewer layers, or split into map sets").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BudgetVerdict {
+    pub over_budget: bool,
+    /// How much has to go, zero when it fits.
+    pub overshoot_bytes: u64,
+    /// Only the remedies that would actually change this recipe, most effective first.
+    pub remedies: Vec<Remedy>,
+}
+
+/// Judge a predicted size against a device budget.
+///
+/// Ordered by how much each one saves on a typical build, from the measured stage
+/// weights: contours dominate, then the area itself, then relief, then the rest.
+/// `SplitIntoMapSets` comes last because it is the only one that keeps every bit of the
+/// map the user asked for, and so is the fallback rather than the first suggestion.
+pub fn budget_verdict(estimated_bytes: u64, budget_bytes: u64, recipe: &Recipe) -> BudgetVerdict {
+    if estimated_bytes <= budget_bytes {
+        return BudgetVerdict {
+            over_budget: false,
+            overshoot_bytes: 0,
+            remedies: Vec::new(),
+        };
+    }
+
+    let mut remedies = Vec::new();
+    // Contours first: they are 43% of build time and the largest part of the output.
+    // Only worth suggesting when there is room to coarsen, which 100 m already lacks.
+    if recipe.contours.interval_m > 0 && recipe.contours.interval_m < 100 {
+        remedies.push(Remedy::CoarserContours);
+    }
+    remedies.push(Remedy::SmallerArea);
+    if recipe.relief != ReliefDetail::Off {
+        remedies.push(Remedy::NoRelief);
+    }
+    if recipe.slope_classes {
+        remedies.push(Remedy::NoSlopeClasses);
+    }
+    // "Fewer layers" is only honest advice when some are still on. With everything
+    // already excluded there is nothing left to turn off.
+    if recipe.excluded_layers.len() < crate::extract::DEFAULT_LAYERS.len() {
+        remedies.push(Remedy::FewerLayers);
+    }
+    remedies.push(Remedy::SplitIntoMapSets);
+
+    BudgetVerdict {
+        over_budget: true,
+        overshoot_bytes: estimated_bytes - budget_bytes,
+        remedies,
+    }
+}
+
 pub const DEFAULT_STAGE_WEIGHTS: [f64; 7] = [
     0.0372, // extract
     0.3254, // elevation
@@ -537,7 +613,10 @@ pub fn count_groups(
                 .file_stem()
                 .map(|x| x.to_string_lossy().to_string())
                 .unwrap_or_default();
-            let Some(spec) = crate::extract::CYCLE_LAYERS.iter().find(|sp| sp.layer == stem) else {
+            let Some(spec) = crate::extract::CYCLE_LAYERS
+                .iter()
+                .find(|sp| sp.layer == stem)
+            else {
                 continue;
             };
             if !keep(spec.layer) {
@@ -562,12 +641,14 @@ pub fn count_groups(
 mod tests {
     use super::*;
 
-    fn predictors(counts: &[(&str, u64)], area: f64, interval: i32, relief: ReliefDetail) -> Predictors {
+    fn predictors(
+        counts: &[(&str, u64)],
+        area: f64,
+        interval: i32,
+        relief: ReliefDetail,
+    ) -> Predictors {
         Predictors {
-            group_counts: counts
-                .iter()
-                .map(|(k, v)| ((*k).to_string(), *v))
-                .collect(),
+            group_counts: counts.iter().map(|(k, v)| ((*k).to_string(), *v)).collect(),
             area_km2: area,
             contour_interval_m: interval,
             relief,
@@ -640,7 +721,12 @@ mod tests {
     #[test]
     fn a_single_sample_nudges_rather_than_replaces() {
         let prior = SizeModel::default();
-        let p = predictors(&[("transport", 20_000), ("built", 40_000)], 144.0, 20, ReliefDetail::Gentle);
+        let p = predictors(
+            &[("transport", 20_000), ("built", 40_000)],
+            144.0,
+            20,
+            ReliefDetail::Gentle,
+        );
         let predicted = prior.predict(&p);
         let sample = Sample {
             predictors: p.clone(),
@@ -794,7 +880,10 @@ mod tests {
             .collect();
 
         let (fitted, lambda) = SizeModel::fit_cv(&samples, &SizeModel::default());
-        assert!(lambda <= 1e3, "clean data should not be regularised hard: {lambda}");
+        assert!(
+            lambda <= 1e3,
+            "clean data should not be regularised hard: {lambda}"
+        );
         assert!(fitted.mape(&samples) < 1e-3);
     }
 
@@ -834,7 +923,10 @@ mod tests {
                 "lambda {lambda} scored {chosen} but {other} scored {score}"
             );
         }
-        assert!(fitted.coefficients.iter().all(|c| c.is_finite() && *c >= 0.0));
+        assert!(fitted
+            .coefficients
+            .iter()
+            .all(|c| c.is_finite() && *c >= 0.0));
         assert_eq!(fitted.coefficients.len(), TERMS);
     }
 
@@ -1010,7 +1102,11 @@ mod slope_tests {
     #[test]
     fn the_slope_estimate_matches_the_paired_builds_it_came_from() {
         // area km², measured with, measured without.
-        let observed = [(144.0, 1_559_040u64, 1_089_024u64), (100.0, 1_184_256, 822_784), (100.0, 1_153_024, 770_560)];
+        let observed = [
+            (144.0, 1_559_040u64, 1_089_024u64),
+            (100.0, 1_184_256, 822_784),
+            (100.0, 1_153_024, 770_560),
+        ];
         for (km2, with_s, without) in observed {
             let predicted_extra = km2 * SLOPE_BYTES_PER_KM2;
             let actual_extra = (with_s - without) as f64;
@@ -1063,5 +1159,112 @@ mod slope_tests {
         let old = r#"{"predictors":{"groupCounts":{},"areaKm2":100.0,"contourIntervalM":20,"relief":"off"},"actualBytes":1000}"#;
         let s: Sample = serde_json::from_str(old).expect("older log lines must parse");
         assert!(!s.predictors.slope_classes);
+    }
+
+    // ---- budget verdicts (SPEC.md §12) ----------------------------------
+
+    fn budget_recipe() -> Recipe {
+        let mut r = Recipe::new(
+            "test",
+            "fenix-5-plus",
+            crate::recipe::AreaSelection::BBox {
+                min_e: 2_600_000.0,
+                min_n: 1_190_000.0,
+                max_e: 2_650_000.0,
+                max_n: 1_240_000.0,
+            },
+        );
+        r.contours.interval_m = 20;
+        r.relief = ReliefDetail::Gentle;
+        r
+    }
+
+    #[test]
+    fn a_map_that_fits_gets_no_advice() {
+        let v = budget_verdict(50_000_000, 100_000_000, &budget_recipe());
+        assert!(!v.over_budget);
+        assert_eq!(v.overshoot_bytes, 0);
+        assert!(
+            v.remedies.is_empty(),
+            "advice was offered for a map that fits"
+        );
+    }
+
+    /// Exactly at the budget fits: the budget already carries a safety factor from the
+    /// profile's confidence level, so subtracting a second margin here would compound it.
+    #[test]
+    fn a_map_exactly_at_the_budget_fits() {
+        assert!(!budget_verdict(100_000_000, 100_000_000, &budget_recipe()).over_budget);
+        assert!(budget_verdict(100_000_001, 100_000_000, &budget_recipe()).over_budget);
+    }
+
+    #[test]
+    fn an_oversized_map_reports_how_much_has_to_go() {
+        let v = budget_verdict(150_000_000, 100_000_000, &budget_recipe());
+        assert!(v.over_budget);
+        assert_eq!(v.overshoot_bytes, 50_000_000);
+    }
+
+    /// SPEC.md §12 names four remedies. Contours first, because they are the largest
+    /// part of the output; splitting last, because it is the only one that keeps
+    /// everything the user asked for.
+    #[test]
+    fn the_remedies_are_ordered_by_what_they_save() {
+        let v = budget_verdict(150_000_000, 100_000_000, &budget_recipe());
+        assert_eq!(v.remedies.first(), Some(&Remedy::CoarserContours));
+        assert_eq!(v.remedies.last(), Some(&Remedy::SplitIntoMapSets));
+        assert!(v.remedies.contains(&Remedy::SmallerArea));
+        assert!(v.remedies.contains(&Remedy::FewerLayers));
+    }
+
+    /// Advice that cannot be followed reads as the app not understanding its own state.
+    #[test]
+    fn remedies_that_would_change_nothing_are_not_offered() {
+        let mut r = budget_recipe();
+        r.contours.interval_m = 0;
+        r.relief = ReliefDetail::Off;
+        r.slope_classes = false;
+        r.excluded_layers = crate::extract::DEFAULT_LAYERS
+            .iter()
+            .map(|l| l.layer.to_string())
+            .collect();
+
+        let v = budget_verdict(150_000_000, 100_000_000, &r);
+        assert!(
+            !v.remedies.contains(&Remedy::CoarserContours),
+            "contours are off"
+        );
+        assert!(!v.remedies.contains(&Remedy::NoRelief), "relief is off");
+        assert!(
+            !v.remedies.contains(&Remedy::NoSlopeClasses),
+            "slopes are off"
+        );
+        assert!(
+            !v.remedies.contains(&Remedy::FewerLayers),
+            "every layer is excluded"
+        );
+        // Two always remain, and they are always true.
+        assert_eq!(
+            v.remedies,
+            vec![Remedy::SmallerArea, Remedy::SplitIntoMapSets]
+        );
+    }
+
+    /// 100 m is the coarsest interval the UI offers, so there is nothing to coarsen.
+    #[test]
+    fn contours_already_at_the_coarsest_interval_are_not_suggested() {
+        let mut r = budget_recipe();
+        r.contours.interval_m = 100;
+        let v = budget_verdict(150_000_000, 100_000_000, &r);
+        assert!(!v.remedies.contains(&Remedy::CoarserContours));
+    }
+
+    #[test]
+    fn slope_classes_are_offered_as_a_saving_only_when_they_are_on() {
+        let mut r = budget_recipe();
+        r.slope_classes = true;
+        assert!(budget_verdict(150_000_000, 100_000_000, &r)
+            .remedies
+            .contains(&Remedy::NoSlopeClasses));
     }
 }

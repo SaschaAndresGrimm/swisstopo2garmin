@@ -11,6 +11,7 @@
 
 pub mod boundaries;
 pub mod cache;
+pub mod clock;
 pub mod contour;
 pub mod datasets;
 pub mod dem;
@@ -29,6 +30,7 @@ pub mod gpkg;
 pub mod gpx;
 pub mod http;
 pub mod img;
+pub mod install;
 pub mod library;
 pub mod manifest;
 pub mod mask;

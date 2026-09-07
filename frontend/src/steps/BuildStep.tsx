@@ -140,7 +140,17 @@ export function BuildStep({
 
       <div className="row">
         {!taskId && !result && (
-          <button type="button" className="primary" onClick={() => void start()}>
+          <button
+            type="button"
+            className="primary"
+            /* Blocked only when the planner says no split of this area fits this
+               device: that is an impossibility rather than a tight fit, and letting it
+               run would spend minutes producing a map the device refuses to load
+               (SPEC.md §12). Merely being over budget is not blocked — the estimate
+               carries ±25 %, and the split plan above is the way through. */
+            disabled={split ? !split.fits : false}
+            onClick={() => void start()}
+          >
             {t("build.start")}
           </button>
         )}

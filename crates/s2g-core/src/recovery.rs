@@ -149,7 +149,10 @@ impl SystemProbe {
 
 impl ProcessProbe for SystemProbe {
     fn command_line(&self, pid: u32) -> Option<String> {
-        self.all().into_iter().find(|(p, _)| *p == pid).map(|(_, c)| c)
+        self.all()
+            .into_iter()
+            .find(|(p, _)| *p == pid)
+            .map(|(_, c)| c)
     }
 
     fn matching(&self, needle: &str) -> Vec<(u32, String)> {
@@ -416,7 +419,10 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].recipe.name, "grindelwald");
         assert_eq!(found[0].bytes, 4096 + marker_len(&found[0].work_dir));
-        assert!(!found[0].resumable, "no cached region, so nothing to resume");
+        assert!(
+            !found[0].resumable,
+            "no cached region, so nothing to resume"
+        );
         assert!(found[0].stray_pids.is_empty());
     }
 
@@ -429,7 +435,10 @@ mod tests {
     fn a_build_that_is_still_running_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         plant(dir.path(), "running", 999_002, "k");
-        let probe = FakeProbe::with(999_002, "/Applications/swisstopo2garmin.app/MacOS/swisstopo2garmin");
+        let probe = FakeProbe::with(
+            999_002,
+            "/Applications/swisstopo2garmin.app/MacOS/swisstopo2garmin",
+        );
         assert!(scan(dir.path(), &probe).is_empty());
     }
 
@@ -441,7 +450,11 @@ mod tests {
         plant(dir.path(), "reused", 999_003, "k");
         let probe = FakeProbe::with(999_003, "/usr/bin/vim notes.txt");
         let found = scan(dir.path(), &probe);
-        assert_eq!(found.len(), 1, "a recycled pid must not look like a live build");
+        assert_eq!(
+            found.len(),
+            1,
+            "a recycled pid must not look like a live build"
+        );
     }
 
     /// The whole reason for the region cache: recovery can say the expensive 80 % is
@@ -483,11 +496,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let work = plant(dir.path(), "strays", 999_005, "k");
         let w = work.to_string_lossy().to_string();
-        let probe = FakeProbe::with(4242, &format!("java -Xmx2g -jar /opt/mkgmap.jar --output-dir={w}/img"))
-            .and(4243, &format!("java -jar /opt/splitter.jar {w}/region.osm.pbf"))
-            // Somebody else's JVM, and our own jar for a *different* build.
-            .and(4244, "java -jar /Users/me/gradle-wrapper.jar build")
-            .and(4245, "java -jar /opt/mkgmap.jar --output-dir=/somewhere/else");
+        let probe = FakeProbe::with(
+            4242,
+            &format!("java -Xmx2g -jar /opt/mkgmap.jar --output-dir={w}/img"),
+        )
+        .and(
+            4243,
+            &format!("java -jar /opt/splitter.jar {w}/region.osm.pbf"),
+        )
+        // Somebody else's JVM, and our own jar for a *different* build.
+        .and(4244, "java -jar /Users/me/gradle-wrapper.jar build")
+        .and(
+            4245,
+            "java -jar /opt/mkgmap.jar --output-dir=/somewhere/else",
+        );
 
         let found = scan(dir.path(), &probe);
         let mut pids = found[0].stray_pids.clone();
@@ -507,7 +529,10 @@ mod tests {
 
         let found = scan(dir.path(), &FakeProbe::default());
         assert_eq!(found.len(), 1);
-        assert!(!found[0].resumable, "an unparseable build cannot be resumed");
+        assert!(
+            !found[0].resumable,
+            "an unparseable build cannot be resumed"
+        );
         assert!(found[0].bytes > 100);
     }
 
@@ -571,7 +596,10 @@ mod tests {
         plant(dir.path(), "keeper", 999_008, "keepme");
         let found = scan(dir.path(), &FakeProbe::default());
         discard(&found[0]).unwrap();
-        assert!(cache.get("keepme").is_some(), "discarding threw away the expensive part");
+        assert!(
+            cache.get("keepme").is_some(),
+            "discarding threw away the expensive part"
+        );
     }
 
     #[test]
@@ -585,7 +613,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("builds").join("regions")).unwrap();
         std::fs::write(
-            dir.path().join("builds").join("regions").join("abc.osm.pbf"),
+            dir.path()
+                .join("builds")
+                .join("regions")
+                .join("abc.osm.pbf"),
             b"pbf",
         )
         .unwrap();
@@ -598,7 +629,10 @@ mod tests {
     fn the_system_probe_can_see_the_process_running_this_test() {
         let me = std::process::id();
         let cmd = SystemProbe.command_line(me);
-        assert!(cmd.is_some(), "the process list parser found nothing for our own pid");
+        assert!(
+            cmd.is_some(),
+            "the process list parser found nothing for our own pid"
+        );
         assert!(
             SystemProbe.command_line(u32::MAX).is_none(),
             "an impossible pid must not be reported as running"
@@ -611,7 +645,10 @@ mod tests {
         let own = SystemProbe.command_line(std::process::id()).unwrap();
         let word = own.split('/').next_back().unwrap_or(&own).to_string();
         assert!(
-            !SystemProbe.matching(&word).iter().any(|(p, _)| *p == std::process::id()),
+            !SystemProbe
+                .matching(&word)
+                .iter()
+                .any(|(p, _)| *p == std::process::id()),
             "the probe matched the running process"
         );
     }

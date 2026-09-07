@@ -65,6 +65,12 @@ pub struct ReleaseInfo {
     pub member_bytes: Option<u64>,
     pub member_name: Option<String>,
     pub cached: bool,
+    /// True when the STAC API could not be reached and this is the last answer it
+    /// gave (SPEC.md §12). The Data screen must say so rather than presenting old
+    /// release information as current.
+    pub stale: bool,
+    /// When the release information was actually fetched, so "stale" can be dated.
+    pub catalog_fetched_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -153,34 +159,53 @@ pub async fn cache_status() -> IpcResult<CacheStatus> {
     })
 }
 
+/// Wire size and inflated size of a release's primary asset.
+///
+/// Shared by the Data screen's release line and by the download's space precheck, so
+/// the number the user is shown is the number the precheck uses.
+async fn probe_sizes(
+    http: &ReqwestHttp,
+    asset: &s2g_core::stac::Asset,
+    kind: s2g_core::stac::AssetKind,
+) -> (Option<u64>, Option<u64>, Option<String>) {
+    use s2g_core::http::Http;
+    let total = http.head(&asset.href).await.ok().and_then(|h| h.len);
+    match (total, kind.is_archive()) {
+        // A bare GeoPackage is its own member: nothing to probe, and probing it as a
+        // zip is what made the Data screen show an error for it.
+        (Some(total), false) => (Some(total), Some(total), Some(asset.name.clone())),
+        (Some(total), true) => match s2g_core::zip::first_member(http, &asset.href, total).await {
+            Ok(m) => (Some(total), Some(m.uncompressed_size), Some(m.name)),
+            // A multi-member archive still reports its download size honestly.
+            Err(_) => (Some(total), None, None),
+        },
+        (None, _) => (None, None, None),
+    }
+}
+
 #[tauri::command]
 pub async fn latest_release(collection: String) -> IpcResult<ReleaseInfo> {
     let http = ReqwestHttp::new().map_err(|e| e.to_string())?;
     let stac = Stac::new(&http);
-    let item = stac.latest(&collection).await.map_err(|e| e.to_string())?;
+    // Falls back to the last answer the API gave when it cannot be reached, so the Data
+    // screen stays usable offline instead of saying nothing about data already on disk.
+    let cached_item = stac
+        .latest_cached(
+            &collection,
+            &cache().catalog_dir(),
+            &s2g_core::clock::now_rfc3339(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let (stale, catalog_fetched_at) = (cached_item.stale, cached_item.fetched_at);
+    let item = cached_item.item;
     // Clone so `item` is free to be consumed below.
     let (asset, kind) = item.primary_asset().map_err(|e| e.to_string())?;
     let (asset, kind) = (asset.clone(), kind);
 
     // Probe the archive so the UI can state both the download size and the far larger
     // on-disk size before the user commits (SPEC.md FR-C1).
-    let (archive_bytes, member_bytes, member_name) = {
-        use s2g_core::http::Http;
-        let total = http.head(&asset.href).await.ok().and_then(|h| h.len);
-        match (total, kind.is_archive()) {
-            // A bare GeoPackage is its own member: nothing to probe, and probing it as
-            // a zip is what made the Data screen show an error for it.
-            (Some(total), false) => (Some(total), Some(total), Some(asset.name.clone())),
-            (Some(total), true) => {
-                match s2g_core::zip::first_member(&http, &asset.href, total).await {
-                    Ok(m) => (Some(total), Some(m.uncompressed_size), Some(m.name)),
-                    // A multi-member archive still reports its download size honestly.
-                    Err(_) => (Some(total), None, None),
-                }
-            }
-            (None, _) => (None, None, None),
-        }
-    };
+    let (archive_bytes, member_bytes, member_name) = probe_sizes(&http, &asset, kind).await;
 
     let cached = cache()
         .read_provenance(&collection, &item.id)
@@ -197,6 +222,8 @@ pub async fn latest_release(collection: String) -> IpcResult<ReleaseInfo> {
         member_bytes,
         member_name,
         cached,
+        stale,
+        catalog_fetched_at: Some(catalog_fetched_at),
     })
 }
 
@@ -241,6 +268,16 @@ pub async fn acquire_dataset(
         .ensure_dir(&collection, &item.id)
         .await
         .map_err(|e| e.to_string())?;
+
+    // SPEC.md §12 asks for a precheck "before download and before build". The build had
+    // one; this did not, and swissTLM3D is the case that matters: 4.5 GB down the wire
+    // becomes 10.0 GB on disk, so the wire size is not the number to check. A download
+    // that fills the disk takes the rest of the machine down with it.
+    let (archive_bytes, member_bytes, _) = probe_sizes(&http, &asset, kind).await;
+    let need = s2g_core::cache::download_need(archive_bytes, member_bytes, stream_inflate);
+    if let Some(need) = need {
+        s2g_core::cache::precheck_space(&dir, need).map_err(|e| e.to_string())?;
+    }
 
     let id = task_id.clone();
     let datetime = item.datetime.clone();
@@ -368,7 +405,7 @@ pub async fn acquire_dataset(
                         .map(|f| f.to_string_lossy().to_string())
                         .unwrap_or_default(),
                     bytes: member.uncompressed_size,
-                    fetched_at: now_rfc3339(),
+                    fetched_at: s2g_core::clock::now_rfc3339(),
                     inflated: true,
                 };
                 let _ = Cache::new(Cache::default_root())
@@ -421,57 +458,14 @@ pub async fn remove_dataset(collection: String, item: String) -> IpcResult<()> {
         .map_err(|e| e.to_string())
 }
 
-/// UTC timestamp for provenance. Written by hand rather than pulling in a date-time
-/// crate for a single string; the civil-from-days algorithm is Howard Hinnant's.
-fn now_rfc3339() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn timestamp_is_rfc3339() {
-        let s = super::now_rfc3339();
-        assert_eq!(s.len(), 20, "{s}");
-        assert!(s.ends_with('Z'), "{s}");
-        let (date, time) = s[..19].split_once('T').expect("T separator");
-        let parts: Vec<&str> = date.split('-').collect();
-        assert_eq!(parts.len(), 3);
-        assert!(parts[0].parse::<i32>().unwrap() >= 2024, "{s}");
-        assert!((1..=12).contains(&parts[1].parse::<u32>().unwrap()), "{s}");
-        assert!((1..=31).contains(&parts[2].parse::<u32>().unwrap()), "{s}");
-        assert_eq!(time.split(':').count(), 3, "{s}");
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Devices, presets, area and build (SPEC.md §6.3-6.7)
 // ---------------------------------------------------------------------------
 
-use s2g_core::devices::{self, DeviceProfile};
-use s2g_core::extract::{LayerGroup, CYCLE_LAYERS, DEFAULT_LAYERS, WINTER_LAYERS};
 use s2g_core::boundaries::{self, AdminLevel};
+use s2g_core::devices::{self, DeviceProfile};
 use s2g_core::estimate::{self, calibration_log_path};
+use s2g_core::extract::{LayerGroup, CYCLE_LAYERS, DEFAULT_LAYERS, WINTER_LAYERS};
 use s2g_core::library;
 use s2g_core::pipeline::{self, BuildContext, Stage};
 use s2g_core::proj::{lv95_to_wgs84, BBox};
@@ -512,10 +506,7 @@ pub fn device_override(device_id: String) -> IpcResult<DeviceOverrideInfo> {
 /// Stored in the settings file rather than in `devices/*.json`, so an app update that
 /// ships new profiles cannot silently discard them (FR-DEV3).
 #[tauri::command]
-pub fn set_device_override(
-    device_id: String,
-    value: Option<DeviceOverrideInfo>,
-) -> IpcResult<()> {
+pub fn set_device_override(device_id: String, value: Option<DeviceOverrideInfo>) -> IpcResult<()> {
     let mut settings = s2g_core::settings::Settings::load();
     match value {
         None => {
@@ -545,16 +536,14 @@ pub fn set_device_override(
 /// override, and be very hard to see.
 fn profiles() -> Result<Vec<DeviceProfile>, String> {
     let overrides = s2g_core::settings::Settings::load().device_overrides;
-    Ok(
-        devices::load_profiles(&resource_root().join("devices"))
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|p| match overrides.get(&p.id) {
-                Some(o) => p.with_override(o),
-                None => p,
-            })
-            .collect(),
-    )
+    Ok(devices::load_profiles(&resource_root().join("devices"))
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|p| match overrides.get(&p.id) {
+            Some(o) => p.with_override(o),
+            None => p,
+        })
+        .collect())
 }
 
 fn resource_root() -> PathBuf {
@@ -622,8 +611,7 @@ fn summarise(p: &DeviceProfile, connected: bool) -> DeviceSummary {
 
 #[tauri::command]
 pub fn list_devices() -> IpcResult<Vec<DeviceSummary>> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let detected = devices::detect();
     Ok(profiles
         .iter()
@@ -674,8 +662,7 @@ pub struct UsbDeviceInfo {
 /// no device while one was plainly plugged in, and there was nothing to act on.
 #[tauri::command]
 pub fn usb_devices() -> IpcResult<Vec<UsbDeviceInfo>> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let mounted = devices::detect();
     Ok(devices::usb_devices()
         .into_iter()
@@ -716,8 +703,7 @@ fn looks_wrist(model: &str) -> bool {
 
 #[tauri::command]
 pub fn detect_devices() -> IpcResult<Vec<ConnectedDevice>> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     Ok(devices::detect()
         .into_iter()
         .map(|d| {
@@ -956,6 +942,13 @@ pub struct AreaInfo {
     #[ts(type = "number")]
     pub hard_limit_bytes: u64,
     pub over_budget: bool,
+    /// How much has to go, and which changes to this recipe would help (SPEC.md §12).
+    /// Only remedies that would actually change *this* recipe are listed.
+    #[ts(type = "number")]
+    pub overshoot_bytes: u64,
+    /// `smallerArea` | `coarserContours` | `fewerLayers` | `noRelief` |
+    /// `noSlopeClasses` | `splitIntoMapSets`, most effective first.
+    pub remedies: Vec<String>,
     /// True once the model has been refit from the user's own builds.
     pub calibrated: bool,
     /// How many real builds the model has seen.
@@ -1025,12 +1018,11 @@ pub async fn partition_plan(recipe: Recipe) -> IpcResult<PartitionPlan> {
 
     let cache_root = Cache::default_root();
     let bbox = recipe.area.bbox();
-    let group_counts = match pipeline::find_tlm3d(&cache_root)
-        .and_then(|p| s2g_core::gpkg::Gpkg::open(p).ok())
-    {
-        Some(gpkg) => estimate::count_groups(&gpkg, &recipe, Some(&cache_root)),
-        None => Default::default(),
-    };
+    let group_counts =
+        match pipeline::find_tlm3d(&cache_root).and_then(|p| s2g_core::gpkg::Gpkg::open(p).ok()) {
+            Some(gpkg) => estimate::count_groups(&gpkg, &recipe, Some(&cache_root)),
+            None => Default::default(),
+        };
     let predictors = estimate::Predictors {
         group_counts,
         area_km2: bbox.area_km2(),
@@ -1213,11 +1205,7 @@ pub async fn admin_outline(level: String, numbers: Vec<i64>) -> IpcResult<Vec<Ve
 /// Resolved once when the units are chosen and stored in the recipe, so the area
 /// readout and size estimate need no file access afterwards.
 #[tauri::command]
-pub async fn admin_extent(
-    level: String,
-    numbers: Vec<i64>,
-    buffer_km: f64,
-) -> IpcResult<[f64; 4]> {
+pub async fn admin_extent(level: String, numbers: Vec<i64>, buffer_km: f64) -> IpcResult<[f64; 4]> {
     let level = match level.as_str() {
         "commune" => AdminLevel::Commune,
         "district" => AdminLevel::District,
@@ -1545,8 +1533,7 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
         relief,
     } = query;
     let bbox = BBox::new(min_e, min_n, max_e, max_n);
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let profile = profiles.iter().find(|p| p.id == device_id);
     let budget = profile
         .map(|p| p.effective_budget_bytes())
@@ -1582,15 +1569,14 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
     }
 
     let cache_root = Cache::default_root();
-    let (group_counts, counted) = match pipeline::find_tlm3d(&cache_root)
-        .and_then(|p| s2g_core::gpkg::Gpkg::open(p).ok())
-    {
-        Some(gpkg) => (
-            estimate::count_groups(&gpkg, &probe, Some(&cache_root)),
-            true,
-        ),
-        None => (Default::default(), false),
-    };
+    let (group_counts, counted) =
+        match pipeline::find_tlm3d(&cache_root).and_then(|p| s2g_core::gpkg::Gpkg::open(p).ok()) {
+            Some(gpkg) => (
+                estimate::count_groups(&gpkg, &probe, Some(&cache_root)),
+                true,
+            ),
+            None => (Default::default(), false),
+        };
 
     let model = estimate::current_model(
         &resource_root().join("estimator").join("size-model.json"),
@@ -1604,6 +1590,9 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
         slope_classes: probe.slope_classes,
     };
     let estimated = model.predict(&predictors);
+    // What to do about it, if anything. The decision and the ordering live in
+    // s2g_core::estimate so they are tested; the UI only translates the names.
+    let verdict = estimate::budget_verdict(estimated, budget, &probe);
 
     Ok(AreaInfo {
         area_km2: bbox.area_km2(),
@@ -1612,7 +1601,18 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
         estimated_bytes: estimated,
         budget_bytes: budget,
         hard_limit_bytes: hard_limit,
-        over_budget: estimated > budget,
+        over_budget: verdict.over_budget,
+        overshoot_bytes: verdict.overshoot_bytes,
+        remedies: verdict
+            .remedies
+            .iter()
+            .map(|r| {
+                serde_json::to_value(r)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default()
+            })
+            .collect(),
         calibrated: model.samples > 0,
         model_samples: model.samples,
         counted_features: counted,
@@ -1717,9 +1717,8 @@ pub async fn start_build(
         // Stage weights come from this user's own builds once there are any, because
         // the split between stages moves enormously with a warm or cold elevation
         // cache. Until then the shipped weights apply.
-        let weights = estimate::stage_weights(&estimate::CalibrationLog::read(
-            &calibration_log_path(),
-        ));
+        let weights =
+            estimate::stage_weights(&estimate::CalibrationLog::read(&calibration_log_path()));
         let build_started = std::time::Instant::now();
         let result = pipeline::build(&ctx, &recipe, &profile, &cancel, move |u| {
             // Stage changes are always reported; progress within a stage is throttled.
@@ -1831,8 +1830,7 @@ pub fn plan_install(
     device_id: String,
     map_name: String,
 ) -> IpcResult<InstallPlan> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let profile = profiles
         .iter()
         .find(|p| p.id == device_id)
@@ -1877,8 +1875,7 @@ pub struct InstallInstructions {
 /// card in a reader, or a user who would simply rather copy it by hand.
 #[tauri::command]
 pub fn install_instructions(device_id: String, map_name: String) -> IpcResult<InstallInstructions> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let profile = profiles
         .iter()
         .find(|p| p.id == device_id)
@@ -1903,8 +1900,7 @@ pub async fn export_map(
     device_id: String,
     map_name: String,
 ) -> IpcResult<String> {
-    let profiles =
-        profiles()?;
+    let profiles = profiles()?;
     let profile = profiles
         .iter()
         .find(|p| p.id == device_id)
@@ -1940,45 +1936,21 @@ pub async fn export_map(
 pub async fn install_map(plan: InstallPlan, backup: bool) -> IpcResult<String> {
     let src = PathBuf::from(&plan.source);
     let dst = PathBuf::from(&plan.target);
-    if let Some(parent) = dst.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    if dst.exists() && backup {
-        let bak = dst.with_extension("img.bak");
-        std::fs::rename(&dst, &bak).map_err(|e| e.to_string())?;
-    }
-    // Write beside the target then rename, so an interrupted copy cannot leave a
-    // truncated map the device would try to load.
-    let tmp = dst.with_extension("img.part");
-    std::fs::copy(&src, &tmp).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &dst).map_err(|e| e.to_string())?;
-
-    // Re-hash from the device, not just compare sizes (FR-82). A truncated copy has the
-    // wrong size, but a copy corrupted mid-transfer -- which is what a flaky USB link
-    // actually produces -- has the right one. These maps are a few megabytes, so the
-    // read costs about a second.
-    let (src_hash, dst_hash) = tokio::task::spawn_blocking({
-        let (src, dst) = (src.clone(), dst.clone());
-        move || -> std::io::Result<(String, String)> {
-            Ok((
-                s2g_core::cache::sha256_of(&src)?,
-                s2g_core::cache::sha256_of(&dst)?,
-            ))
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
-
-    if src_hash != dst_hash {
-        // Leave nothing half-installed: the device would try to load it.
-        let _ = std::fs::remove_file(&dst);
-        return Err(format!(
+    // The copy, the verification and the rollback live in s2g_core::install, where the
+    // device-goes-away cases have tests. A cable cannot be unplugged in CI.
+    let done = tokio::task::spawn_blocking(move || s2g_core::install::install(&src, &dst, backup))
+        .await
+        .map_err(|e| e.to_string())?;
+    match done {
+        Ok(done) => Ok(done.target.display().to_string()),
+        Err(s2g_core::Error::ChecksumMismatch {
+            expected, actual, ..
+        }) => Err(format!(
             "the copy on the device does not match what was built \
              (built {}, on the device {}); it has been removed",
-            &src_hash[..16],
-            &dst_hash[..16]
-        ));
+            &expected[..16],
+            &actual[..16]
+        )),
+        Err(e) => Err(e.to_string()),
     }
-    Ok(dst.display().to_string())
 }

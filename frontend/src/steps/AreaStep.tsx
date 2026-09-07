@@ -4,6 +4,7 @@ import type { AreaSelection, PlaceMatch } from "../state/api";
 import { useAreaInfo } from "../state/useAreaInfo";
 import { AreaMap, type DrawnBox } from "../map/AreaMap";
 import { SizeEstimate } from "../components/SizeEstimate";
+import { OverBudget } from "../components/OverBudget";
 import { TrackImport } from "../components/TrackImport";
 import { AdminUnitPicker } from "../components/AdminUnitPicker";
 import type { T } from "../i18n";
@@ -245,7 +246,7 @@ export function AreaStep({
 
       {info && <SizeEstimate t={t} info={info} />}
       {info && !info.withinSwitzerland && <p className="error">{t("area.outside")}</p>}
-      {info?.overBudget && <p className="error">{t("area.overBudget")}</p>}
+      {info && <OverBudget t={t} info={info} />}
 
       {(error ?? infoError) && (
         <p className="error">{t("data.error", { message: error ?? infoError ?? "" })}</p>

@@ -52,6 +52,14 @@ pub fn diagnose(error: &Error) -> Diagnosis {
              volume on the Data screen. Deleting cached elevation tiles is safe — they \
              download again when needed.",
         ),
+        // Before the "not downloaded" rules: a damaged swissTLM3D mentions
+        // swissTLM3D, and reporting it as absent would send the user to download
+        // something that is already there.
+        Error::NotFound(msg) if msg.contains("is damaged") => Diagnosis::known(
+            "The downloaded data is damaged and has been set aside.",
+            "Download it again on the Data screen. The damaged copy was moved rather \
+             than deleted, so nothing was lost that could be inspected.",
+        ),
         Error::NotFound(msg) if msg.contains("swissTLM3D") => Diagnosis::known(
             "The national swissTLM3D dataset has not been downloaded.",
             "Download it on the Data screen. It is about 10 GB once unpacked.",
@@ -142,9 +150,13 @@ fn from_tool_output(log: &str) -> Diagnosis {
         );
     }
     if lower.contains("exceeds") && lower.contains("tiles") {
+        // Reached only after --max-nodes has already been retuned to the ceiling, so
+        // the advice that is left is not "denser tiles" -- that was tried.
         return Diagnosis::known(
-            "The map needs more tiles than this device can hold.",
-            "Choose a smaller area or coarsen the contours.",
+            "The map needs more tiles than this device can hold, even with the densest \
+             tiles the compiler supports.",
+            "Split the area into several map sets — the build screen offers a plan — or \
+             choose a smaller area or coarser contours.",
         );
     }
 
@@ -224,11 +236,58 @@ mod tests {
         assert!(s.contains("rather than anything you did"), "{s}");
     }
 
+    /// SPEC.md §12: "Corrupt cache detected — quarantine, offer re-download."
+    #[test]
+    fn damaged_data_says_it_was_set_aside_and_can_be_downloaded_again() {
+        let d = diagnose(&Error::NotFound(
+            "the swissTLM3D data at /cache/x.gpkg is damaged (file is not a database). \
+             It has been moved to /cache/.quarantine/x so it cannot be reused. Download \
+             it again on the Data screen."
+                .into(),
+        ));
+        assert!(d.recognised);
+        assert!(d.suggestion.unwrap().contains("Download it again"));
+    }
+
+    /// The tile-count message is only reached after retuning has already been tried,
+    /// so suggesting denser tiles would be advice the build had already taken.
+    #[test]
+    fn an_unfittable_tile_count_suggests_map_sets_not_denser_tiles() {
+        let d = diagnose(&Error::Zip(
+            "4100 tiles exceeds the 2000 this device accepts, even with the densest \
+             tiles the map compiler supports."
+                .into(),
+        ));
+        assert!(d.recognised);
+        let s = d.suggestion.unwrap();
+        assert!(s.contains("map sets"), "{s}");
+        assert!(!s.to_lowercase().contains("denser"), "already tried: {s}");
+    }
+
     #[test]
     fn an_unrecognised_failure_says_so_rather_than_guessing() {
         let d = diagnose(&Error::Zip("something nobody has seen before".into()));
-        assert!(!d.recognised, "an unknown failure must not claim to be understood");
+        assert!(
+            !d.recognised,
+            "an unknown failure must not claim to be understood"
+        );
         assert_eq!(d.suggestion, None);
+    }
+
+    /// SPEC.md §12: "Checksum mismatch — discard, warn, offer retry; never use
+    /// unverified data." The discarding is in `download`; this is the explanation.
+    #[test]
+    fn a_downloaded_file_that_fails_its_checksum_is_not_used() {
+        let d = diagnose(&Error::ChecksumMismatch {
+            algo: "sha256".into(),
+            expected: "abc".into(),
+            actual: "def".into(),
+        });
+        assert!(d.recognised);
+        assert!(d.summary.contains("did not match"), "{}", d.summary);
+        let s = d.suggestion.unwrap();
+        assert!(s.contains("discarded rather than used"), "{s}");
+        assert!(s.contains("Try again"), "no retry offered: {s}");
     }
 
     #[test]

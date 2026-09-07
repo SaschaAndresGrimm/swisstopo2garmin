@@ -400,7 +400,11 @@ mod tests {
     fn a_file_with_no_coordinates_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("empty.gpx");
-        std::fs::write(&path, r#"<gpx><metadata><name>nothing</name></metadata></gpx>"#).unwrap();
+        std::fs::write(
+            &path,
+            r#"<gpx><metadata><name>nothing</name></metadata></gpx>"#,
+        )
+        .unwrap();
         assert!(Gpx::parse_file(&path).is_err());
     }
 

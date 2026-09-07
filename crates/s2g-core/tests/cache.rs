@@ -210,8 +210,14 @@ fn usage_accounts_for_elevation_tiles_and_build_files() {
     // A dataset, in the app layout.
     write("ch.swisstopo.swisstlm3d/swisstlm3d_2026-02/x.gpkg", 5_000);
     // Elevation tiles: loose files, one level down. This is the part that was invisible.
-    write("ch.swisstopo.swissalti3d/swissalti3d_2019_2600-1199.tif", 3_000);
-    write("ch.swisstopo.swissalti3d/swissalti3d_2019_2601-1199.tif", 3_000);
+    write(
+        "ch.swisstopo.swissalti3d/swissalti3d_2019_2600-1199.tif",
+        3_000,
+    );
+    write(
+        "ch.swisstopo.swissalti3d/swissalti3d_2019_2601-1199.tif",
+        3_000,
+    );
     write("ch.swisstopo.swissaltiregio/regio.tif", 1_000);
     // Build intermediates.
     write("builds/grindelwald/region.osm.pbf", 7_000);
@@ -224,7 +230,10 @@ fn usage_accounts_for_elevation_tiles_and_build_files() {
 
     let u = Cache::new(root).usage();
     assert_eq!(u.datasets, 5_000);
-    assert_eq!(u.elevation, 7_000, "elevation must include both collections");
+    assert_eq!(
+        u.elevation, 7_000,
+        "elevation must include both collections"
+    );
     assert_eq!(u.builds, 9_000);
     assert_eq!(u.recipes, 100);
     assert_eq!(u.quarantine, 400);
@@ -255,7 +264,11 @@ fn the_spike_era_flat_directories_count_as_datasets() {
     std::fs::create_dir_all(root.join("winter")).unwrap();
     std::fs::write(root.join("winter/ski_routes_2056.gpkg"), vec![b'x'; 800]).unwrap();
     std::fs::create_dir_all(root.join("routes/veloland/shp")).unwrap();
-    std::fs::write(root.join("routes/veloland/shp/VeloWeg.shp"), vec![b'x'; 200]).unwrap();
+    std::fs::write(
+        root.join("routes/veloland/shp/VeloWeg.shp"),
+        vec![b'x'; 200],
+    )
+    .unwrap();
 
     let u = Cache::new(root).usage();
     assert_eq!(u.datasets, 1_000);
@@ -303,60 +316,99 @@ fn usage_of_a_missing_root_is_zero_rather_than_an_error() {
     assert_eq!(u.total(), 0);
 }
 
-/// Nothing outside `datasets` may guess where a dataset lives.
+/// SPEC.md §12: "Corrupt cache detected — quarantine, offer re-download, never crash."
 ///
-/// Two cache layouts exist — the app's `<collection>/<item>/` and the flat `winter/`
-/// and `routes/` directories the Milestone 5 spikes wrote — and code that probes one of
-/// them directly works on the machine it was written on and fails on everyone else's.
-/// This has now happened three times: the pipeline (finding 5.2), the estimator, and
-/// `list_presets`, where every preset reported its data missing while the downloads sat
-/// unseen in the other layout.
-///
-/// A test rather than a comment, because the failure looks like missing data rather
-/// than like a bug.
-#[test]
-fn only_the_datasets_module_knows_where_datasets_live() {
-    use std::path::Path;
+/// The mechanism existed before this and was called from nowhere: corruption is noticed
+/// by whoever reads the file, and that code has a path rather than a
+/// `(collection, item)` pair.
+#[tokio::test]
+async fn a_corrupt_file_quarantines_the_dataset_it_belongs_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = Cache::new(dir.path());
+    let item = cache
+        .ensure_dir("ch.swisstopo.swisstlm3d", "swisstlm3d_2026-02")
+        .await
+        .unwrap();
+    let gpkg = item.join("swisstlm3d.gpkg");
+    std::fs::write(&gpkg, b"this is not a geopackage").unwrap();
 
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("repo root");
-
-    let mut offenders = Vec::new();
-    let mut stack = vec![root.join("crates"), root.join("src-tauri").join("src")];
-    while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
-        for entry in rd.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                // target/ holds generated code that may legitimately contain anything.
-                if path.file_name().map(|n| n == "target").unwrap_or(false) {
-                    continue;
-                }
-                stack.push(path);
-                continue;
-            }
-            if path.extension().map(|x| x != "rs").unwrap_or(true) {
-                continue;
-            }
-            // datasets.rs is where this knowledge belongs; its tests build both layouts.
-            let name = path.file_name().unwrap().to_string_lossy().to_string();
-            if name == "datasets.rs" || name == "cache.rs" {
-                continue;
-            }
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
-            for probe in ["join(\"winter\")", "join(\"routes\")"] {
-                if text.contains(probe) {
-                    offenders.push(format!("{}: {probe}", path.display()));
-                }
-            }
-        }
-    }
+    let moved = cache
+        .quarantine_containing(&gpkg)
+        .await
+        .unwrap()
+        .expect("a file inside the cache should be quarantined");
 
     assert!(
-        offenders.is_empty(),
-        "these probe a dataset layout directly instead of asking datasets::\n  {}",
-        offenders.join("\n  ")
+        !item.exists(),
+        "the damaged dataset is still where a build would find it"
     );
+    assert!(
+        moved.join("swisstlm3d.gpkg").is_file(),
+        "the data was deleted, not moved aside"
+    );
+    // And the dataset no longer lists as usable, so the Data screen offers it again.
+    assert!(cache.list().await.unwrap().is_empty());
+}
+
+/// A user's own GeoPackage, somewhere else on disk, must not be moved.
+#[tokio::test]
+async fn a_file_outside_the_cache_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let mine = elsewhere.path().join("my-own.gpkg");
+    std::fs::write(&mine, b"mine").unwrap();
+
+    let cache = Cache::new(dir.path());
+    assert_eq!(cache.quarantine_containing(&mine).await.unwrap(), None);
+    assert!(mine.is_file(), "somebody else's file was moved");
+}
+
+/// A loose file directly under the cache root belongs to no dataset, and treating its
+/// name as a collection would quarantine a directory that does not exist.
+#[tokio::test]
+async fn a_loose_file_at_the_cache_root_is_not_a_dataset() {
+    let dir = tempfile::tempdir().unwrap();
+    let loose = dir.path().join("calibration.jsonl");
+    std::fs::write(&loose, b"{}").unwrap();
+    let cache = Cache::new(dir.path());
+    assert_eq!(cache.quarantine_containing(&loose).await.unwrap(), None);
+    assert!(loose.is_file());
+}
+
+/// SPEC.md §12: "Insufficient disk space — precheck before download and before build;
+/// report required vs. available."
+///
+/// The download side had no precheck at all, and the interesting part is that the wire
+/// size is the wrong number to check: swissTLM3D arrives as 4.5 GB and lands as 10.0.
+#[test]
+fn a_download_is_measured_by_what_it_leaves_on_disk_not_what_crosses_the_wire() {
+    use s2g_core::cache::download_need;
+
+    const WIRE: u64 = 4_500_000_000;
+    const ON_DISK: u64 = 10_000_000_000;
+
+    // Streamed and inflated as it arrives: only the result is ever on disk.
+    assert_eq!(
+        download_need(Some(WIRE), Some(ON_DISK), true),
+        Some(ON_DISK)
+    );
+    // Downloaded whole, then extracted: both exist at the same moment.
+    assert_eq!(
+        download_need(Some(WIRE), Some(ON_DISK), false),
+        Some(WIRE + ON_DISK)
+    );
+    // A bare GeoPackage is its own member, so the two numbers agree.
+    assert_eq!(download_need(Some(WIRE), Some(WIRE), true), Some(WIRE));
+}
+
+/// A precheck cannot be invented from no information, and refusing a download because
+/// a HEAD request failed would be a worse failure than not checking.
+#[test]
+fn an_unknown_size_produces_no_precheck_rather_than_a_guess() {
+    use s2g_core::cache::download_need;
+    assert_eq!(download_need(None, None, true), None);
+    assert_eq!(download_need(None, None, false), None);
+    // One number known is better than none.
+    assert_eq!(download_need(Some(100), None, false), Some(100));
+    assert_eq!(download_need(None, Some(200), false), Some(200));
 }

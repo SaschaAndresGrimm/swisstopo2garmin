@@ -239,6 +239,26 @@ fn next_link(doc: &serde_json::Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// A release lookup, and whether it came from the API or from the last time it did.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedItem {
+    pub item: Item,
+    /// RFC 3339 timestamp of the API call that produced this, so the UI can say how
+    /// old a stale answer is rather than only that it is old.
+    pub fetched_at: String,
+    /// True when the API could not be reached and this is a remembered answer.
+    /// Not serialised as truth: it is set by the reader, not the writer.
+    #[serde(skip)]
+    pub stale: bool,
+}
+
+/// One file per collection. The collection id is a reverse-DNS name with no path
+/// separators in it, so it is already a safe file name.
+fn catalog_path(dir: &std::path::Path, collection: &str) -> std::path::PathBuf {
+    dir.join(format!("{collection}.json"))
+}
+
 pub struct Stac<'a> {
     http: &'a dyn Http,
     root: String,
@@ -296,6 +316,49 @@ impl<'a> Stac<'a> {
             }
         }
         Ok(out)
+    }
+
+    /// The newest release, from the API when it answers and from the last answer it
+    /// gave when it does not (SPEC.md §12, "STAC API unreachable").
+    ///
+    /// Release identifiers are never hard-coded — swisstopo publishes a new swissTLM3D
+    /// each year — so an unreachable API used to mean the Data screen could say nothing
+    /// at all about a dataset the user already had on disk. The cached answer keeps the
+    /// screen usable, and `stale` is what makes the difference visible rather than
+    /// presenting week-old release information as current.
+    pub async fn latest_cached(
+        &self,
+        collection: &str,
+        dir: &std::path::Path,
+        now: &str,
+    ) -> Result<CachedItem> {
+        match self.latest(collection).await {
+            Ok(item) => {
+                // Best-effort: an unwritable cache must not fail a successful lookup.
+                let cached = CachedItem {
+                    item,
+                    fetched_at: now.to_string(),
+                    stale: false,
+                };
+                if std::fs::create_dir_all(dir).is_ok() {
+                    if let Ok(json) = serde_json::to_vec_pretty(&cached) {
+                        let _ = std::fs::write(catalog_path(dir, collection), json);
+                    }
+                }
+                Ok(cached)
+            }
+            Err(unreachable) => {
+                let Ok(bytes) = std::fs::read(catalog_path(dir, collection)) else {
+                    // No cached answer either. The original error is the honest one:
+                    // inventing a release id would be worse than saying nothing.
+                    return Err(unreachable);
+                };
+                let mut cached: CachedItem =
+                    serde_json::from_slice(&bytes).map_err(|_| unreachable)?;
+                cached.stale = true;
+                Ok(cached)
+            }
+        }
     }
 
     /// The newest release of a collection, by `datetime` then id.

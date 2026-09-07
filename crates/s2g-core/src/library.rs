@@ -207,7 +207,10 @@ mod tests {
 
         let listed = list(dir.path());
         assert_eq!(listed.len(), 1);
-        assert_eq!(load(dir.path(), &listed[0].id).unwrap().contours.interval_m, 50);
+        assert_eq!(
+            load(dir.path(), &listed[0].id).unwrap().contours.interval_m,
+            50
+        );
     }
 
     #[test]

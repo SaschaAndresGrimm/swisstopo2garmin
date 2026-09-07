@@ -31,6 +31,16 @@ estimatedBytes: number,
  */
 budgetBytes: number, hardLimitBytes: number, overBudget: boolean, 
 /**
+ * How much has to go, and which changes to this recipe would help (SPEC.md §12).
+ * Only remedies that would actually change *this* recipe are listed.
+ */
+overshootBytes: number, 
+/**
+ * `smallerArea` | `coarserContours` | `fewerLayers` | `noRelief` |
+ * `noSlopeClasses` | `splitIntoMapSets`, most effective first.
+ */
+remedies: Array<string>, 
+/**
  * True once the model has been refit from the user's own builds.
  */
 calibrated: boolean, 
@@ -221,7 +231,17 @@ archiveBytes: number | null,
 /**
  * Inflated size of the member inside the archive.
  */
-memberBytes: number | null, memberName: string | null, cached: boolean, };
+memberBytes: number | null, memberName: string | null, cached: boolean, 
+/**
+ * True when the STAC API could not be reached and this is the last answer it
+ * gave (SPEC.md §12). The Data screen must say so rather than presenting old
+ * release information as current.
+ */
+stale: boolean, 
+/**
+ * When the release information was actually fetched, so "stale" can be dated.
+ */
+catalogFetchedAt: string | null, };
 
 /**
  * One entry in the saved-recipe library (SPEC.md FR-55).

@@ -82,7 +82,11 @@ fn read_int(bytes: &[u8], base_type: u8, big_endian: bool) -> Option<i64> {
         }
     }
     // Invalid sentinels: all bits set for unsigned, max positive for signed.
-    let all_ones = if width >= 8 { u64::MAX } else { (1u64 << (width * 8)) - 1 };
+    let all_ones = if width >= 8 {
+        u64::MAX
+    } else {
+        (1u64 << (width * 8)) - 1
+    };
     if signed {
         if raw == all_ones >> 1 {
             return None;
@@ -103,10 +107,14 @@ pub fn parse(data: &[u8]) -> Result<Course> {
     }
     let header_size = data[0] as usize;
     if !(12..=255).contains(&header_size) || header_size > data.len() {
-        return Err(Error::Zip(format!("FIT header size {header_size} is invalid")));
+        return Err(Error::Zip(format!(
+            "FIT header size {header_size} is invalid"
+        )));
     }
     if &data[8..12] != b".FIT" {
-        return Err(Error::Zip("not a FIT file: missing the .FIT signature".into()));
+        return Err(Error::Zip(
+            "not a FIT file: missing the .FIT signature".into(),
+        ));
     }
     let data_size = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
     // Trust the smaller of declared and actual: a truncated file should yield the
@@ -133,7 +141,12 @@ pub fn parse(data: &[u8]) -> Result<Course> {
             if i + def.record_size() > end {
                 break;
             }
-            read_data(&def, &data[i..i + def.record_size()], &mut course, &mut course_points);
+            read_data(
+                &def,
+                &data[i..i + def.record_size()],
+                &mut course,
+                &mut course_points,
+            );
             i += def.record_size();
             continue;
         }
@@ -213,7 +226,12 @@ pub fn parse(data: &[u8]) -> Result<Course> {
     Ok(course)
 }
 
-fn read_data(def: &MessageDef, body: &[u8], course: &mut Course, course_points: &mut Vec<FitPoint>) {
+fn read_data(
+    def: &MessageDef,
+    body: &[u8],
+    course: &mut Course,
+    course_points: &mut Vec<FitPoint>,
+) {
     let mut offset = 0usize;
     let mut lat: Option<f64> = None;
     let mut lon: Option<f64> = None;
@@ -248,12 +266,20 @@ fn read_data(def: &MessageDef, body: &[u8], course: &mut Course, course_points: 
         }
         MSG_RECORD => {
             if let (Some(lat), Some(lon)) = (lat, lon) {
-                course.points.push(FitPoint { lat, lon, ele_m: ele });
+                course.points.push(FitPoint {
+                    lat,
+                    lon,
+                    ele_m: ele,
+                });
             }
         }
         MSG_COURSE_POINT => {
             if let (Some(lat), Some(lon)) = (lat, lon) {
-                course_points.push(FitPoint { lat, lon, ele_m: None });
+                course_points.push(FitPoint {
+                    lat,
+                    lon,
+                    ele_m: None,
+                });
             }
         }
         _ => {}
@@ -288,7 +314,13 @@ mod tests {
             Self { body: Vec::new() }
         }
 
-        fn definition(&mut self, local: u8, global: u16, fields: &[(u8, u8, u8)], big_endian: bool) {
+        fn definition(
+            &mut self,
+            local: u8,
+            global: u16,
+            fields: &[(u8, u8, u8)],
+            big_endian: bool,
+        ) {
             self.body.push(0x40 | (local & 0x0F));
             self.body.push(0); // reserved
             self.body.push(big_endian as u8);
@@ -368,7 +400,12 @@ mod tests {
         let mut name = b"Haute Route".to_vec();
         name.resize(16, 0);
         w.data(0, &name);
-        w.definition(1, MSG_RECORD, &[(0, 4, SINT32), (1, 4, SINT32), (2, 2, UINT16)], false);
+        w.definition(
+            1,
+            MSG_RECORD,
+            &[(0, 4, SINT32), (1, 4, SINT32), (2, 2, UINT16)],
+            false,
+        );
         w.data(1, &record_bytes(46.0207, 7.7491, 1620.0));
         w.data(1, &record_bytes(46.0250, 7.7600, 1900.0));
 
@@ -471,7 +508,12 @@ mod tests {
     #[test]
     fn course_points_are_used_only_when_there_are_no_records() {
         let mut w = Writer::new();
-        w.definition(0, MSG_COURSE_POINT, &[(1, 4, SINT32), (2, 4, SINT32)], false);
+        w.definition(
+            0,
+            MSG_COURSE_POINT,
+            &[(1, 4, SINT32), (2, 4, SINT32)],
+            false,
+        );
         let mut p = Vec::new();
         p.extend_from_slice(&to_semi(46.1).to_le_bytes());
         p.extend_from_slice(&to_semi(8.1).to_le_bytes());
@@ -481,7 +523,12 @@ mod tests {
 
         // With records present, those win: they are the actual path.
         let mut w = Writer::new();
-        w.definition(0, MSG_COURSE_POINT, &[(1, 4, SINT32), (2, 4, SINT32)], false);
+        w.definition(
+            0,
+            MSG_COURSE_POINT,
+            &[(1, 4, SINT32), (2, 4, SINT32)],
+            false,
+        );
         w.data(0, &p);
         w.definition(1, MSG_RECORD, &[(0, 4, SINT32), (1, 4, SINT32)], false);
         let mut r = Vec::new();

@@ -84,12 +84,14 @@ fn features_of(area: &AreaSelection) -> Vec<Value> {
                 [b.max_e, b.max_n],
                 [b.min_e, b.max_n],
             ]);
-            vec![polygon(ring, json!({ "kind": kind_name(area), "extentOnly": true }))]
+            vec![polygon(
+                ring,
+                json!({ "kind": kind_name(area), "extentOnly": true }),
+            )]
         }
-        AreaSelection::Polygon { points } => vec![polygon(
-            ring_to_wgs84(points),
-            json!({ "kind": "polygon" }),
-        )],
+        AreaSelection::Polygon { points } => {
+            vec![polygon(ring_to_wgs84(points), json!({ "kind": "polygon" }))]
+        }
         AreaSelection::Circle {
             easting,
             northing,
@@ -126,8 +128,7 @@ pub fn from_geojson(text: &str) -> Result<AreaSelection> {
 
     match parts.len() {
         0 => Err(Error::NotFound(
-            "the file contains no polygon; a selection needs an area, not a point or a line"
-                .into(),
+            "the file contains no polygon; a selection needs an area, not a point or a line".into(),
         )),
         1 => Ok(parts.remove(0)),
         _ => Ok(AreaSelection::Composite { parts }),
@@ -220,7 +221,12 @@ mod tests {
 
         let (a, b) = (square().bbox(), back.bbox());
         // Projection is not exact, but a metre either way on a 10 km square is nothing.
-        for (x, y) in [(a.min_e, b.min_e), (a.min_n, b.min_n), (a.max_e, b.max_e), (a.max_n, b.max_n)] {
+        for (x, y) in [
+            (a.min_e, b.min_e),
+            (a.min_n, b.min_n),
+            (a.max_e, b.max_e),
+            (a.max_n, b.max_n),
+        ] {
             assert!((x - y).abs() < 1.0, "{x} vs {y}");
         }
         assert!(matches!(back, AreaSelection::Polygon { .. }));
@@ -248,8 +254,13 @@ mod tests {
         });
         assert_eq!(doc["features"][0]["geometry"]["type"], "Polygon");
         assert_eq!(doc["features"][0]["properties"]["radiusKm"], 5.0);
-        let ring = doc["features"][0]["geometry"]["coordinates"][0].as_array().unwrap();
-        assert!(ring.len() > 60, "a circle needs enough points to look round");
+        let ring = doc["features"][0]["geometry"]["coordinates"][0]
+            .as_array()
+            .unwrap();
+        assert!(
+            ring.len() > 60,
+            "a circle needs enough points to look round"
+        );
     }
 
     #[test]
@@ -296,7 +307,9 @@ mod tests {
     fn malformed_json_is_an_error_not_a_panic() {
         assert!(from_geojson("{ not json").is_err());
         // A polygon with too few points is not a polygon.
-        assert!(from_geojson(r#"{"type":"Polygon","coordinates":[[[8.0,46.6],[8.1,46.6]]]}"#).is_err());
+        assert!(
+            from_geojson(r#"{"type":"Polygon","coordinates":[[[8.0,46.6],[8.1,46.6]]]}"#).is_err()
+        );
     }
 
     /// A corridor exports as its extent, and says so, rather than pretending a

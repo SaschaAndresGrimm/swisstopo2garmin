@@ -41,7 +41,9 @@ fn extracts_every_member_of_a_multi_file_archive() {
     let dir = tempfile::tempdir().unwrap();
     // Something incompressible and something very compressible, so both stored and
     // deflate paths are exercised: zip stores a member it cannot shrink.
-    let random: Vec<u8> = (0..4096u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    let random: Vec<u8> = (0..4096u32)
+        .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+        .collect();
     let repetitive = vec![b'A'; 8192];
     let archive = make_archive(
         dir.path(),

@@ -161,7 +161,11 @@ impl Grid {
     }
 
     fn cell_of(&self, p: Coord) -> Option<(usize, usize)> {
-        if p.e < self.bbox.min_e || p.e > self.bbox.max_e || p.n < self.bbox.min_n || p.n > self.bbox.max_n {
+        if p.e < self.bbox.min_e
+            || p.e > self.bbox.max_e
+            || p.n < self.bbox.min_n
+            || p.n > self.bbox.max_n
+        {
             return None;
         }
         let cx = (((p.e - self.bbox.min_e) / self.cell_m) as usize).min(self.cols - 1);
@@ -179,10 +183,14 @@ impl Grid {
             return None;
         }
         let cell = self.cell_m;
-        let x0 = (((b.min_e - self.bbox.min_e) / cell).floor().max(0.0) as usize).min(self.cols - 1);
-        let x1 = (((b.max_e - self.bbox.min_e) / cell).floor().max(0.0) as usize).min(self.cols - 1);
-        let y0 = (((b.min_n - self.bbox.min_n) / cell).floor().max(0.0) as usize).min(self.rows - 1);
-        let y1 = (((b.max_n - self.bbox.min_n) / cell).floor().max(0.0) as usize).min(self.rows - 1);
+        let x0 =
+            (((b.min_e - self.bbox.min_e) / cell).floor().max(0.0) as usize).min(self.cols - 1);
+        let x1 =
+            (((b.max_e - self.bbox.min_e) / cell).floor().max(0.0) as usize).min(self.cols - 1);
+        let y0 =
+            (((b.min_n - self.bbox.min_n) / cell).floor().max(0.0) as usize).min(self.rows - 1);
+        let y1 =
+            (((b.max_n - self.bbox.min_n) / cell).floor().max(0.0) as usize).min(self.rows - 1);
         Some((x0, y0, x1, y1))
     }
 
@@ -234,8 +242,12 @@ impl PolygonMask {
         let boxes: Vec<BBox> = polygons
             .iter()
             .map(|rings| {
-                let (mut e0, mut n0, mut e1, mut n1) =
-                    (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+                let (mut e0, mut n0, mut e1, mut n1) = (
+                    f64::INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::NEG_INFINITY,
+                );
                 for c in rings.iter().flatten() {
                     e0 = e0.min(c.e);
                     n0 = n0.min(c.n);
@@ -462,7 +474,10 @@ mod tests {
         ]);
         let m = Mask::polygons(vec![rings]);
         assert!(m.contains(Coord::new(2_601_000.0, 1_201_000.0)));
-        assert!(!m.contains(Coord::new(2_605_000.0, 1_205_000.0)), "the hole is inside");
+        assert!(
+            !m.contains(Coord::new(2_605_000.0, 1_205_000.0)),
+            "the hole is inside"
+        );
     }
 
     #[test]
@@ -581,7 +596,10 @@ mod tests {
         // 60 km square: 120 x 120 cells at 500 m.
         let m = Mask::polygons(vec![square(2_580_000.0, 1_140_000.0, 60_000.0)]);
         for i in 0..60 {
-            let p = Coord::new(2_580_500.0 + i as f64 * 1_000.0, 1_140_500.0 + i as f64 * 1_000.0);
+            let p = Coord::new(
+                2_580_500.0 + i as f64 * 1_000.0,
+                1_140_500.0 + i as f64 * 1_000.0,
+            );
             assert!(m.contains(p), "{p:?} should be inside");
         }
         assert!(!m.contains(Coord::new(2_579_000.0, 1_170_000.0)));
@@ -743,7 +761,10 @@ mod cache_tests {
         let ring: Vec<Coord> = (0..=4_000)
             .map(|i| {
                 let a = i as f64 / 4_000.0 * std::f64::consts::TAU;
-                Coord::new(2_610_000.0 + 9_000.0 * a.cos(), 1_210_000.0 + 9_000.0 * a.sin())
+                Coord::new(
+                    2_610_000.0 + 9_000.0 * a.cos(),
+                    1_210_000.0 + 9_000.0 * a.sin(),
+                )
             })
             .collect();
         let mask = PolygonMask::new(vec![vec![ring]]);
@@ -769,7 +790,10 @@ mod cache_tests {
         let (second_inside, warm) = probe(&mask);
 
         assert_eq!(first_inside, second_inside, "the answer must not change");
-        assert!(first_inside > 1_000, "expected many points inside the circle");
+        assert!(
+            first_inside > 1_000,
+            "expected many points inside the circle"
+        );
         assert!(
             warm < cold / 2,
             "cache saved nothing: cold {cold:?}, warm {warm:?}"

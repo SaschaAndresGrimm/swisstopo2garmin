@@ -33,6 +33,16 @@ impl Cell {
         (self.e_km as f64 * 1000.0, self.n_km as f64 * 1000.0)
     }
 
+    /// The cell as swisstopo names it: `2645-1163`, the identifier that appears in the
+    /// swissALTI3D file name and on the download portal.
+    ///
+    /// Used in build warnings, so a user told that contours have gaps can look up
+    /// exactly which square kilometres and check the portal for themselves — which is
+    /// what SPEC.md §12 means by "the build report says which cells".
+    pub fn label(&self) -> String {
+        format!("{}-{}", self.e_km, self.n_km)
+    }
+
     /// Cells covering `bbox`, in row-major order.
     /// The cells a mask actually needs, dilated by one cell.
     ///

@@ -152,29 +152,50 @@ the dataset releases and tool versions that produced it.
 Only after A passes. Each measurement promotes a profile field from `community`/`assumed`
 to `measured`.
 
-### B.1 Maximum single `.img` size
+### C.1 Maximum single `.img` size
 Binary search. Build progressively larger areas (`spikes/s0/build.sh <Place> <radius>`)
 and record the largest that still loads and renders. Suspected ceilings are 4 GB (FAT32)
 and, on some models, 2 GB. Test across the suspected boundary, not just below it.
 
-### B.2 Maximum tiles per mapset
+### C.2 Maximum tiles per mapset
 Rebuild one area with decreasing `--max-nodes` in `splitter` to raise the tile count at
 constant content. Record the count at which the device stops loading the map. Community
 reports suggest ~4096 for Edge; unverified.
 
-### B.3 Install paths and filenames
+### C.3 Install paths and filenames
 Test each of: `/Garmin/gmapsupp.img`, `/Garmin/Maps/<name>.img`, `/Garmin/<name>.img`, and
 the SD-card equivalents. Record which the device accepts, and whether the literal filename
 `gmapsupp.img` is required (`mapFile.requiresExactFilename`).
 
-### B.4 Multiple mapsets
+### C.4 Multiple mapsets
 Install two maps with **different** family IDs and confirm both appear and can be toggled
 independently. Then repeat with the **same** family ID to confirm the collision behaviour
 the app must avoid.
 
-### B.5 Storage budget
+### C.5 Storage budget
 Record total and free space as the device reports it, and how much can actually be consumed
 by maps before behaviour degrades.
+
+### C.6 Unplug during an install
+
+The one row of SPEC.md §12 that no test can reach honestly: the code is tested against an
+injected copy failure, which is a guess at what a real device does when the cable leaves
+its socket. macOS, Windows and Linux each report it differently, and the interesting
+question is whether the app's cleanup can still run at all once the volume is gone.
+
+Install a map and **pull the cable while the copy bar is moving** — the window is a couple
+of seconds on a 1 MB map, so use the largest map you have. Then reconnect and record:
+
+1. What the app said. It should name the failure, and either say the device is clean and
+   retrying is safe, or name the exact leftover file.
+2. What is actually in `/Garmin/` on the device. A `gmapsupp.img.part` (or
+   `<name>.img.part`) is the expected leftover; a truncated `gmapsupp.img` is a **defect**
+   — the copy is written to `.part` and renamed precisely so that cannot happen.
+3. Whether a previous map that was being replaced is still there, under its own name or
+   as `.bak`. Losing an existing map for one that never arrived is the worst outcome.
+4. Whether retrying the install then works without any manual cleanup.
+
+Repeat once with "back up the existing map" ticked and once without.
 
 ---
 

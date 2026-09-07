@@ -164,7 +164,8 @@ pub fn extract_all(
                 "member {name} has no local header at offset {local_offset}"
             )));
         }
-        let data_start = lo + 30 + u16le(&bytes, lo + 26) as usize + u16le(&bytes, lo + 28) as usize;
+        let data_start =
+            lo + 30 + u16le(&bytes, lo + 26) as usize + u16le(&bytes, lo + 28) as usize;
         let data_end = data_start + comp as usize;
         if data_end > bytes.len() {
             return Err(Error::Zip(format!(
@@ -206,9 +207,13 @@ fn central_directory(bytes: &[u8]) -> Result<(usize, usize)> {
     let tail_from = bytes.len().saturating_sub(66_560);
     let eocd = rfind(&bytes[tail_from..], EOCD_SIG)
         .map(|i| i + tail_from)
-        .ok_or_else(|| Error::Zip("no end-of-central-directory record; not a zip archive".into()))?;
+        .ok_or_else(|| {
+            Error::Zip("no end-of-central-directory record; not a zip archive".into())
+        })?;
     if eocd + 22 > bytes.len() {
-        return Err(Error::Zip("truncated end-of-central-directory record".into()));
+        return Err(Error::Zip(
+            "truncated end-of-central-directory record".into(),
+        ));
     }
     let mut entries = u16le(bytes, eocd + 10) as usize;
     let mut offset = u32le(bytes, eocd + 16) as usize;
@@ -216,17 +221,23 @@ fn central_directory(bytes: &[u8]) -> Result<(usize, usize)> {
     if entries == u16::MAX as usize || offset == u32::MAX as usize {
         let loc = rfind(&bytes[tail_from..eocd], EOCD64_LOCATOR_SIG)
             .map(|i| i + tail_from)
-            .ok_or_else(|| Error::Zip("zip64 archive without an end-of-directory locator".into()))?;
+            .ok_or_else(|| {
+                Error::Zip("zip64 archive without an end-of-directory locator".into())
+            })?;
         let eocd64 = u64le(bytes, loc + 8) as usize;
         if eocd64 + 56 > bytes.len() || &bytes[eocd64..eocd64 + 4] != EOCD64_SIG {
-            return Err(Error::Zip("zip64 end-of-directory record is missing".into()));
+            return Err(Error::Zip(
+                "zip64 end-of-directory record is missing".into(),
+            ));
         }
         entries = u64le(bytes, eocd64 + 32) as usize;
         offset = u64le(bytes, eocd64 + 48) as usize;
     }
 
     if offset > bytes.len() {
-        return Err(Error::Zip("central directory offset is past the end of the archive".into()));
+        return Err(Error::Zip(
+            "central directory offset is past the end of the archive".into(),
+        ));
     }
     Ok((offset, entries))
 }

@@ -272,6 +272,32 @@ fn at_low_priority(cmd: Command) -> Command {
     cmd
 }
 
+/// The command line as it was actually run, for a failure report.
+///
+/// SPEC.md §12 requires a Java non-zero exit to show the command line, not only the
+/// stderr tail: mkgmap takes thirty-odd arguments and its complaint is frequently about
+/// one of them. Written out here rather than reconstructed from the recipe, so what the
+/// report shows is what ran — including the `nice` wrapper and the style paths.
+///
+/// Arguments containing spaces are quoted so the line can be pasted into a shell, which
+/// is the first thing anybody investigating one of these does.
+fn describe(cmd: &Command) -> String {
+    let mut out = quote(&cmd.get_program().to_string_lossy());
+    for a in cmd.get_args() {
+        out.push(' ');
+        out.push_str(&quote(&a.to_string_lossy()));
+    }
+    out
+}
+
+fn quote(s: &str) -> String {
+    if s.contains(' ') || s.contains('"') {
+        format!("\"{}\"", s.replace('"', "\\\""))
+    } else {
+        s.to_string()
+    }
+}
+
 /// Run a child process, killing it if the build is cancelled.
 ///
 /// `Command::output` blocks until the child exits, so a build cancelled during
@@ -285,6 +311,7 @@ fn run(cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
     use std::io::Read;
 
     let mut cmd = at_low_priority(cmd);
+    let command_line = describe(&cmd);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -305,7 +332,10 @@ fn run(cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
     let err_thread = drain(child.stderr.take());
 
     let status = loop {
-        match child.try_wait().map_err(|e| Error::io(Path::new(what), e))? {
+        match child
+            .try_wait()
+            .map_err(|e| Error::io(Path::new(what), e))?
+        {
             Some(status) => break status,
             None => {
                 if cancel.is_cancelled() {
@@ -329,7 +359,13 @@ fn run(cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
             return Err(Error::Cancelled);
         }
         let tail: String = log.lines().rev().take(25).collect::<Vec<_>>().join("\n");
-        return Err(Error::Zip(format!("{what} failed:\n{tail}")));
+        return Err(Error::Zip(format!(
+            "{what} failed (exit {}):\n{command_line}\n{tail}",
+            status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "signal".into())
+        )));
     }
     // mkgmap exits 0 even after throwing, so the log has to be inspected.
     if log.contains("Exception:")
@@ -341,9 +377,41 @@ fn run(cmd: Command, what: &str, cancel: &Cancel) -> Result<String> {
             .take(10)
             .collect::<Vec<_>>()
             .join("\n");
-        return Err(Error::Zip(format!("{what} reported errors:\n{tail}")));
+        return Err(Error::Zip(format!(
+            "{what} reported errors:\n{command_line}\n{tail}"
+        )));
     }
     Ok(log)
+}
+
+/// The `--max-nodes` a build starts from.
+///
+/// Below splitter's own default of 1,600,000 (splitter r654 `--help`), because smaller
+/// tiles draw and pan faster on the wrist devices, which is where responsiveness is
+/// scarcest.
+pub const START_MAX_NODES: u32 = 700_000;
+
+/// The most this project will ask splitter for.
+///
+/// Splitter's documented default, and therefore the largest value its author treats as
+/// ordinary. Going beyond it to satisfy a tile budget would be trading a limit we know
+/// for one we would be guessing at.
+pub const CEILING_MAX_NODES: u32 = 1_600_000;
+
+/// The next `--max-nodes` to try when a split produced more tiles than the device
+/// accepts, or `None` when there is nothing left to try (SPEC.md §12, "Tile count
+/// exceeds device limit — auto-retune `--max-nodes`, else split into map sets").
+///
+/// Raising it packs more nodes into each tile and so produces fewer of them. Doubling
+/// rather than stepping, because each attempt is a full splitter run: a build that
+/// needs three minutes per attempt cannot afford ten attempts to creep up on a value.
+///
+/// Separated from the retry loop so the policy can be tested without running splitter.
+pub fn retune_max_nodes(current: u32, tiles: usize, max_tiles: usize) -> Option<u32> {
+    if tiles <= max_tiles || current >= CEILING_MAX_NODES {
+        return None;
+    }
+    Some((current.saturating_mul(2)).min(CEILING_MAX_NODES))
 }
 
 /// Split an OSM PBF into Garmin map tiles.
@@ -548,6 +616,100 @@ mod tests {
         let mut c = Command::new("sh");
         c.arg("-c").arg(script);
         c
+    }
+
+    /// SPEC.md §12: "Tile count exceeds device limit — auto-retune `--max-nodes`,
+    /// else split into map sets."
+    ///
+    /// Before this the build simply refused, telling the user to pick a smaller area
+    /// when denser tiles would have fitted the same map on the same device.
+    #[test]
+    fn a_tile_count_within_the_budget_is_not_retuned() {
+        assert_eq!(retune_max_nodes(START_MAX_NODES, 40, 100), None);
+        assert_eq!(retune_max_nodes(START_MAX_NODES, 100, 100), None);
+    }
+
+    #[test]
+    fn too_many_tiles_doubles_the_node_budget() {
+        assert_eq!(retune_max_nodes(700_000, 150, 100), Some(1_400_000));
+    }
+
+    /// The next step must not overshoot splitter's own documented default: past that
+    /// we would be trading a limit we know for one we would be guessing at.
+    #[test]
+    fn retuning_stops_at_the_ceiling_rather_than_doubling_past_it() {
+        assert_eq!(
+            retune_max_nodes(1_400_000, 150, 100),
+            Some(CEILING_MAX_NODES)
+        );
+        // At the ceiling there is nothing left to try, however far over budget it is.
+        assert_eq!(retune_max_nodes(CEILING_MAX_NODES, 10_000, 100), None);
+    }
+
+    /// The sequence must terminate, or a build would retry forever on an area that
+    /// cannot fit. Three attempts at most, and each one is a full splitter run.
+    #[test]
+    fn the_retune_sequence_terminates() {
+        let mut nodes = START_MAX_NODES;
+        let mut attempts = 0;
+        // A tile count that never improves: the worst case for termination.
+        while let Some(next) = retune_max_nodes(nodes, 10_000, 100) {
+            nodes = next;
+            attempts += 1;
+            assert!(attempts < 10, "retuning did not terminate");
+        }
+        assert_eq!(attempts, 2, "expected 700k -> 1.4M -> 1.6M");
+        assert_eq!(nodes, CEILING_MAX_NODES);
+    }
+
+    /// A zero budget must not loop or divide by anything.
+    #[test]
+    fn a_device_that_accepts_no_tiles_is_not_retuned_forever() {
+        assert_eq!(retune_max_nodes(CEILING_MAX_NODES, 1, 0), None);
+        assert_eq!(retune_max_nodes(START_MAX_NODES, 1, 0), Some(1_400_000));
+    }
+
+    /// SPEC.md §12: "Java tool non-zero exit — show stage, command line, stderr tail,
+    /// and a plain-language cause where recognized."
+    ///
+    /// The stage and the tail were reported; the command line was not, and mkgmap takes
+    /// thirty-odd arguments whose complaints are frequently about one of them.
+    #[test]
+    fn a_failure_reports_the_stage_the_exit_code_and_the_command_line() {
+        // The real mkgmap output for an oversized area, which is the failure users
+        // actually hit and the one `diagnose` has a rule for.
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(
+            "echo 'Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap \
+             space' >&2; exit 3",
+        );
+        let err = run(c, "mkgmap (tiles and overview)", &Cancel::new()).unwrap_err();
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("mkgmap (tiles and overview)"),
+            "no stage: {msg}"
+        );
+        assert!(msg.contains("exit 3"), "no exit code: {msg}");
+        assert!(msg.contains("sh -c"), "no command line: {msg}");
+        assert!(msg.contains("OutOfMemoryError"), "no stderr tail: {msg}");
+        // And the plain-language cause, derived from that same string.
+        let d = crate::diagnose::diagnose(&err);
+        assert!(d.recognised, "{msg}");
+        assert!(d.summary.contains("out of memory"), "{}", d.summary);
+    }
+
+    /// Arguments with spaces have to survive as one argument, so the line in the report
+    /// can be pasted into a shell to reproduce the failure.
+    #[test]
+    fn the_reported_command_line_is_pasteable() {
+        let mut c = Command::new("java");
+        c.arg("-jar").arg("/opt/mkgmap.jar");
+        c.arg("--style-file=/Users/me/My Maps/style");
+        assert_eq!(
+            describe(&c),
+            "java -jar /opt/mkgmap.jar \"--style-file=/Users/me/My Maps/style\""
+        );
     }
 
     /// A cancelled build must stop the child process, not wait for it.
