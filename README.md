@@ -1,155 +1,246 @@
 # swisstopo2garmin
 
-Build Garmin Edge and fēnix maps from free swisstopo geodata, with a desktop GUI.
+**Free Swiss topographic maps for your Garmin Edge or fēnix — built from swisstopo's own
+open data, on your own computer.**
 
-Map data © swisstopo. Licensed GPL-3.0-or-later.
+Choose a device, choose an area, press build. You get a `gmapsupp.img` with the
+Landeskarte's colours, Swiss hiking-trail classes, 20 m contours and shaded relief, and
+the app copies it onto the watch or bike computer for you.
 
-- **[SPEC.md](SPEC.md)** — what it does and why
-- **[PLAN.md](PLAN.md)** — implementation plan and milestone status
-- **[docs/getting-started.md](docs/getting-started.md)** — first map, start to finish
-- **[docs/sample-maps.md](docs/sample-maps.md)** — six ready-made maps attached to each
-  release, to try on a device before building anything
-- **[docs/device-verification.md](docs/device-verification.md)** — what to check on real
-  hardware, and why CI cannot
-- **[docs/cartography.md](docs/cartography.md)** — how swissTLM3D becomes Garmin types,
-  and how to change it
-- **[docs/error-matrix.md](docs/error-matrix.md)** — every specified failure, its
-  behaviour, and its test
-- **[docs/performance.md](docs/performance.md)** — what is measured, and what is not
-- **[docs/release.md](docs/release.md)** — how a release is built, signed and documented
-- **[docs/](docs/)** — the discovered swissTLM3D schema, palettes, accessibility,
-  attribution audit, Milestone 0 findings
+Map data © swisstopo. The program is free software under GPL-3.0-or-later.
 
-## Status
+---
 
-The whole path works, end to end and from the GUI: choose a device, choose an area,
-choose content, build, install. Maps have been verified on a Garmin Edge 840 (firmware
-3133) and a fēnix 5 Plus (firmware 1930).
+# For users
+
+## Getting it
+
+Installers for macOS, Windows and Linux are built for every release and attached to it:
+**[Releases](https://github.com/SaschaAndresGrimm/swisstopo2garmin/releases)**.
+
+| Platform | File |
+|---|---|
+| macOS (Apple silicon) | `swisstopo2garmin_*_aarch64.dmg` |
+| macOS (Intel) | `swisstopo2garmin_*_x64.dmg` |
+| Windows | `swisstopo2garmin_*_x64_en-US.msi` |
+| Linux | `*.AppImage` or `*.deb` |
+
+Verify your download against the `SHA256SUMS` file beside it.
+
+> **The installers are not code-signed yet.** macOS will say "cannot be opened because
+> the developer cannot be verified" — right-click the app and choose **Open**, once.
+> Windows SmartScreen will warn. This is because signing certificates cost money and
+> none have been bought, not because anything is wrong with the file;
+> [docs/release.md](docs/release.md) explains exactly what is missing.
+
+Nothing else needs installing. No Java, no GDAL, no Python — the map compiler, the
+splitter and a private Java runtime are all inside the app. That is why the download is
+around 150 MB: 130 MB of it is the Java runtime.
+
+**Want to see the maps before installing anything?** Six ready-made maps of Grindelwald
+are attached to each release —
+[docs/sample-maps.md](docs/sample-maps.md) says what each one is and how to copy it
+across. They have not been verified on hardware, which is exactly why they are the
+interesting ones to try.
+
+## Your first map
+
+The app is meant to be usable without reading anything. If you get stuck,
+[docs/getting-started.md](docs/getting-started.md) walks through it properly.
+
+1. **Data** — download swissTLM3D. This is the long part: 4.5 GB over the wire, unpacked
+   as it arrives, and it resumes if interrupted. Add "swissTLM3D Wanderwege" for Swiss
+   hiking-trail classes.
+2. **Device** — pick your model. There are tested profiles for the Edge 840 and the
+   fēnix 5 Plus and generic ones for other Edge and fēnix models; each carries a size
+   budget and says how confident that number is, because Garmin publishes none of them.
+   If yours is not listed, the generic profile for its family is deliberately
+   conservative.
+3. **Area** — draw on the map, search a place, choose a canton, or take a corridor along
+   a GPX track. Once drawn, drag a corner to reshape it or the middle to move it. Start
+   small: a 10 km radius builds in a couple of minutes and tells you whether you like
+   the result.
+4. **Content** — hiking, cycling, ski touring or full topo; contour interval; shaded
+   relief; summer or winter colours; slope-angle classes; label language.
+5. **Build** — progress per stage. Cancelling is immediate and leaves nothing behind.
+6. **Install** — plug the device in. The app copies the map and then reads it back to
+   check it arrived intact.
+
+### Disk space
+
+Allow **20 GB**. swissTLM3D is 10.0 GB unpacked, and every new area caches its own
+elevation tiles at roughly 1.2 MB per square kilometre. The Data screen shows where the
+space went and can delete the two re-derivable parts; the data folder can be pointed at
+another drive before the first download.
+
+## What you get
+
+- **The Landeskarte's look**, from colours measured off swisstopo's own printed sheets
+  rather than guessed — summer and winter schemes, rock hachures, blue contours over ice.
+- **Swiss hiking-trail classes** drawn distinguishably: hiking, mountain hiking, alpine
+  hiking.
+- **Contours** at 10, 20, 50 or 100 m, from swissALTI3D, with shaded relief where the
+  device supports it.
+- **Ski touring**: SAC ski routes with the skiable / carrying / caution distinction,
+  snowshoe and winter hiking trails, lifts and cableways.
+- **Slope-angle classes** in swisstopo's own bands, 30° to over 50°, drawn as a hatch so
+  the map underneath stays readable.
+- **Cycling**: Veloland, Mountainbikeland and the official Wanderland route numbers.
+- **SAC huts and public transport stops**, named.
+- **Place names** in German, French, Italian or Romansh where swissNAMES3D has them.
+- **A size estimate before you build**, fitted on real builds and refined by yours.
+- **A manifest** beside every map: the recipe, the exact dataset releases, the tool
+  versions and the timings. Enough to reproduce it.
+
+## What it does not do yet
+
+- **No on-device routing.** The maps draw and search; they will not navigate you along a
+  road. This is the one substantial gap against the commercial Garmin TOPO Schweiz and it
+  is planned for v2.
+- **No address search** and **no raster/paper-map view**, both deferred past v1.
+- **Not verified on hardware since Milestone 6.** Maps render correctly on an Edge 840
+  (firmware 3133) and a fēnix 5 Plus (firmware 1930), but the winter colours, slope
+  classes, hut symbols, transit stops and night palette have never been on a device.
+  [docs/device-verification.md](docs/device-verification.md) records exactly what has and
+  has not been checked.
+- **No screen-reader or keyboard-only pass**, and the map's drawing and editing tools are
+  pointer-only. Every other way of choosing an area works from the keyboard.
+  [docs/accessibility.md](docs/accessibility.md) lists the gaps.
+
+If something fails, the app says what failed, why and what to do about it — and says
+plainly when it does not recognise a failure rather than inventing a cause.
+
+## Using the maps you make
+
+They are yours to use. If you pass one to somebody else, swisstopo's
+[terms of use for free geodata](https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices)
+come with it: the attribution has to stay, and it is embedded in the file so it does.
+
+Garmin, Edge, fēnix and epix are trademarks of Garmin Ltd. or its subsidiaries, used here
+only to say which devices this works with. This project is not affiliated with, endorsed
+by or sponsored by Garmin.
+
+---
+
+# For developers
 
 The pipeline is pure Rust — no GDAL, no Python at build time. `spikes/s0/` is kept for
 schema discovery and the cartography guards, not for building.
 
-What works:
-
-- **Data**: swissTLM3D, hiking trails, SAC ski routes, snowshoe and winter hiking trails,
-  and the three ASTRA route networks, each acquired by its own packaging (zipped
-  GeoPackage, bare GeoPackage, or zipped shapefiles).
-- **Areas**: a rectangle drawn on the swisstopo basemap, a radius around a searched
-  place, a corridor around an imported GPX track or FIT course, or all of Switzerland —
-  and once drawn, editable: drag a corner to reshape it, the middle to move it, a
-  midpoint to add a corner.
-- **Content**: four presets (hiking, cycling, ski touring, full topo), a per-layer panel,
-  contour interval, shaded relief, and a summer or winter colour scheme measured from
-  swisstopo's own sheets.
-- **Estimation**: output size from a model fitted on real builds, and remaining build
-  time weighted by measured stage durations.
-- **Recipes**: save a configuration and rebuild it later.
-
-- **Areas, continued**: cantons, districts and communes by name; polygons and circles
-  drawn on the map; several selections combined; and selections exchanged as GeoJSON.
-- **Labels**: place names in German, French, Italian or Romansh where swissNAMES3D has
-  them, rather than only the local form.
-- **Slope classes**: swisstopo's own 30–50° bands, computed from the elevation data.
-- **Recovery**: an interrupted build is found on the next start, along with any map
-  compiler still running for it, and can be resumed or discarded.
-
-**Not yet**, and deliberately so: on-device routing, address search, and a raster
-overlay — all deferred past v1 (SPEC.md §16). **Not yet, and outstanding**: a
-screen-reader and keyboard-only pass ([docs/accessibility.md](docs/accessibility.md)
-lists the gaps), signed installers ([docs/release.md](docs/release.md) says what is
-missing), and a device sweep of everything added since the last one. See
-[PLAN.md](PLAN.md) for milestone status.
-
 ## Prerequisites
 
 - Rust stable
-- **Node ≥ 20.17** — note that a Node built without ICU (Anaconda ships one) breaks
-  eslint; `.nvmrc` pins the version
-- Java is *not* required: `vendor/fetch_tools.py` downloads a private JRE plus
-  mkgmap and splitter, without touching the system
+- **Node ≥ 20.17** — a Node built without ICU (Anaconda ships one) breaks eslint;
+  `.nvmrc` pins the version
+- Java is *not* required: `vendor/fetch_tools.py` downloads a private JRE plus mkgmap and
+  splitter without touching the system
 
 ```bash
-python3 vendor/fetch_tools.py        # mkgmap, splitter, JRE -> vendor/
-cd frontend && npm ci && cd ..
+python3 vendor/fetch_tools.py     # mkgmap, splitter, JRE -> vendor/
+npm --prefix frontend ci
 ```
 
-### Disk space
+`vendor/fetch_tools.py` is not optional: `src-tauri` declares the vendored toolchain as a
+bundle resource, so it does not compile without it.
 
-swissTLM3D inflates to **10.0 GB**, and every area built caches its own swissALTI3D
-tiles at roughly 1.2 MB per square kilometre. Allow 20 GB. The app's Data screen shows
-where the space went, broken down, and offers to delete the two re-derivable parts
-(elevation tiles and build intermediates); the data directory itself can be pointed at
-another volume before the first download.
+## Checks
 
-## Develop
+Everything CI runs, in the order it runs it:
 
 ```bash
-cargo test --workspace                       # 230 tests, offline
-cargo test -p s2g-core --test live -- --ignored   # hits data.geo.admin.ch
-cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace                                  # offline and deterministic
+cargo test -p s2g-core --test live -- --ignored          # hits data.geo.admin.ch
 
-cd frontend && npm run typecheck && npm run lint && npm run build
+npm --prefix frontend run typecheck
+npm --prefix frontend run lint
+npm --prefix frontend run check:i18n     # all four bundles agree; no dead keys
+npm --prefix frontend run check:a11y     # static: control names, labels, live regions
 
+python3 tools/make_typ.py && python3 spikes/s0/checkstyle.py   # cartography consistency
+python3 tools/sbom.py --check                                  # supply chain (NFR-10)
+cargo test --release -p s2g-core --test perf -- --nocapture     # NFR-1, NFR-2
+cargo test --release -p s2g-core --test estimator_reference     # FR-60, ±25%
 ```
 
-### Running the app
+## Running the app
 
 A **debug** build loads the frontend from the Vite dev server (`devUrl`); only a
-**release** build embeds `frontend/dist`. `cargo build && ./target/debug/...` on its own
-therefore opens an empty window.
+**release** build embeds `frontend/dist`. So `cargo build && ./target/debug/…` on its own
+opens an empty window.
 
 ```bash
-# dev: two processes, with hot reload on frontend edits
-cd frontend && npm run dev &          # serves http://localhost:1420
-cargo build -p swisstopo2garmin && ./target/debug/swisstopo2garmin
+# dev, with hot reload on frontend edits
+npx --prefix frontend tauri dev
 
-# or, with the Tauri CLI, one command that starts both:
-cargo install tauri-cli --version "^2"
-cargo tauri dev
-
-# standalone: embeds the frontend, no dev server needed (slow build: lto + codegen-units=1)
-cargo build --release -p swisstopo2garmin && ./target/release/swisstopo2garmin
+# a real installer -- CI=true is required for the .dmg, or the step hangs
+# on Finder AppleScript with no error
+CI=true npx --prefix frontend tauri build
 ```
 
-The IPC types in `frontend/src/state/bindings.ts` are **generated** from the Rust
-definitions by `cargo test -p swisstopo2garmin`. CI fails if the checked-in file is
-stale, so the two sides cannot drift.
+The Tauri CLI is pinned in `frontend/package-lock.json`, so it needs no separate install.
+It must run from the **repository root**: it locates the project by searching below the
+working directory, so `npm run` inside `frontend/` finds nothing.
 
-## Build a map today (spike pipeline)
+## Generated files — do not edit
 
-```bash
-spikes/s0/build.sh Grindelwald 8 20      # place, radius km, contour interval m
+| File | Generated by | Guarded by |
+|---|---|---|
+| `frontend/src/state/bindings.ts` | `cargo test -p swisstopo2garmin` | CI fails if stale |
+| `typ/*.txt` | `python3 tools/make_typ.py` | CI fails if stale |
+| `estimator/size-model.json` | `cargo run --example fit_size_model` | `tests/estimator_reference.rs` |
 
-# content presets (SPEC.md FR-50)
-S2G_WINTER=1 spikes/s0/build.sh Grindelwald 8 20   # ski touring, snowshoe, winter hiking
-S2G_CYCLE=1  spikes/s0/build.sh Grindelwald 8 20   # cycle and mountain-bike routes
-S2G_STYLE=swisstopo-wrist spikes/s0/build.sh Grindelwald 8 20   # fenix cartography
-S2G_ARCSEC=3 spikes/s0/build.sh Grindelwald 8 20   # gentler relief shading
-```
+## Where things live
 
-The winter and cycling presets need their own data:
+- `crates/s2g-core/` — everything that reads data, projects, clips, contours, estimates
+  and builds. All the logic and all the tests.
+- `src-tauri/` — the IPC surface. A thin shell: it validates, spawns and reports.
+- `frontend/` — React. No geometry and no projection; it asks the backend.
+- `style/`, `typ/`, `cartography/` — the mkgmap style and the measured palettes.
+- `devices/` — one JSON per device, every limit carrying a confidence level and sources.
+- `vendor/` — the fetched toolchain. Gitignored.
 
-```bash
-python3 spikes/s0/fetch_winter.py   # ~38 MB, GeoPackage
-python3 spikes/s0/fetch_routes.py   # ~170 MB, shapefile
-```
+## The rules that matter
 
-Produces `out/gmapsupp-<place>.img` plus a preview PNG. Copy the `.img` to
-`/Garmin/gmapsupp.img` on the device — see [docs/device-verification.md](docs/device-verification.md).
+From [CLAUDE.md](CLAUDE.md), and they are load-bearing:
 
-The cartography TYP is **generated** from the measured swisstopo palette:
+1. **Never invent a schema.** Every swissTLM3D layer, attribute and value used in code
+   must appear in [docs/tlm3d-schema.md](docs/tlm3d-schema.md), which is generated from
+   the real file. If it is not there, it was invented — that is a defect.
+2. **Never invent a device limit.** Every number in `devices/*.json` carries a
+   `confidence` of `vendor`, `measured`, `community` or `assumed`, and sources.
+   `assumed` is fine. A fabricated citation is not.
+3. **Stream, never slurp.** Any path that could hold the national dataset in memory is a
+   defect. The GeoPackage is 10.0 GB.
+4. **Report honestly.** "Works" means a test asserts it.
 
-```bash
-python3 tools/make_typ.py && python3 spikes/s0/checkstyle.py
-```
+## Documentation
 
-`checkstyle.py` is not optional. A polygon type emitted by the style but missing from the
-TYP's `[_drawOrder]` renders as nothing on the device *and* is invisible in the `.img` —
-see [docs/m0-findings.md](docs/m0-findings.md) §4.8.
+- **[SPEC.md](SPEC.md)** — what it does and why, with the requirement IDs the code cites
+- **[PLAN.md](PLAN.md)** — milestone status, including what is not met
+- **[docs/getting-started.md](docs/getting-started.md)** — first map, for a user
+- **[docs/sample-maps.md](docs/sample-maps.md)** — the ready-made maps on each release
+- **[docs/device-verification.md](docs/device-verification.md)** — what to check on real
+  hardware, and why CI cannot
+- **[docs/cartography.md](docs/cartography.md)** — how swissTLM3D becomes Garmin types,
+  and how to contribute a change
+- **[docs/error-matrix.md](docs/error-matrix.md)** — every specified failure, its
+  behaviour, its test, and what is not covered
+- **[docs/size-model.md](docs/size-model.md)** — the size and time estimates, and their
+  limits
+- **[docs/performance.md](docs/performance.md)** — what is measured, and what is not
+- **[docs/release.md](docs/release.md)** — how a release is built, signed and documented
+- **[docs/accessibility.md](docs/accessibility.md)**,
+  **[docs/attribution-audit.md](docs/attribution-audit.md)**,
+  **[docs/m0-findings.md](docs/m0-findings.md)** — the audits and the early findings
 
-## Data cache
+## Contributing
 
-Datasets live in `~/.cache/swisstopo2garmin` (override with `S2G_CACHE`). swissTLM3D is a
-4.80 GB download that inflates to a **10.78 GB** GeoPackage; it is inflated during
-download so the archive is never stored.
+Device measurements are especially welcome: most limits in `devices/*.json` are still
+`community` or `assumed`, and [docs/device-verification.md](docs/device-verification.md)
+is the procedure for turning one into `measured`. Cartography changes should come with
+before/after renders — [docs/cartography.md](docs/cartography.md) says how.
+
+`NOTICE` lists every third-party component and its licence, including the bundled Java
+tools and runtime.

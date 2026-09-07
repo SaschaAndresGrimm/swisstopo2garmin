@@ -35,8 +35,7 @@ fn serde_tag<T: serde::Serialize>(value: &T) -> String {
 
 fn bundle(lang: &str) -> BTreeMap<String, String> {
     let path = repo_root().join(format!("frontend/src/i18n/{lang}.json"));
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
@@ -64,7 +63,11 @@ fn required_keys() -> Vec<String> {
     // t(`content.relief.${r}`) and t(`content.palette.${p}`). Both reach the frontend
     // as their serde tag, so that is what is asked of serde rather than reproduced by
     // hand -- a hand-written list would be the same kind of drift this test exists for.
-    for r in [ReliefDetail::Off, ReliefDetail::Gentle, ReliefDetail::Detailed] {
+    for r in [
+        ReliefDetail::Off,
+        ReliefDetail::Gentle,
+        ReliefDetail::Detailed,
+    ] {
         keys.push(format!("content.relief.{}", serde_tag(&r)));
     }
     for p in [Palette::Summer, Palette::Winter] {
