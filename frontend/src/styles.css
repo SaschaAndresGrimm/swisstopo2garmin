@@ -180,8 +180,20 @@ button[aria-pressed="true"], button.current {
 }
 
 /* ------------------------------------------------------------------- area picker */
-.area-controls { display: flex; gap: 2rem; flex-wrap: wrap; align-items: flex-start; }
-.area-controls .field { margin: 0.5rem 0; }
+/* One row of ways to choose an area, one panel below it. Replaced five panels shown at
+   once, which wrapped into a column 700 px tall and pushed the map off screen. */
+.method-tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0 0; }
+.method-panel {
+  border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem;
+  margin: 0.5rem 0; background: var(--panel);
+  /* A floor, so switching between a one-line panel and the canton list does not make
+     the map jump up and down the page. */
+  min-height: 4.5rem;
+}
+.method-panel > :first-child { margin-top: 0; }
+.method-panel .field { margin: 0 0 0.4rem; }
+.row.wrap { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
+.field.grow { flex: 1 1 18rem; }
 .areamap {
   margin: 1rem 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
 }
@@ -190,6 +202,10 @@ button[aria-pressed="true"], button.current {
   padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); background: var(--panel);
 }
 .areamap-canvas { height: min(60vh, 34rem); }
+/* Dragging on the map used to select the surrounding text instead, because a drag that
+   starts on the canvas and leaves it is a text selection as far as the document is
+   concerned. */
+.areamap { user-select: none; -webkit-user-select: none; }
 /* MapLibre injects its own light-on-white chrome; keep it legible in dark mode. */
 .areamap .maplibregl-ctrl-attrib { font-size: 0.72rem; }
 .matches { list-style: none; margin: 0.4rem 0 0; padding: 0; display: grid; gap: 0.3rem; }

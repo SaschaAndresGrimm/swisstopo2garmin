@@ -305,6 +305,64 @@ fn place_lookup_returns_every_match_most_significant_first() {
     assert!(g.find_places("Nowhere At All").unwrap().is_empty());
 }
 
+/// The search field was exact, case-sensitive and accent-sensitive, which meant it
+/// required the user to already know the answer and spell it the way the dataset does.
+#[test]
+fn place_lookup_is_case_insensitive_and_matches_a_prefix() {
+    let g = open();
+    let exact = g.find_places("Grindelwald").unwrap();
+    if exact.is_empty() {
+        eprintln!("skipping: the fixture has no named settlement");
+        return;
+    }
+
+    for query in [
+        "grindelwald",
+        "GRINDELWALD",
+        "GrInDeLwAlD",
+        "grindel",
+        "Grind",
+    ] {
+        let hits = g.find_places(query).unwrap();
+        assert!(
+            hits.iter().any(|p| p.name == exact[0].name),
+            "{query:?} did not find {:?}",
+            exact[0].name
+        );
+    }
+
+    // A prefix of nothing matches nothing, rather than the whole country.
+    assert!(g.find_places("   ").unwrap().is_empty());
+    // And a prefix that matches nothing still returns nothing rather than erroring.
+    assert!(g.find_places("Zzzzz").unwrap().is_empty());
+}
+
+/// Prefix matching introduces a new failure mode: a longer name outranking the exact
+/// one. `Bern` must not arrive behind `Bernau`.
+#[test]
+fn an_exact_match_outranks_a_longer_one_with_the_same_prefix() {
+    use s2g_core::gpkg::fold_name;
+    let g = open();
+    let hits = g.find_places("Grindelwald").unwrap();
+    if hits.len() < 2 {
+        eprintln!("skipping: the fixture has fewer than two matches to order");
+        return;
+    }
+    // Every exact match must precede every non-exact one.
+    let exactness: Vec<bool> = hits
+        .iter()
+        .map(|p| fold_name(&p.name) == "grindelwald")
+        .collect();
+    let first_inexact = exactness.iter().position(|e| !e);
+    if let Some(i) = first_inexact {
+        assert!(
+            !exactness[i..].iter().any(|e| *e),
+            "an exact match came after an inexact one: {:?}",
+            hits.iter().map(|p| &p.name).collect::<Vec<_>>()
+        );
+    }
+}
+
 #[test]
 fn population_rank_orders_the_swisstopo_bands() {
     use s2g_core::gpkg::Place;

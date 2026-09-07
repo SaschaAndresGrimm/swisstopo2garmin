@@ -186,6 +186,7 @@ export default function App() {
             relief={relief}
             area={area}
             onArea={setArea}
+            onClearArea={() => setArea(null)}
             onNext={() => go("content")}
             onBack={() => go("device")}
           />

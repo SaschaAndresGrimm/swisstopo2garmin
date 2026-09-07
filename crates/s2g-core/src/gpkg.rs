@@ -562,14 +562,65 @@ impl Place {
     }
 }
 
+/// How a place search ranks one match.
+///
+/// The population band, plus one for an exact name match. A named function rather than
+/// a closure so the rule can be tested against the cases that chose it.
+pub fn match_score(exact: bool, place: &Place) -> i32 {
+    place.population_rank() + i32::from(exact)
+}
+
+/// The most matches a place search returns.
+///
+/// Prefix matching makes an unbounded list real -- one letter matches thousands -- and
+/// no chooser is usable at that length.
+pub const MAX_PLACE_MATCHES: usize = 50;
+
+/// Fold a name to a form that matches how people type.
+///
+/// Lower-case, and the Latin-1 letters of the four national languages reduced to ASCII,
+/// so a German keyboard finds `Genève` by typing `geneve` and `Zürich` by typing
+/// `zurich`. Without this the search field demanded the exact string including accents,
+/// which on a Swiss dataset means it failed for Genève, Zürich, Neuchâtel, Delémont,
+/// Grächen, Küssnacht and several hundred others.
+///
+/// Deliberately a small explicit table rather than a Unicode normalisation crate: the
+/// set of letters that occur in swissNAMES3D is closed and short, and `ß` -> `ss` is a
+/// German-specific expansion that NFD stripping would get wrong.
+pub fn fold_name(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.trim().chars().flat_map(|c| c.to_lowercase()) {
+        match c {
+            'à' | 'á' | 'â' | 'ä' | 'å' | 'ã' => out.push('a'),
+            'è' | 'é' | 'ê' | 'ë' => out.push('e'),
+            'ì' | 'í' | 'î' | 'ï' => out.push('i'),
+            'ò' | 'ó' | 'ô' | 'ö' | 'õ' => out.push('o'),
+            'ù' | 'ú' | 'û' | 'ü' => out.push('u'),
+            'ç' => out.push('c'),
+            'ñ' => out.push('n'),
+            'ß' => out.push_str("ss"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 impl Gpkg {
-    /// Every settlement with this exact name, most significant first.
+    /// Settlements whose name matches, most significant first.
+    ///
+    /// Matching is case-insensitive, accent-insensitive and by **prefix**, so typing
+    /// `grindel` finds Grindelwald. It was exact, case-sensitive and accent-sensitive,
+    /// which is not a search: it required the user to already know the answer, spelled
+    /// the way the dataset spells it.
     ///
     /// **Place names are not unique** and this must never be collapsed to a single
     /// answer silently. `Grindelwald` matches both the 2,000-9,999 inhabitant village
     /// and a <20 inhabitant hamlet 45 km north; an unordered `LIMIT 1` picked the
     /// hamlet, and every map built before that was found covered the wrong valley
-    /// (docs/m0-findings.md §4.9). The GUI must present the choice (FR-33).
+    /// (docs/m0-findings.md §4.9). The GUI must present the choice (FR-33). Prefix
+    /// matching only widens the candidate list, so that property is unaffected — but it
+    /// makes ordering matter more, and an exact match now sorts above a longer one so
+    /// `Bern` does not arrive behind `Bernau`.
     pub fn find_places(&self, name: &str) -> Result<Vec<Place>> {
         const LAYER: &str = "tlm_namen_siedlungsname_zentrum";
         let has_layer = self.layers()?.iter().any(|l| l.name == LAYER);
@@ -577,32 +628,56 @@ impl Gpkg {
             return Ok(Vec::new());
         }
 
-        // A name may be one variant inside a pipe-separated field, so the SQL narrows
-        // with LIKE and the exact variant match is done in Rust.
+        let want = fold_name(name);
+        if want.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // The SQL cannot do the matching, and a longer LIKE prefix is actively wrong:
+        // SQLite folds ASCII case but not accents, so `name LIKE 'geneve%'` misses
+        // "Genève" -- which is exactly the case this fix exists for. A first draft
+        // narrowed on the whole folded prefix and silently found nothing for Genève,
+        // Zürich and Neuchâtel.
+        //
+        // So SQL narrows on the **first character only**, where ASCII case folding is
+        // all that is needed, and Rust decides the rest. That cuts a 54,885-row layer
+        // by roughly twenty. A query beginning with an accented letter -- Émosson, and
+        // few others -- scans the layer instead, which is still only a name and a
+        // category per row because the geometry blob is not touched until a row matches.
+        let first = want.chars().next().filter(char::is_ascii_alphanumeric);
+        let narrow = first.map(|c| format!("{c}%")).unwrap_or_default();
         let mut st = self
             .conn
             .prepare(&format!(
                 "SELECT name, einwohnerkategorie, geom FROM \"{LAYER}\" \
-                 WHERE name = ?1 OR name LIKE ?2 OR name LIKE ?3 OR name LIKE ?4"
+                 WHERE ?1 = '' OR name LIKE ?1 OR name LIKE ?2"
             ))
             .map_err(|e| sql_err(&self.path, e))?;
         let mut rows = st
             .query(rusqlite::params![
-                name,
-                format!("{name} |%"),
-                format!("%| {name}"),
-                format!("%| {name} |%"),
+                narrow,
+                // A variant after a pipe separator, e.g. "Sion | Sitten".
+                if narrow.is_empty() {
+                    String::new()
+                } else {
+                    format!("%| {narrow}")
+                },
             ])
             .map_err(|e| sql_err(&self.path, e))?;
 
         let mut out = Vec::new();
-        let want = name.trim();
         while let Some(row) = rows.next().map_err(|e| sql_err(&self.path, e))? {
             let raw: String = row.get(0).map_err(|e| sql_err(&self.path, e))?;
             let variants = split_names(&raw);
-            if !variants.contains(&want) {
-                continue; // LIKE can over-match, e.g. "Bernau" for "Bern"
-            }
+            // Any language variant may be what was typed.
+            let matched = variants
+                .iter()
+                .map(|v| fold_name(v))
+                .find(|v| v.starts_with(&want));
+            let Some(matched) = matched else {
+                continue; // LIKE over-matches; the fold decides.
+            };
+            let exact = matched == want;
             let name = primary_name(&raw).to_string();
             let alternatives: Vec<String> = variants
                 .iter()
@@ -618,15 +693,159 @@ impl Gpkg {
             let Some(c) = geom.coords().next() else {
                 continue;
             };
-            out.push(Place {
-                name,
-                alternatives,
-                population_category: pop.filter(|p| !NO_DATA.contains(&p.as_str())),
-                easting: c.e,
-                northing: c.n,
-            });
+            out.push((
+                exact,
+                matched.chars().count(),
+                Place {
+                    name,
+                    alternatives,
+                    population_category: pop.filter(|p| !NO_DATA.contains(&p.as_str())),
+                    easting: c.e,
+                    northing: c.n,
+                },
+            ));
         }
-        out.sort_by_key(|p| std::cmp::Reverse(p.population_rank()));
-        Ok(out)
+        // Ranked by significance, with an exact match worth exactly one population
+        // band, then the shorter name as a tie-break.
+        //
+        // Both extremes were tried on the real dataset and both are wrong. Sorting
+        // exact-first put four hamlets called Grindel (100-999 inhabitants each) above
+        // Grindelwald for the query "grindel" -- nobody typing that wants those.
+        // Sorting by population alone ignores the query, so a large near-miss could
+        // outrank the place actually named. One band is the smallest weight that keeps
+        // Grindelwald first while still letting an exact match win a tie, which is the
+        // behaviour a place chooser needs.
+        out.sort_by(|a, b| {
+            match_score(b.0, &b.2)
+                .cmp(&match_score(a.0, &a.2))
+                .then_with(|| b.0.cmp(&a.0))
+                .then_with(|| a.1.cmp(&b.1))
+        });
+        // Capped, because prefix matching makes an unbounded result real: a single
+        // letter matches thousands of rows and no list is usable at that length. The cap
+        // is applied *after* sorting, so what survives is the most significant matches --
+        // and the property that matters (never silently collapsing an ambiguous name to
+        // one answer, docs/m0-findings.md §4.9) is untouched by a limit of fifty.
+        out.truncate(MAX_PLACE_MATCHES);
+        Ok(out.into_iter().map(|(_, _, p)| p).collect())
+    }
+}
+
+#[cfg(test)]
+mod fold_tests {
+    use super::fold_name;
+
+    /// The search field was case- and accent-sensitive, which on a Swiss dataset means
+    /// it failed for several hundred places whose names a user cannot type from a
+    /// German keyboard without effort.
+    #[test]
+    fn folding_matches_how_people_type_swiss_names() {
+        assert_eq!(fold_name("Grindelwald"), "grindelwald");
+        assert_eq!(fold_name("GRINDELWALD"), "grindelwald");
+        assert_eq!(fold_name("  Grindelwald  "), "grindelwald");
+        // The four national languages' accents, all reduced to what is on a keyboard.
+        assert_eq!(fold_name("Genève"), "geneve");
+        assert_eq!(fold_name("Zürich"), "zurich");
+        assert_eq!(fold_name("Neuchâtel"), "neuchatel");
+        assert_eq!(fold_name("Delémont"), "delemont");
+        assert_eq!(fold_name("Grächen"), "grachen");
+        assert_eq!(fold_name("La Chaux-de-Fonds"), "la chaux-de-fonds");
+        assert_eq!(fold_name("Müstair"), "mustair");
+        assert_eq!(fold_name("Sciaffusa"), "sciaffusa");
+    }
+
+    /// `ß` expands rather than stripping to `s`, which is why this is an explicit table
+    /// and not Unicode decomposition.
+    #[test]
+    fn the_sharp_s_expands_to_two_letters() {
+        assert_eq!(fold_name("Straße"), "strasse");
+    }
+
+    #[test]
+    fn folding_is_idempotent_and_leaves_ascii_alone() {
+        for name in ["bern", "la-chaux", "st. gallen", "1000 lausanne"] {
+            assert_eq!(fold_name(name), name);
+            assert_eq!(fold_name(&fold_name(name)), fold_name(name));
+        }
+    }
+
+    #[test]
+    fn an_empty_query_folds_to_nothing() {
+        assert_eq!(fold_name("   "), "");
+        assert_eq!(fold_name(""), "");
+    }
+}
+
+#[cfg(test)]
+mod ranking_tests {
+    use super::{match_score, Place};
+
+    fn place(cat: &str) -> Place {
+        Place {
+            name: "x".into(),
+            alternatives: Vec::new(),
+            population_category: Some(cat.to_string()),
+            easting: 0.0,
+            northing: 0.0,
+        }
+    }
+
+    /// The case that chose the weight, from the real dataset. Typing "grindel" must
+    /// offer Grindelwald before the four hamlets literally named Grindel.
+    #[test]
+    fn a_bigger_prefix_match_outranks_a_small_exact_one() {
+        let grindelwald = match_score(false, &place("2'000 bis 9'999"));
+        let grindel = match_score(true, &place("100 bis 999"));
+        assert!(
+            grindelwald > grindel,
+            "Grindelwald scored {grindelwald} against Grindel's {grindel}"
+        );
+    }
+
+    /// And the opposite case: between two places of the same size, the one actually
+    /// named wins. One band is the smallest weight that does both.
+    #[test]
+    fn an_exact_match_wins_a_tie_between_equals() {
+        assert!(
+            match_score(true, &place("100 bis 999")) > match_score(false, &place("100 bis 999"))
+        );
+    }
+
+    /// The weight must stay small enough not to leapfrog a whole band, or it becomes
+    /// exact-first sorting again -- which is the behaviour this replaced.
+    #[test]
+    fn the_exact_bonus_is_worth_exactly_one_band() {
+        let bands = [
+            "< 20",
+            "20 bis 49",
+            "50 bis 99",
+            "100 bis 999",
+            "1'000 bis 1'999",
+            "2'000 bis 9'999",
+            "10'000 bis 49'999",
+            "50'000 bis 100'000",
+            "> 100'000",
+        ];
+        for pair in bands.windows(2) {
+            let smaller_exact = match_score(true, &place(pair[0]));
+            let bigger_inexact = match_score(false, &place(pair[1]));
+            assert_eq!(
+                smaller_exact, bigger_inexact,
+                "an exact {} should tie a non-exact {}",
+                pair[0], pair[1]
+            );
+        }
+        // And two bands apart, the bigger place wins outright.
+        assert!(match_score(false, &place("> 100'000")) > match_score(true, &place("100 bis 999")));
+    }
+
+    /// A place with no population band must not outrank one that has one.
+    #[test]
+    fn a_place_with_no_population_band_ranks_last() {
+        let unknown = Place {
+            population_category: None,
+            ..place("< 20")
+        };
+        assert!(match_score(true, &unknown) <= match_score(false, &place("< 20")));
     }
 }

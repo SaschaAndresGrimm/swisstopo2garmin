@@ -9,6 +9,28 @@ import { TrackImport } from "../components/TrackImport";
 import { AdminUnitPicker } from "../components/AdminUnitPicker";
 import type { T } from "../i18n";
 
+/** How the area is being chosen. Exactly one at a time. */
+type Method = "draw" | "place" | "admin" | "route" | "whole";
+
+const METHODS: Method[] = ["draw", "place", "admin", "route", "whole"];
+
+/**
+ * Which chooser produced this selection, so reopening the step -- or loading a saved
+ * recipe -- shows the panel that made it rather than resetting to the map.
+ */
+function methodOf(area: AreaSelection | null): Method {
+  switch (area?.kind) {
+    case "place":
+      return "place";
+    case "adminUnits":
+      return "admin";
+    case "corridor":
+      return "route";
+    default:
+      return "draw";
+  }
+}
+
 /**
  * Area selection (SPEC.md FR-30..FR-42).
  *
@@ -24,6 +46,7 @@ export function AreaStep({
   relief,
   area,
   onArea,
+  onClearArea,
   onNext,
   onBack,
 }: {
@@ -35,6 +58,8 @@ export function AreaStep({
   relief: string;
   area: AreaSelection | null;
   onArea: (a: AreaSelection) => void;
+  /** Discard the selection entirely, so the map can be cleared and started over. */
+  onClearArea: () => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -46,6 +71,11 @@ export function AreaStep({
   const [error, setError] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
   const [outline, setOutline] = useState<AreaOutline | null>(null);
+  // Which way of choosing an area is on show. One at a time, because all five at once
+  // was 700 px of stacked controls that pushed the map -- the thing being chosen -- off
+  // the bottom of the screen, and put the radius slider four columns away from the place
+  // search it belongs to.
+  const [method, setMethod] = useState<Method>(() => methodOf(area));
 
   const { info, error: infoError } = useAreaInfo(area, deviceId, preset, contourM, relief);
 
@@ -195,29 +225,96 @@ export function AreaStep({
     <section className="screen wide">
       <h2>{t("step.area")}</h2>
 
-      <div className="area-controls">
-        <div className="field">
-          <label htmlFor="place">{t("area.search")}</label>
-          <div className="row tight">
-            <input
-              id="place"
-              value={query}
-              placeholder={t("area.searchPlaceholder")}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void search()}
-            />
-            <button type="button" onClick={() => void search()} disabled={searching}>
-              {searching ? t("common.loading") : t("area.go")}
-            </button>
-          </div>
-        </div>
-        <AdminUnitPicker t={t} area={area} onArea={onArea} />
+      {/* One row of methods, one panel. The map stays visible below whichever is
+          chosen, because it is the thing being chosen. */}
+      <div className="method-tabs" role="tablist" aria-label={t("area.methodLabel")}>
+        {METHODS.map((x) => (
+          <button
+            key={x}
+            type="button"
+            role="tab"
+            aria-selected={method === x}
+            className={method === x ? "primary" : ""}
+            onClick={() => setMethod(x)}
+          >
+            {t(`area.method.${x}`)}
+          </button>
+        ))}
+      </div>
 
-        <TrackImport t={t} area={area} onArea={onArea} />
+      <div className="method-panel">
+        {method === "draw" && <p className="muted small">{t("area.method.drawHelp")}</p>}
 
-        <div className="field">
-          <label htmlFor="whole">{t("area.whole")}</label>
-          <div className="row tight" id="whole">
+        {method === "place" && (
+          <>
+            <div className="row wrap">
+              <div className="field grow">
+                <label htmlFor="place">{t("area.search")}</label>
+                <div className="row tight">
+                  <input
+                    id="place"
+                    value={query}
+                    placeholder={t("area.searchPlaceholder")}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void search()}
+                  />
+                  <button type="button" onClick={() => void search()} disabled={searching}>
+                    {searching ? t("common.loading") : t("area.go")}
+                  </button>
+                </div>
+              </div>
+              {/* Beside the search, not four columns away: the radius only means
+                  anything for a place. */}
+              <div className="field">
+                <label htmlFor="radius">{t("area.radius", { km: radiusKm })}</label>
+                <input
+                  id="radius"
+                  type="range"
+                  min={2}
+                  max={60}
+                  step={1}
+                  value={radiusKm}
+                  onChange={(e) => {
+                    const km = Number(e.target.value);
+                    setRadiusKm(km);
+                    if (area?.kind === "place") onArea({ ...area, radiusKm: km });
+                  }}
+                />
+              </div>
+            </div>
+            <p className="muted small">{t("area.searchHelp")}</p>
+
+            {matches && matches.length > 1 && (
+              <div className="notice">
+                <strong>{t("area.ambiguous", { n: matches.length, name: query })}</strong>
+                <ul className="matches">
+                  {matches.map((m, i) => (
+                    <li key={`${m.easting}-${i}`}>
+                      <button type="button" onClick={() => choose(m)}>
+                        {m.name}
+                        {m.populationCategory ? ` — ${m.populationCategory}` : ""}
+                        <span className="mono muted small">
+                          {" "}
+                          {m.lat.toFixed(4)}N {m.lon.toFixed(4)}E
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {matches && matches.length === 0 && (
+              <p className="muted">{t("area.noMatch", { name: query })}</p>
+            )}
+          </>
+        )}
+
+        {method === "admin" && <AdminUnitPicker t={t} area={area} onArea={onArea} />}
+
+        {method === "route" && <TrackImport t={t} area={area} onArea={onArea} />}
+
+        {method === "whole" && (
+          <div className="row wrap">
             <button
               type="button"
               onClick={() => {
@@ -233,54 +330,22 @@ export function AreaStep({
             >
               {t("area.wholeAction")}
             </button>
+            <p className="muted small">{t("area.wholeHelp")}</p>
           </div>
-        </div>
-        <div className="field">
-          <label htmlFor="radius">{t("area.radius", { km: radiusKm })}</label>
-          <input
-            id="radius"
-            type="range"
-            min={2}
-            max={60}
-            step={1}
-            value={radiusKm}
-            onChange={(e) => {
-              const km = Number(e.target.value);
-              setRadiusKm(km);
-              if (area?.kind === "place") onArea({ ...area, radiusKm: km });
-            }}
-          />
-        </div>
+        )}
       </div>
-
-      {matches && matches.length > 1 && (
-        <div className="notice">
-          <strong>{t("area.ambiguous", { n: matches.length, name: query })}</strong>
-          <ul className="matches">
-            {matches.map((m, i) => (
-              <li key={`${m.easting}-${i}`}>
-                <button type="button" onClick={() => choose(m)}>
-                  {m.name}
-                  {m.populationCategory ? ` — ${m.populationCategory}` : ""}
-                  <span className="mono muted small">
-                    {" "}
-                    {m.lat.toFixed(4)}N {m.lon.toFixed(4)}E
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {matches && matches.length === 0 && (
-        <p className="muted">{t("area.noMatch", { name: query })}</p>
-      )}
 
       <AreaMap
         t={t}
         track={trackLine}
         outline={outline}
         onEdit={(e) => void applyEdit(e)}
+        onClear={() => {
+          setBox(null);
+          setOutline(null);
+          setError(null);
+          onClearArea();
+        }}
         onPolygon={(points) => {
           void (async () => {
             try {

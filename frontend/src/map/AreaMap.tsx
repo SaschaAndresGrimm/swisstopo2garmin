@@ -40,6 +40,36 @@ const HANDLE_LAYER = "s2g-handle-points";
 const GRAB_RADIUS = 10;
 
 /**
+ * Run `work` at most once per animation frame.
+ *
+ * Pointer events arrive faster than the map can paint -- a fast drag fires well over a
+ * hundred `mousemove`s a second -- and each `setData` re-tiles the GeoJSON source. Doing
+ * that per event queues work faster than it is consumed, which is what made drawing and
+ * dragging feel laggy. Coalescing means at most one redraw per painted frame, and the
+ * frame that lands is always built from the newest pointer position.
+ */
+function frameThrottle<A extends unknown[]>(work: (...args: A) => void) {
+  let pending: A | null = null;
+  let frame = 0;
+  const run = () => {
+    frame = 0;
+    const args = pending;
+    pending = null;
+    if (args) work(...args);
+  };
+  const throttled = (...args: A) => {
+    pending = args;
+    if (!frame) frame = requestAnimationFrame(run);
+  };
+  throttled.cancel = () => {
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+    pending = null;
+  };
+  return throttled;
+}
+
+/**
  * swisstopo basemap with a drag-to-draw rectangle (FR-30, FR-31).
  *
  * Drawing is implemented directly rather than via a draw plugin: one rectangle is all
@@ -57,6 +87,7 @@ export function AreaMap({
   track,
   outline,
   onEdit,
+  onClear,
 }: {
   t: T;
   box: DrawnBox | null;
@@ -74,6 +105,8 @@ export function AreaMap({
   outline?: AreaOutline | null;
   /** A handle was dragged and released. */
   onEdit?: (edit: PendingEdit) => void;
+  /** Discard the selection. Offered only when there is one to discard. */
+  onClear?: () => void;
 }) {
   const container = useRef<HTMLDivElement | null>(null);
   const map = useRef<MlMap | null>(null);
@@ -350,7 +383,9 @@ export function AreaMap({
       return points;
     };
 
-    const move = (e: maplibregl.MapMouseEvent) => {
+    // One redraw per frame, not one per pointer event: a fast drag fires over a
+    // hundred mousemoves a second and each setData re-tiles the source.
+    const move = frameThrottle((e: maplibregl.MapMouseEvent) => {
       const s = dragStart.current;
       if (!s) return;
       const src = m.getSource(RECT_SOURCE) as maplibregl.GeoJSONSource | undefined;
@@ -366,7 +401,7 @@ export function AreaMap({
           north: Math.max(s.lat, e.lngLat.lat),
         }) as never,
       );
-    };
+    });
     const up = (e: maplibregl.MapMouseEvent) => {
       const s = dragStart.current;
       dragStart.current = null;
@@ -405,6 +440,7 @@ export function AreaMap({
       m.off("click", click);
       m.off("dblclick", finish);
       m.doubleClickZoom.enable();
+      move.cancel();
       vertices.current = [];
     };
   }, [drawing, tool, rectGeoJson]);
@@ -428,40 +464,52 @@ export function AreaMap({
       return Math.sqrt(x * x + dLat * dLat) * R;
     };
 
-    /** The handle under the pointer, if any. */
-    const handleAt = (e: maplibregl.MapMouseEvent): AreaHandle | null => {
+    /**
+     * What the pointer is over: a handle, the body of the shape, or nothing.
+     *
+     * One `queryRenderedFeatures` covering both layers. It used to be two calls per
+     * mousemove, and that query is synchronous on the main thread -- the cheapest way
+     * to make a hover test cost twice what it needs to.
+     */
+    const probe = (e: maplibregl.MapMouseEvent): { handle: AreaHandle | null; inside: boolean } => {
       const current = outlineRef.current;
-      if (!current?.editable || !m.getLayer(HANDLE_LAYER)) return null;
+      const none = { handle: null, inside: false };
+      if (!current?.editable) return none;
+      const layers = [HANDLE_LAYER, "s2g-rect-fill"].filter((l) => m.getLayer(l));
+      if (layers.length === 0) return none;
+
       const box: [maplibregl.PointLike, maplibregl.PointLike] = [
         [e.point.x - GRAB_RADIUS, e.point.y - GRAB_RADIUS],
         [e.point.x + GRAB_RADIUS, e.point.y + GRAB_RADIUS],
       ];
-      const hit = m.queryRenderedFeatures(box, { layers: [HANDLE_LAYER] })[0];
-      const at = hit?.properties?.at;
-      return typeof at === "number" ? (current.handles[at] ?? null) : null;
+      const hits = m.queryRenderedFeatures(box, { layers });
+      const handleHit = hits.find((h) => h.layer.id === HANDLE_LAYER);
+      const at = handleHit?.properties?.at;
+      return {
+        handle: typeof at === "number" ? (current.handles[at] ?? null) : null,
+        // The fill is queried with the same slop box as the handles. That is slightly
+        // generous at the outline, and generous is the right direction: it makes the
+        // shape easier to grab, not harder.
+        inside: hits.some((h) => h.layer.id === "s2g-rect-fill"),
+      };
     };
 
-    /** Whether the pointer is inside the shape, which is what makes it draggable. */
-    const insideShape = (e: maplibregl.MapMouseEvent) =>
-      !!outlineRef.current?.editable &&
-      !!m.getLayer("s2g-rect-fill") &&
-      m.queryRenderedFeatures(e.point, { layers: ["s2g-rect-fill"] }).length > 0;
-
-    const hover = (e: maplibregl.MapMouseEvent) => {
+    const hover = frameThrottle((e: maplibregl.MapMouseEvent) => {
       if (grabbed.current) return;
-      const over = !!handleAt(e) || insideShape(e);
+      const { handle, inside } = probe(e);
+      const over = !!handle || inside;
       setHovering(over);
-      m.getCanvas().style.cursor = over ? "move" : "";
-    };
+      m.getCanvas().style.cursor = over ? (handle ? "grab" : "move") : "";
+    });
 
     const down = (e: maplibregl.MapMouseEvent) => {
-      const handle = handleAt(e);
+      const { handle, inside } = probe(e);
       // Clicking the body of the shape moves the whole thing: the "area pannable" half
       // of being able to edit a selection. A synthetic centre handle carries it, so the
       // drop path below has one shape to deal with.
       const grabbedHandle =
         handle ??
-        (insideShape(e)
+        (inside
           ? { lon: e.lngLat.lng, lat: e.lngLat.lat, role: "centre" as const, index: 0 }
           : null);
       if (!grabbedHandle) return;
@@ -471,7 +519,7 @@ export function AreaMap({
       e.preventDefault();
     };
 
-    const move = (e: maplibregl.MapMouseEvent) => {
+    const move = frameThrottle((e: maplibregl.MapMouseEvent) => {
       const g = grabbed.current;
       if (!g) {
         hover(e);
@@ -522,7 +570,7 @@ export function AreaMap({
           };
         }),
       } as never);
-    };
+    });
 
     const up = (e: maplibregl.MapMouseEvent) => {
       const g = grabbed.current;
@@ -556,10 +604,42 @@ export function AreaMap({
       m.off("mousedown", down);
       m.off("mousemove", move);
       m.off("mouseup", up);
+      move.cancel();
+      hover.cancel();
       m.getCanvas().style.cursor = "";
       grabbed.current = null;
       m.dragPan.enable();
     };
+  }, [drawing]);
+
+  // Escape gets out of whatever is half-done: a polygon with two vertices placed, or a
+  // tool armed by accident. Without it the only way out of a partly-drawn polygon was to
+  // finish it, and a stray click armed a tool that then swallowed the next drag.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (!drawing && vertices.current.length === 0) return;
+      vertices.current = [];
+      setDrawing(false);
+      // Put the outline back: an abandoned polygon has been drawing into the shape
+      // source, so leaving it there would show a shape nothing has selected.
+      const m = map.current;
+      const src = m?.getSource(RECT_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      if (outlineRef.current && outlineRef.current.rings.length > 0) {
+        src?.setData({
+          type: "FeatureCollection",
+          features: outlineRef.current.rings.map((ring) => ({
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Polygon", coordinates: [ring] },
+          })),
+        } as never);
+      } else {
+        src?.setData({ type: "FeatureCollection", features: [] } as never);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [drawing]);
 
   /** Centre and frame a box the user chose elsewhere (a place search result).
@@ -609,6 +689,18 @@ export function AreaMap({
             {t(`map.tool.${x}`)}
           </button>
         ))}
+        {onClear && (outline || drawing) && (
+          <button
+            type="button"
+            onClick={() => {
+              vertices.current = [];
+              setDrawing(false);
+              onClear();
+            }}
+          >
+            {t("map.clear")}
+          </button>
+        )}
         {drawing && (
           <span className="muted small">
             {tool === "polygon" ? t("map.polygonHint") : t("map.drawing")}

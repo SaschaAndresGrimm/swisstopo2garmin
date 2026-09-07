@@ -18,9 +18,27 @@ fn main() {
         return;
     };
     let g = s2g_core::gpkg::Gpkg::open(&gpkg).unwrap();
-    for name in ["Grindelwald", "Zermatt", "Bern"] {
+    // Queries from the command line, else a set that exercises case, accents and
+    // prefixes -- the three things the search used to refuse.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let default = [
+        "Grindelwald",
+        "grindelwald",
+        "grindel",
+        "zurich",
+        "geneve",
+        "neuchatel",
+        "bern",
+    ]
+    .map(str::to_string);
+    let queries: Vec<String> = if args.is_empty() {
+        default.to_vec()
+    } else {
+        args
+    };
+    for name in &queries {
         println!("{name}:");
-        for p in g.find_places(name).unwrap() {
+        for p in g.find_places(name).unwrap().iter().take(4) {
             let (lon, lat) = s2g_core::proj::lv95_to_wgs84(p.easting, p.northing);
             println!(
                 "   {:<20} E={:.0} N={:.0}  ({:.4}N {:.4}E)",
