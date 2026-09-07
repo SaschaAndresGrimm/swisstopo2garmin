@@ -59,6 +59,24 @@ def unpack_tgz(data: bytes, dest: Path) -> None:
         t.extractall(dest)
 
 
+def unpack_archive(data: bytes, dest: Path) -> None:
+    """Unpack whichever archive Adoptium served.
+
+    It ships the Windows JRE as a **zip** and every other platform as a tar.gz, so
+    unpacking unconditionally as a tarball meant this script had never once succeeded on
+    Windows -- and therefore that the Windows installer NFR-7 promises had never been
+    built. CI on `windows-latest` is what finally said so.
+
+    Sniffed from the bytes rather than from `platform.system()`: the file's own magic is
+    the thing that decides how to read it, and it stays right if Adoptium ever changes
+    which platform gets which.
+    """
+    if data[:2] == b"PK":
+        unpack_zip(data, dest)
+    else:
+        unpack_tgz(data, dest)
+
+
 def ensure_jars() -> tuple[Path, Path]:
     for name, url, ver in (("mkgmap", MKGMAP_URL, MKGMAP), ("splitter", SPLITTER_URL, SPLITTER)):
         target = VENDOR / f"{name}-{ver}"
@@ -92,7 +110,7 @@ def ensure_java() -> Path:
     tmp = VENDOR / f".{JAVA_IMAGE}.tmp"
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
-    unpack_tgz(data, tmp)
+    unpack_archive(data, tmp)
     inner = next(p for p in tmp.iterdir() if p.is_dir())
     shutil.rmtree(marker, ignore_errors=True)
     inner.rename(marker)
@@ -132,12 +150,23 @@ def make_writable(root: Path) -> None:
 
 
 def find_java(root: Path) -> Path | None:
-    for cand in (root / "bin" / "java",
-                 root / "Contents" / "Home" / "bin" / "java"):
-        if cand.exists():
-            return cand
-    hits = list(root.rglob("bin/java"))
-    return hits[0] if hits else None
+    """The java launcher inside an unpacked JRE, whatever shape it came in.
+
+    Three layouts: `bin/java` on Linux, `Contents/Home/bin/java` in a macOS bundle, and
+    `bin/java.exe` on Windows. The Windows name was missing, which is the second reason
+    this script had never worked there -- and it would have failed *after* a 130 MB
+    download, reported as "no java binary found".
+    """
+    names = ("java", "java.exe")
+    for parent in (root / "bin", root / "Contents" / "Home" / "bin"):
+        for name in names:
+            if (parent / name).exists():
+                return parent / name
+    for name in names:
+        hits = list(root.rglob(f"bin/{name}"))
+        if hits:
+            return hits[0]
+    return None
 
 
 def main() -> None:
