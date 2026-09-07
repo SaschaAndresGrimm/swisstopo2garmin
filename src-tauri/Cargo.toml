@@ -27,3 +27,8 @@ serde_json.workspace = true
 # cannot drift (PLAN.md M1 task 6); a test writes them and CI checks them in.
 ts-rs = "10"
 tauri-plugin-dialog = "2.7.3"
+
+[dev-dependencies]
+# Test-only, and already in the tree as a dev-dependency of s2g-core: the resource-root
+# tests build fake bundle layouts on disk, which is the only way to test a path search.
+tempfile = "3"

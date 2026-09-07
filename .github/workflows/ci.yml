@@ -112,6 +112,40 @@ jobs:
       - name: Language bundles agree and every key used exists
         run: python3 tools/check_i18n.py
 
+  supply-chain:
+    name: SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # node_modules is where npm licences are actually readable: the lock file records
+      # one for only some packages.
+      - run: npm ci
+        working-directory: frontend
+
+      # The vendored Java tools are the largest components in the bundle and the only
+      # GPL-2 ones, and both package managers are blind to them, so an SBOM that omits
+      # them omits the part a redistributor most needs (NFR-10).
+      - name: Fetch the vendored toolchain
+        run: python3 vendor/fetch_tools.py
+
+      - name: SBOM resolves every shipped component
+        run: python3 tools/sbom.py --check
+
+      - name: Generate the SBOM
+        run: python3 tools/sbom.py > sbom.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
       - name: TYP is in sync with palette.json
         run: |
           if ! git diff --quiet -- typ/swisstopo.txt; then

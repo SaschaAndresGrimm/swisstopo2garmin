@@ -101,7 +101,34 @@ def ensure_java() -> Path:
     if not java:
         raise SystemExit(f"no java binary found under {marker}")
     java.chmod(java.stat().st_mode | stat.S_IEXEC)
+    make_writable(marker)
     return java
+
+
+def make_writable(root: Path) -> None:
+    """Give the owner write permission on everything under `root`.
+
+    Temurin ships 430 read-only files -- the CDS archives under `lib/server`, and every
+    licence text. Tauri's bundler copies declared resources into `target/` preserving
+    their mode, so the second build after the JRE is declared a resource fails with
+    "Permission denied" trying to overwrite a file it wrote itself and then could not
+    touch. Fixing it at the source is a line here; working around it would mean not
+    shipping the JRE with the app.
+    """
+    fixed = 0
+    for path in root.rglob("*"):
+        try:
+            mode = path.stat().st_mode
+        except OSError:
+            continue
+        if not mode & stat.S_IWUSR:
+            try:
+                path.chmod(mode | stat.S_IWUSR)
+                fixed += 1
+            except OSError:
+                pass
+    if fixed:
+        print(f"  made {fixed} read-only file(s) writable (see make_writable)")
 
 
 def find_java(root: Path) -> Path | None:

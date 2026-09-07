@@ -46,8 +46,59 @@ impl Toolchain {
     }
 
     /// Look for the vendored toolchain relative to a repository or install root.
+    ///
+    /// The relative layout is tried **first**, and `vendor/toolchain.env` only as a
+    /// fallback. That file is written by `fetch_tools.py` with absolute paths into the
+    /// developer's checkout, so a packaged app that trusted it looked for the compiler
+    /// inside a directory that exists on exactly one machine — and reported the
+    /// toolchain missing everywhere else, with a suggestion to run a script that is not
+    /// shipped.
     pub fn discover(root: &Path) -> Result<Self> {
+        if let Some(tc) = Self::from_layout(root) {
+            return Ok(tc);
+        }
         Self::from_env_file(&root.join("vendor").join("toolchain.env"))
+    }
+
+    /// The vendored tools as they sit under `<root>/vendor`, by shape rather than by
+    /// recorded path. Version directories (`mkgmap-r4924`) are matched by prefix so a
+    /// tool update needs no code change.
+    fn from_layout(root: &Path) -> Option<Self> {
+        let vendor = root.join("vendor");
+        let jar = |prefix: &str, name: &str| -> Option<PathBuf> {
+            let direct = vendor.join(name);
+            if direct.is_file() {
+                return Some(direct);
+            }
+            std::fs::read_dir(&vendor).ok()?.flatten().find_map(|e| {
+                let p = e.path();
+                let matches = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().starts_with(prefix))
+                    .unwrap_or(false);
+                (matches && p.join(name).is_file()).then(|| p.join(name))
+            })
+        };
+        // The JRE is bundled for users; a JDK is what a development checkout has, and
+        // either runs the tools.
+        let java = ["jre", "jdk"].iter().find_map(|image| {
+            let base = vendor.join(image);
+            [
+                base.join("bin").join("java"),
+                base.join("Contents").join("Home").join("bin").join("java"),
+                base.join("bin").join("java.exe"),
+            ]
+            .into_iter()
+            .find(|p| p.is_file())
+        })?;
+
+        let tc = Self {
+            java,
+            splitter_jar: jar("splitter", "splitter.jar")?,
+            mkgmap_jar: jar("mkgmap", "mkgmap.jar")?,
+        };
+        tc.check().ok()?;
+        Some(tc)
     }
 
     fn check(&self) -> Result<()> {
@@ -616,6 +667,72 @@ mod tests {
         let mut c = Command::new("sh");
         c.arg("-c").arg(script);
         c
+    }
+
+    /// A packaged app has no `toolchain.env` worth trusting: `fetch_tools.py` writes it
+    /// with absolute paths into the developer's checkout. Discovery must work from the
+    /// layout alone (NFR-7).
+    #[test]
+    fn the_toolchain_is_found_from_the_layout_without_the_env_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let vendor = root.join("vendor");
+        std::fs::create_dir_all(vendor.join("mkgmap-r4924")).unwrap();
+        std::fs::create_dir_all(vendor.join("splitter-r654")).unwrap();
+        std::fs::create_dir_all(vendor.join("jre").join("bin")).unwrap();
+        std::fs::write(vendor.join("mkgmap-r4924").join("mkgmap.jar"), b"jar").unwrap();
+        std::fs::write(vendor.join("splitter-r654").join("splitter.jar"), b"jar").unwrap();
+        std::fs::write(vendor.join("jre").join("bin").join("java"), b"#!/bin/sh\n").unwrap();
+
+        let tc = Toolchain::discover(root).expect("the layout alone should be enough");
+        assert!(
+            tc.mkgmap_jar.ends_with("mkgmap-r4924/mkgmap.jar"),
+            "{:?}",
+            tc.mkgmap_jar
+        );
+        assert!(tc.splitter_jar.ends_with("splitter-r654/splitter.jar"));
+        assert!(tc.java.ends_with("jre/bin/java"));
+    }
+
+    /// The layout must win over a stale env file, which is exactly what a bundle built
+    /// on a machine that had one would contain.
+    #[test]
+    fn the_layout_wins_over_a_stale_env_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let vendor = root.join("vendor");
+        std::fs::create_dir_all(vendor.join("mkgmap-r4924")).unwrap();
+        std::fs::create_dir_all(vendor.join("splitter-r654")).unwrap();
+        std::fs::create_dir_all(vendor.join("jre").join("Contents/Home/bin")).unwrap();
+        std::fs::write(vendor.join("mkgmap-r4924").join("mkgmap.jar"), b"jar").unwrap();
+        std::fs::write(vendor.join("splitter-r654").join("splitter.jar"), b"jar").unwrap();
+        std::fs::write(
+            vendor.join("jre").join("Contents/Home/bin").join("java"),
+            b"#!/bin/sh\n",
+        )
+        .unwrap();
+        std::fs::write(
+            vendor.join("toolchain.env"),
+            b"MKGMAP_JAR=/Users/somebody-else/mkgmap.jar\n\
+              SPLITTER_JAR=/Users/somebody-else/splitter.jar\n\
+              JAVA_BIN=/Users/somebody-else/java\n",
+        )
+        .unwrap();
+
+        let tc = Toolchain::discover(root).expect("the layout is present and valid");
+        assert!(
+            tc.mkgmap_jar.starts_with(root),
+            "took the path from the stale env file: {:?}",
+            tc.mkgmap_jar
+        );
+    }
+
+    /// With neither, the failure must say what to do rather than nothing.
+    #[test]
+    fn a_root_with_no_toolchain_says_how_to_get_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = Toolchain::discover(dir.path()).unwrap_err();
+        assert!(err.to_string().contains("toolchain.env"), "{err}");
     }
 
     /// SPEC.md §12: "Tile count exceeds device limit — auto-retune `--max-nodes`,

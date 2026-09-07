@@ -6,8 +6,17 @@ Map data © swisstopo. Licensed GPL-3.0-or-later.
 
 - **[SPEC.md](SPEC.md)** — what it does and why
 - **[PLAN.md](PLAN.md)** — implementation plan and milestone status
-- **[docs/](docs/)** — discovered swissTLM3D schema, cartography, device verification,
-  Milestone 0 findings
+- **[docs/getting-started.md](docs/getting-started.md)** — first map, start to finish
+- **[docs/device-verification.md](docs/device-verification.md)** — what to check on real
+  hardware, and why CI cannot
+- **[docs/cartography.md](docs/cartography.md)** — how swissTLM3D becomes Garmin types,
+  and how to change it
+- **[docs/error-matrix.md](docs/error-matrix.md)** — every specified failure, its
+  behaviour, and its test
+- **[docs/performance.md](docs/performance.md)** — what is measured, and what is not
+- **[docs/release.md](docs/release.md)** — how a release is built, signed and documented
+- **[docs/](docs/)** — the discovered swissTLM3D schema, palettes, accessibility,
+  attribution audit, Milestone 0 findings
 
 ## Status
 
@@ -32,8 +41,20 @@ What works:
   time weighted by measured stage durations.
 - **Recipes**: save a configuration and rebuild it later.
 
-Not yet: administrative-unit selection, composite areas, GeoJSON import/export, label
-language, and an accessibility pass. See [PLAN.md](PLAN.md) for the milestone status.
+- **Areas, continued**: cantons, districts and communes by name; polygons and circles
+  drawn on the map; several selections combined; and selections exchanged as GeoJSON.
+- **Labels**: place names in German, French, Italian or Romansh where swissNAMES3D has
+  them, rather than only the local form.
+- **Slope classes**: swisstopo's own 30–50° bands, computed from the elevation data.
+- **Recovery**: an interrupted build is found on the next start, along with any map
+  compiler still running for it, and can be resumed or discarded.
+
+**Not yet**, and deliberately so: on-device routing, address search, and a raster
+overlay — all deferred past v1 (SPEC.md §16). **Not yet, and outstanding**: a
+screen-reader and keyboard-only pass ([docs/accessibility.md](docs/accessibility.md)
+lists the gaps), signed installers ([docs/release.md](docs/release.md) says what is
+missing), and a device sweep of everything added since the last one. See
+[PLAN.md](PLAN.md) for milestone status.
 
 ## Prerequisites
 

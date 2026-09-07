@@ -29,12 +29,15 @@ Also present, unchanged: the footer line on every screen, and the PBF writer's
 |---|---|---|
 | mkgmap r4924 | `vendor/mkgmap-r4924/LICENCE` — GPL v2, verbatim | yes |
 | splitter r654 | `vendor/splitter-r654/doc/LICENSE-gpl-3.0.txt` and three others | yes |
-| Eclipse Temurin JRE/JDK | **not bundled** | yes, with its licence named |
+| Eclipse Temurin JRE/JDK | `vendor/jre/**/legal/java.base/` — GPL v2 text, `ASSEMBLY_EXCEPTION`, and `ADDITIONAL_LICENSE_INFO` carrying the Classpath Exception | yes |
 
 The About screen lists all three with the path to the shipped text, and says plainly when
-a text is *not* bundled rather than offering a path to a file that is not there. Temurin's
-licence text is the one gap: the JRE is fetched by `vendor/fetch_tools.py` and its licence
-is not copied alongside it. Worth fixing before a release that ships the JRE.
+a text is *not* bundled rather than offering a path to a file that is not there.
+
+Temurin's licences were initially recorded here as missing, on the assumption that
+`fetch_tools.py` would have had to copy them. It does not have to: the Temurin
+distribution ships them itself, per module, under `legal/`. Checking the directory rather
+than reasoning about the download settled it, and all three components are covered.
 
 ## FR-L3 — personal use, swisstopo terms on redistribution, no Garmin affiliation
 
@@ -73,6 +76,6 @@ under any version. The process boundary is what makes the arrangement clean, and
 splitter's subversion trunk would settle it from the file headers. Until then NOTICE says
 what is shipped and marks the version unresolved.
 
-**Open: Temurin's licence text is not bundled with the JRE.** `vendor/fetch_tools.py`
-should save it beside the download, and the About screen will then show its path like the
-other two.
+*(A third item was recorded here and withdrawn: Temurin's licence text is bundled, under
+`legal/` inside the distribution, and the About screen now shows its path like the other
+two.)*

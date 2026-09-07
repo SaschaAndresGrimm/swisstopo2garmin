@@ -35,6 +35,9 @@ not linked into this program.
                            Licence text: vendor/splitter-r654/doc/LICENSE-gpl-3.0.txt
   Eclipse Temurin JRE/JDK  GPL-2.0 with Classpath Exception
                            https://adoptium.net/
+                           Licence text: vendor/jre/**/legal/java.base/ -- the GPL v2
+                           text, ASSEMBLY_EXCEPTION and ADDITIONAL_LICENSE_INFO, which
+                           carries the Classpath Exception, as shipped by Temurin.
 
 Note on splitter's version (2026-09-07, unresolved). This file previously stated
 GPL-2.0 for splitter. The distribution we bundle, r654, ships doc/LICENSE-gpl-3.0.txt

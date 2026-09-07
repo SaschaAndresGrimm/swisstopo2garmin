@@ -208,6 +208,27 @@ measurements are accepted this way (FR-DEV4).
 
 ## E. Verification log
 
-| Date | Device | Firmware | Result | Measured limits | By |
+Transcribed from the `confidence.notes` fields of `devices/*.json` and the Milestone 0
+findings, where these results were recorded at the time. VAL-5 asks for them here, and
+having them in two places and not this one meant the log read as though no hardware had
+ever been touched.
+
+| Date | Device | Firmware | Result | Measured limits | Source |
 |---|---|---|---|---|---|
-| _(pending)_ | | | | | |
+| 2026-09-06 | Garmin Edge 840 | 3133 (part 006-B4062-00) | Map lists and renders; mixed-case Swiss labels correct; DEM shaded relief **does** render, but is too dark at 1 arc-second in alpine terrain. `GarminDevice.xml` advertises `Garmin/CustomMaps` and `Garmin/BirdsEye`. | none — `maxImgBytes` and `maxTilesPerMapset` still `community` | `devices/edge-840.json`, m0-findings §4.5, §4.14, §4.16 |
+| 2026-09-06 | Garmin fēnix 5 Plus | 1930 (part 006-B3110-00) | Wrist cartography renders correctly and legibly; coexists with the factory map (VAL-3). `GarminDevice.xml` advertises `Garmin/CustomMaps` and `Garmin/BirdsEye`. | none — and whether DEM relief renders on this generation is still unknown | `devices/fenix-5-plus.json` |
+
+### Still outstanding
+
+Both profiles remain at `community` confidence, because a smoke test is not a
+measurement. Nothing in section C has been done on either device, so every size and tile
+limit in both profiles is inherited from forum reports with a safety factor applied.
+
+Neither device has seen anything added after Milestone 6: the winter palette, slope
+classes, SAC hut details, transit stops, label language, or the night palette — which is
+the one most likely to be wrong, being the only palette in this project derived rather
+than measured from a swisstopo product. Section B exists for exactly that sweep, and the
+six files it refers to are built and waiting in `out/device-test/`.
+
+VAL-4 — the whole-Switzerland multi-map-set output on a real device — has not been
+attempted at all.

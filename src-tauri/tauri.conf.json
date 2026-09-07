@@ -32,11 +32,38 @@
       "appimage",
       "deb"
     ],
-    "copyright": "GPL-3.0-or-later. Map data \u00a9 swisstopo.",
+    "copyright": "GPL-3.0-or-later. Map data © swisstopo.",
     "category": "Utility",
     "shortDescription": "Garmin maps from swisstopo open data",
     "icon": [
       "icons/icon.png"
-    ]
+    ],
+    "resources": {
+      "../style": "style",
+      "../typ": "typ",
+      "../devices": "devices",
+      "../estimator": "estimator",
+      "../NOTICE": "NOTICE",
+      "../LICENSE": "LICENSE",
+      "../vendor/mkgmap-r4924": "vendor/mkgmap-r4924",
+      "../vendor/splitter-r654": "vendor/splitter-r654",
+      "../vendor/jre": "vendor/jre",
+      "../vendor/toolchain.env": "vendor/toolchain.env"
+    },
+    "macOS": {
+      "signingIdentity": null,
+      "minimumSystemVersion": "10.15",
+      "entitlements": null
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com"
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
   }
 }

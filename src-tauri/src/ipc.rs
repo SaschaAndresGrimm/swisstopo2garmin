@@ -550,9 +550,18 @@ fn resource_root() -> PathBuf {
     if let Ok(p) = std::env::var("S2G_ROOT") {
         return PathBuf::from(p);
     }
-    // Walk up from the executable, then from the working directory, looking for the
-    // marker files a build needs. Keeps `cargo run` and a bundle both working.
-    let candidates = std::env::current_exe()
+    // Walk up from the executable and from the working directory, looking for the marker
+    // files a build needs, and at each level also look in the places a packaged app puts
+    // its resources. A development checkout has them at the repo root; a macOS bundle has
+    // them in `Contents/Resources` beside `Contents/MacOS/<exe>`; the Linux and Windows
+    // bundles put them in a `resources` directory next to the executable.
+    //
+    // Without the bundle cases this returned "." in a packaged app and every build failed
+    // for want of a style directory -- on the developer's machine it worked, because the
+    // walk found the repo.
+    // The inner collects are load-bearing: `ancestors()` borrows the path it walks, and
+    // the path is owned by the closure.
+    let bases = std::env::current_exe()
         .ok()
         .into_iter()
         .flat_map(|exe| exe.ancestors().map(Path::to_path_buf).collect::<Vec<_>>())
@@ -562,12 +571,31 @@ fn resource_root() -> PathBuf {
                 .into_iter()
                 .flat_map(|d| d.ancestors().map(Path::to_path_buf).collect::<Vec<_>>()),
         );
-    for c in candidates {
-        if c.join("devices").is_dir() && c.join("style").is_dir() {
-            return c;
+
+    resolve_resource_root(bases).unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// The search itself, separated from where the candidates come from.
+///
+/// `current_exe` cannot be faked in a test, and this is the logic that was wrong: it is
+/// worth being able to hand it a macOS bundle's ancestor list and see what it picks.
+fn resolve_resource_root(bases: impl Iterator<Item = PathBuf>) -> Option<PathBuf> {
+    for base in bases {
+        for candidate in [base.clone(), base.join("Resources"), base.join("resources")] {
+            if has_resources(&candidate) {
+                return Some(candidate);
+            }
         }
     }
-    PathBuf::from(".")
+    None
+}
+
+/// Whether a directory holds the files a build cannot run without.
+///
+/// `devices` and `style` together, because either alone occurs by accident: `style` is a
+/// common directory name, and a stray `devices` could be anything.
+fn has_resources(dir: &Path) -> bool {
+    dir.join("devices").is_dir() && dir.join("style").is_dir()
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -1541,7 +1569,20 @@ pub fn about() -> IpcResult<AboutInfo> {
             name: "Eclipse Temurin".into(),
             version: toolchain.as_ref().and_then(|t| t.java_version()),
             license: "GPL-2.0 with Classpath Exception".into(),
-            license_path: None,
+            // Temurin ships its own licences under `legal/`, per module. `java.base`
+            // holds the GPL v2 text, the OpenJDK assembly exception and the Classpath
+            // Exception, so pointing there is pointing at the real thing. Both layouts
+            // are probed because macOS bundles put the home inside `Contents/Home`.
+            license_path: [
+                "vendor/jre/legal/java.base",
+                "vendor/jre/Contents/Home/legal/java.base",
+                "vendor/jdk/legal/java.base",
+                "vendor/jdk/Contents/Home/legal/java.base",
+            ]
+            .iter()
+            .map(|p| root.join(p))
+            .find(|p| p.join("LICENSE").is_file())
+            .map(|p| p.display().to_string()),
             url: "https://adoptium.net/".into(),
         },
     ];
@@ -2029,5 +2070,112 @@ pub async fn install_map(plan: InstallPlan, backup: bool) -> IpcResult<String> {
             &actual[..16]
         )),
         Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod resource_root_tests {
+    use super::*;
+
+    /// A macOS bundle puts the executable in `Contents/MacOS` and its resources in
+    /// `Contents/Resources`. Walking ancestors alone never reaches them, which is why a
+    /// packaged app resolved its root to "." and could not build anything (NFR-7).
+    #[test]
+    fn a_macos_bundle_layout_resolves_to_contents_resources() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("swisstopo2garmin.app");
+        let resources = app.join("Contents").join("Resources");
+        std::fs::create_dir_all(resources.join("devices")).unwrap();
+        std::fs::create_dir_all(resources.join("style")).unwrap();
+        std::fs::create_dir_all(app.join("Contents").join("MacOS")).unwrap();
+
+        let exe = app.join("Contents").join("MacOS").join("swisstopo2garmin");
+        let bases = exe.ancestors().map(Path::to_path_buf);
+        assert_eq!(resolve_resource_root(bases), Some(resources));
+    }
+
+    /// The Linux and Windows bundles put a lowercase `resources` beside the executable.
+    ///
+    /// Compared after canonicalising, because macOS is case-insensitive by default and
+    /// the search tries `Resources` first: it finds the right directory under a name
+    /// that differs from the one on disk, which is correct behaviour and a string
+    /// comparison would call a failure.
+    #[test]
+    fn a_sibling_resources_directory_resolves() {
+        let dir = tempfile::tempdir().unwrap();
+        let resources = dir.path().join("resources");
+        std::fs::create_dir_all(resources.join("devices")).unwrap();
+        std::fs::create_dir_all(resources.join("style")).unwrap();
+
+        let exe = dir.path().join("swisstopo2garmin");
+        let bases = exe.ancestors().map(Path::to_path_buf);
+        let found = resolve_resource_root(bases).expect("should resolve");
+        assert_eq!(
+            found.canonicalize().unwrap(),
+            resources.canonicalize().unwrap()
+        );
+    }
+
+    /// A development checkout must keep working: the root itself holds the files.
+    #[test]
+    fn a_development_checkout_resolves_to_the_repository_root() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("devices")).unwrap();
+        std::fs::create_dir_all(dir.path().join("style")).unwrap();
+        let exe = dir.path().join("target").join("debug").join("app");
+        let bases = exe.ancestors().map(Path::to_path_buf);
+        assert_eq!(resolve_resource_root(bases), Some(dir.path().to_path_buf()));
+    }
+
+    /// Half a layout must not be accepted: `style` alone is a common directory name.
+    #[test]
+    fn a_directory_with_only_one_marker_is_not_a_resource_root() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("style")).unwrap();
+        assert_eq!(
+            resolve_resource_root(std::iter::once(dir.path().to_path_buf())),
+            None
+        );
+    }
+
+    /// The real bundle, when one has been built. This is the only assertion here that
+    /// can fail because of a packaging change rather than a logic change, so it skips
+    /// rather than failing when there is no bundle to look at.
+    #[test]
+    fn the_real_bundle_is_self_sufficient() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let app = repo.join("target/release/bundle/macos/swisstopo2garmin.app");
+        if !app.is_dir() {
+            eprintln!("skipping: no macOS bundle built (cargo tauri build --bundles app)");
+            return;
+        }
+
+        let exe = app.join("Contents").join("MacOS").join("swisstopo2garmin");
+        let bases = exe.ancestors().map(Path::to_path_buf);
+        let root = resolve_resource_root(bases).expect("the bundle should carry its resources");
+        assert!(root.ends_with("Contents/Resources"), "{root:?}");
+
+        // Everything a build reads, present inside the bundle.
+        for needed in ["devices", "style", "typ", "estimator", "NOTICE", "LICENSE"] {
+            assert!(root.join(needed).exists(), "the bundle has no {needed}");
+        }
+
+        // And the toolchain, found from the layout. The env file the bundle also carries
+        // holds absolute paths into the machine that built it -- including a `vendor/jdk`
+        // that is deliberately not shipped -- so this is the assertion that a packaged
+        // app can compile a map at all.
+        let tc = s2g_core::garmin::Toolchain::discover(&root)
+            .expect("the bundled toolchain should be discoverable");
+        assert!(
+            tc.java.starts_with(&root),
+            "java came from outside the bundle: {:?}",
+            tc.java
+        );
+        assert!(tc.mkgmap_jar.starts_with(&root), "{:?}", tc.mkgmap_jar);
+        assert!(tc.splitter_jar.starts_with(&root), "{:?}", tc.splitter_jar);
+        assert!(
+            tc.mkgmap_version().is_some(),
+            "the bundled java could not run mkgmap"
+        );
     }
 }
