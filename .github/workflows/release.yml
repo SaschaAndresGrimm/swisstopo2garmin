@@ -33,13 +33,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS 14 runners are arm64, macOS 13 are x64. Both are built natively rather
-          # than cross-compiled, because the bundled JRE is per-architecture and
-          # `fetch_tools.py` downloads the one for the host.
+          # Both macOS architectures are built natively rather than cross-compiled,
+          # because the bundled JRE is per-architecture and `fetch_tools.py` downloads
+          # the one for the host. `macos-15-intel` rather than the retired `macos-13`.
           - os: macos-14
             label: macOS arm64
             artefact: macos-arm64
-          - os: macos-13
+          - os: macos-15-intel
             label: macOS x64
             artefact: macos-x64
           - os: ubuntu-22.04

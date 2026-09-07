@@ -16,8 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS 14 runners are arm64, macOS 13 are x64: SPEC.md NFR-7 ships both.
-        os: [macos-14, macos-13, ubuntu-latest, windows-latest]
+        # SPEC.md NFR-7 ships both macOS architectures, so both are tested.
+        # `macos-14` is arm64 and `macos-15-intel` is x64 — the `macos-13` this used to
+        # name has been retired by GitHub, which `actionlint` caught.
+        os: [macos-14, macos-15-intel, ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -53,6 +55,23 @@ jobs:
             git diff -- frontend/src/state/bindings.ts
             exit 1
           fi
+
+  workflows:
+    name: workflow syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A workflow only fails when it runs, and the release workflow runs on a tag --
+      # so a mistake in it is discovered at the worst possible moment. actionlint checks
+      # expression syntax, action inputs and runner labels statically. It immediately
+      # found that both workflows still named `macos-13`, which GitHub has retired.
+      # The upstream download script rather than a third-party wrapper action: one fewer
+      # thing to trust, and `rhysd/actionlint` publishes no action of its own -- an
+      # earlier draft of this file referenced one that does not exist.
+      - name: actionlint
+        run: |
+          bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
 
   frontend:
     name: frontend
