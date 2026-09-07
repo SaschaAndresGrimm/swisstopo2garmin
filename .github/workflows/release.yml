@@ -221,7 +221,7 @@ jobs:
             \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \
                -o -name '*.AppImage' -o -name '*.deb' -o -name 'sbom.json' \) \
             -exec cp {} release/ \;
-          cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS
+          cd release && sha256sum ./* > SHA256SUMS && cat SHA256SUMS
 
       # A draft, never a published release: whether an unsigned build should be offered to
       # the public is a decision for a person, not for a workflow.
