@@ -861,6 +861,9 @@ pub async fn build(
                 contour_interval_m: recipe.contours.interval_m,
                 relief: recipe.relief,
                 slope_classes: recipe.slope_classes,
+                // Which cartography was compiled, so the sample records the thing that
+                // changes its size by a quarter.
+                wrist: profile.is_wrist(),
             },
             actual_bytes: out.bytes,
             stage_seconds: stage_seconds

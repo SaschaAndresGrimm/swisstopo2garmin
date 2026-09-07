@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "builtAt": "2026-09-07T12:29:54Z",
+  "recipe": {
+    "schemaVersion": 1,
+    "name": "Appenzell hiking",
+    "deviceId": "edge-840",
+    "area": {
+      "kind": "place",
+      "name": "Appenzell",
+      "radiusKm": 6.0,
+      "easting": 2749067.9830000945,
+      "northing": 1244091.5969962056
+    },
+    "preset": "hiking",
+    "contours": {
+      "intervalM": 20,
+      "indexM": 100,
+      "simplifyM": 8.0
+    },
+    "relief": "gentle",
+    "palette": "summer",
+    "labelLanguage": "local",
+    "slopeClasses": false,
+    "excludedLayers": []
+  },
+  "recipeKey": "edge-840|2743068,1238092,2755068,1250092|0|hiking|20|100|Gentle|summer|false|local|",
+  "sources": [
+    {
+      "collection": "ch.astra.mountainbikeland",
+      "item": "mountainbikeland",
+      "datetime": "2026-02-25T00:00:00Z",
+      "checksum": "sha2-256:df86c7736bc97689db084f4e2f380a0cb00b1fc981585a6fec6588118046630e",
+      "files": 15,
+      "bytes": 279666889
+    },
+    {
+      "collection": "ch.astra.schneeschuhwanderwege",
+      "item": "schneeschuhwanderwege",
+      "datetime": "2026-01-19T00:00:00Z",
+      "checksum": "sha2-256:ec5344d5cefbb34aa1136b54d07f02ab71f1ab77510fb2e80553ab143dce3796",
+      "files": 1,
+      "bytes": 9142272
+    },
+    {
+      "collection": "ch.astra.veloland",
+      "item": "veloland",
+      "datetime": "2026-02-25T00:00:00Z",
+      "checksum": "sha2-256:da03916bc8beff7baee592a59de6701a863d3e220f107c8fb169c2bfa1f2856d",
+      "files": 15,
+      "bytes": 377596423
+    },
+    {
+      "collection": "ch.astra.wanderland",
+      "item": "wanderland",
+      "datetime": "2026-02-25T00:00:00Z",
+      "checksum": "sha2-256:9a1be293af464b797ad860a68d9435af544099810f4b07f2f115f5bdb1853cbe",
+      "files": 15,
+      "bytes": 361395341
+    },
+    {
+      "collection": "ch.astra.winterwanderwege",
+      "item": "winterwanderwege",
+      "datetime": "2026-01-19T00:00:00Z",
+      "checksum": "sha2-256:c4bcebbe4df584727082ebfc9eae0d056521fdbeef8c811401f4f9d59eaa95d6",
+      "files": 1,
+      "bytes": 11468800
+    },
+    {
+      "collection": "ch.swisstopo-karto.skitouren",
+      "item": "skitouren",
+      "datetime": "2025-12-11T00:00:00Z",
+      "checksum": "sha2-256:ae2a6573990082fe3cdd6aa2862f8077c48ec8f375697e462aa4394b7d89fe05",
+      "files": 2,
+      "bytes": 35246080
+    },
+    {
+      "collection": "ch.swisstopo.swissboundaries3d",
+      "item": "swissboundaries3d_2026-01",
+      "datetime": "2026-01-01T00:00:00Z",
+      "checksum": "sha2-256:68e922353c76fa5db3cef06a32f9711c0198faa6fbd2b5bcde9edc88b0f8999f",
+      "files": 1,
+      "bytes": 74231808
+    },
+    {
+      "collection": "ch.swisstopo.swissnames3d",
+      "item": "swissnames3d_2026",
+      "datetime": "2026-04-29T00:00:00Z",
+      "checksum": "sha2-256:e488e19f10a392e75aec35f7dc0a915dde1fe859b16e86eb36756854424f96dd",
+      "files": 3,
+      "bytes": 104798510
+    },
+    {
+      "collection": "ch.swisstopo.swisstlm3d",
+      "item": "swisstlm3d_2026-02",
+      "datetime": "2026-02-24T00:00:00Z",
+      "checksum": "sha2-256:2218054b21c23e1683fb14a80a9c33d811c7e02a891ab4aedaf761b68750206a",
+      "files": 1,
+      "bytes": 10777276416
+    },
+    {
+      "collection": "ch.swisstopo.swisstlm3d-wanderwege",
+      "item": "swisstlm3d-wanderwege",
+      "datetime": "2026-07-28T00:00:00Z",
+      "checksum": "sha2-256:fb87b78c3b169fbd7655fa47dd8fb7985bf27abc01471c99e9ceba377b7c4f57",
+      "files": 1,
+      "bytes": 389439488
+    }
+  ],
+  "tools": {
+    "app": "0.1.0",
+    "mkgmap": "Mkgmap version 4924",
+    "splitter": "splitter 654 compiled 2025-04-13T22:39:53+01:00",
+    "java": "openjdk version \"17.0.20.1\" 2026-08-18"
+  },
+  "output": {
+    "file": "gmapsupp.img",
+    "bytes": 1183232,
+    "sha256": "14a62697d1d0d25213d93789d8af3ec44085f1188536f23dab40116ff896cee3",
+    "tileCount": 1,
+    "familyId": 6223,
+    "hasDem": true
+  },
+  "stageSeconds": [
+    [
+      "extract",
+      0.835516083
+    ],
+    [
+      "elevation",
+      9.391195458
+    ],
+    [
+      "contours",
+      9.481476208
+    ],
+    [
+      "relief",
+      0.008157167
+    ],
+    [
+      "split",
+      0.939563834
+    ],
+    [
+      "compile",
+      2.702466209
+    ],
+    [
+      "verify",
+      0.000949542
+    ]
+  ],
+  "featuresPerLayer": {
+    "accomodation_winter": 0,
+    "contours": 3655,
+    "tlm_areale_freizeitareal": 9,
+    "tlm_areale_nutzungsareal": 141,
+    "tlm_areale_verkehrsareal": 55,
+    "tlm_bauten_gebaeude_footprint": 18886,
+    "tlm_bb_bodenbedeckung": 2652,
+    "tlm_eo_einzelobjekt": 50,
+    "tlm_gewaesser_fliessgewaesser": 4629,
+    "tlm_gewaesser_stehendes_gewaesser": 88,
+    "tlm_namen_flurname": 1084,
+    "tlm_namen_siedlungsname_zentrum": 721,
+    "tlm_oev_eisenbahn": 158,
+    "tlm_oev_haltestelle": 72,
+    "tlm_oev_uebrige_bahn": 15,
+    "tlm_strassen_strasse": 8506
+  },
+  "contourLines": 3655,
+  "slopeAreas": 0,
+  "warnings": [],
+  "attribution": "swissTLM3D (c) swisstopo"
+}

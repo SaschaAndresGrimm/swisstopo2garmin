@@ -92,6 +92,11 @@ jobs:
       - name: Rates and peak memory (NFR-1, NFR-2)
         run: cargo test --release -p s2g-core --test perf -- --nocapture
 
+      # FR-60's ±25% over the committed reference manifests. Offline and instant: a
+      # manifest carries the predictors and the actual size, so no build is needed.
+      - name: Size estimates hold on the reference suite (FR-60)
+        run: cargo test --release -p s2g-core --test estimator_reference -- --nocapture
+
   cartography:
     name: cartography consistency
     runs-on: ubuntu-latest

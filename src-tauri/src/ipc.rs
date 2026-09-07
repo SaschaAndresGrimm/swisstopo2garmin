@@ -1057,6 +1057,7 @@ pub async fn partition_plan(recipe: Recipe) -> IpcResult<PartitionPlan> {
         contour_interval_m: recipe.contours.interval_m,
         relief: recipe.relief,
         slope_classes: recipe.slope_classes,
+        wrist: profile.is_wrist(),
     };
     let model = estimate::current_model(
         &resource_root().join("estimator").join("size-model.json"),
@@ -1706,6 +1707,11 @@ pub fn describe_area(query: AreaQuery) -> IpcResult<AreaInfo> {
         contour_interval_m: probe.contours.interval_m,
         relief,
         slope_classes: probe.slope_classes,
+        // The wrist cartography drops layers and labels, so the same area compiles
+        // considerably smaller and the estimate has to know which one this device gets.
+        // An unrecognised device id falls back to the full cartography, which
+        // over-estimates rather than under-estimates — the safe direction for a budget.
+        wrist: profile.map(|p| p.is_wrist()).unwrap_or(false),
     };
     let estimated = model.predict(&predictors);
     // What to do about it, if anything. The decision and the ordering live in
