@@ -50,8 +50,30 @@ footer {
   background: none; border: 0; padding: 0.3rem 0.5rem;
   color: var(--muted); border-radius: 6px; font: inherit; cursor: pointer;
 }
-.step:disabled { opacity: 0.45; cursor: default; }
+/* Dimmed *and* dashed. Opacity alone made "not yet reachable" look like a button that
+   had failed to render; the dashed outline reads as a placeholder, and the title says
+   what it is waiting for. */
+.step:disabled { opacity: 0.5; cursor: default; }
+.step.locked { border-style: dashed; }
 .step.current { color: var(--fg); background: var(--panel); }
+.step.done .step-num { color: var(--ok, #2e7d32); }
+
+/* Visible to a screen reader, not on screen. Used where dimming carries meaning that
+   has to be available to somebody who cannot see it. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* What is currently selected, above the chooser panels. */
+.selected-area { margin: 0.6rem 0 0; }
+.selected-area .badge { margin-right: 0.15rem; }
+
+/* The GeoJSON exchange, folded away: it is a power-user path and it used to put a
+   second unlabelled file button beside the route importer. */
+.exchange { margin: 0.75rem 0; }
+.exchange summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
+.exchange .field { display: flex; flex-direction: column; gap: 0.2rem; }
 .step-num {
   display: inline-grid; place-items: center;
   width: 1.35rem; height: 1.35rem; border-radius: 50%;

@@ -549,3 +549,45 @@ fn a_handle_dragged_nowhere_leaves_the_shape_exactly_where_it_was() {
         }
     }
 }
+
+/// The outline carries what the selection *is*, so the area step can say so when a
+/// different chooser is on show -- pick a canton, switch to Draw, and the canton is
+/// still what will be built.
+#[test]
+fn an_outline_says_what_kind_of_selection_it_describes() {
+    let o = outline(&circle());
+    assert_eq!(o.kind, "circle");
+    assert_eq!(o.detail, "5 km");
+
+    let o = outline(&rect());
+    assert_eq!(o.kind, "bbox");
+    assert_eq!(o.detail, "10 × 10 km");
+
+    let o = outline(&triangle());
+    assert_eq!(o.kind, "polygon");
+    assert!(o.detail.starts_with("3 · "), "{}", o.detail);
+
+    // Including the ones that cannot be edited: they still need naming.
+    let corridor = AreaSelection::Corridor {
+        name: "Jungfrau route".into(),
+        buffer_km: 3.0,
+        points: vec![[2_640_000.0, 1_160_000.0], [2_650_000.0, 1_170_000.0]],
+    };
+    let o = outline(&corridor);
+    assert_eq!(o.kind, "corridor");
+    assert_eq!(o.detail, "Jungfrau route · ±3.0 km");
+    assert!(!o.editable);
+}
+
+/// The tag must match the serde tag, or the frontend keys translations off a string
+/// that never appears.
+#[test]
+fn the_kind_tag_matches_what_serde_writes() {
+    for area in [rect(), triangle(), circle()] {
+        let json = serde_json::to_value(&area).unwrap();
+        assert_eq!(
+            json.get("kind").and_then(|k| k.as_str()),
+            Some(outline(&area).kind.as_str())
+        );
+    }
+}

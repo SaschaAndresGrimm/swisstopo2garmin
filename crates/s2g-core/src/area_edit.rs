@@ -68,6 +68,10 @@ pub struct Outline {
     pub editable: bool,
     /// Present when `editable` is false: what to do instead.
     pub not_editable_because: Option<String>,
+    /// Serde tag of the selection's kind, so the UI can name it in the user's language.
+    pub kind: String,
+    /// The distinguishing part: name, size or count. Numbers and names only, no words.
+    pub detail: String,
 }
 
 /// One change to a selection, expressed in LV95 because that is what the recipe holds.
@@ -113,6 +117,11 @@ pub fn outline(area: &AreaSelection) -> Outline {
         },
         editable: refusal.is_none(),
         not_editable_because: refusal,
+        // Carried here rather than fetched separately: the area step already asks for an
+        // outline on every selection change, and it needs to say what is selected in the
+        // same breath.
+        kind: area.kind().to_string(),
+        detail: area.detail(),
     }
 }
 

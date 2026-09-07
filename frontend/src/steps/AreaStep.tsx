@@ -76,6 +76,10 @@ export function AreaStep({
   // the bottom of the screen, and put the radius slider four columns away from the place
   // search it belongs to.
   const [method, setMethod] = useState<Method>(() => methodOf(area));
+  // One step of undo. With editing, a single bad drag could lose a shape that took a
+  // dozen clicks to draw -- and the previous selection is right here, so refusing to
+  // keep it would be a choice.
+  const [previous, setPrevious] = useState<AreaSelection | null>(null);
 
   const { info, error: infoError } = useAreaInfo(area, deviceId, preset, contourM, relief);
 
@@ -145,6 +149,7 @@ export function AreaStep({
       }
       const next = await api.editArea(area, edit);
       setError(null);
+      setPrevious(area);
       // `box` follows from the estimate's `wgs84` extent, so it does not need setting
       // here -- and the outline, not the box, is what the map draws.
       onArea(next);
@@ -241,6 +246,32 @@ export function AreaStep({
           </button>
         ))}
       </div>
+
+      {/* What is selected, wherever the chooser has been left. Pick a canton, switch to
+          Draw, and the canton is still what will be built -- which the panel alone does
+          not say. */}
+      {outline && (
+        <p className="selected-area">
+          <span className="badge">{t("area.selectedLabel")}</span>{" "}
+          {t(`area.selected.${outline.kind}`, { detail: outline.detail })}
+          {previous && (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  onArea(previous);
+                  setPrevious(null);
+                  setError(null);
+                }}
+              >
+                {t("area.undo")}
+              </button>
+            </>
+          )}
+        </p>
+      )}
 
       <div className="method-panel">
         {method === "draw" && <p className="muted small">{t("area.method.drawHelp")}</p>}
@@ -344,6 +375,8 @@ export function AreaStep({
           setBox(null);
           setOutline(null);
           setError(null);
+          // Deliberately discarding a selection is not the case undo is for.
+          setPrevious(null);
           onClearArea();
         }}
         onPolygon={(points) => {
@@ -401,53 +434,63 @@ export function AreaStep({
         <p className="error">{t("data.error", { message: error ?? infoError ?? "" })}</p>
       )}
 
-      {/* Selections travel as GeoJSON, which QGIS and geojson.io both read (FR-42). */}
-      <div className="row tight">
-        <input
-          type="file"
-          accept=".geojson,.json"
-          aria-label={t("area.import")}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (!f) return;
-            void (async () => {
-              try {
-                onArea(await api.areaFromGeojson(await f.text()));
-              } catch (err) {
-                setError(String(err));
-              }
-            })();
-            e.target.value = "";
-          }}
-        />
-        <button
-          type="button"
-          disabled={!area}
-          onClick={() => {
-            if (!area) return;
-            void (async () => {
-              try {
-                const { save } = await import("@tauri-apps/plugin-dialog");
-                const path = await save({
-                  title: t("area.exportTitle"),
-                  defaultPath: "selection.geojson",
-                  filters: [{ name: "GeoJSON", extensions: ["geojson"] }],
-                });
-                if (typeof path === "string") setExported(await api.exportArea(area, path));
-              } catch (err) {
-                setError(String(err));
-              }
-            })();
-          }}
-        >
-          {t("area.export")}
-        </button>
-      </div>
-      {exported && (
-        <p className="muted small">
-          {t("area.exported")} <span className="mono">{exported}</span>
-        </p>
-      )}
+      {/* Selections travel as GeoJSON, which QGIS and geojson.io both read (FR-42).
+          Titled and grouped with Export, because this and the route importer put two
+          unlabelled "Choose File" buttons on the same screen -- indistinguishable, and
+          one of them silently replaces the selection. */}
+      <details className="exchange">
+        <summary>{t("area.exchange")}</summary>
+        <p className="muted small">{t("area.exchangeHelp")}</p>
+        <div className="row tight">
+          <label className="field" htmlFor="geojson-in">
+            <span>{t("area.import")}</span>
+            <input
+              id="geojson-in"
+              type="file"
+              accept=".geojson,.json"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                void (async () => {
+                  try {
+                    onArea(await api.areaFromGeojson(await f.text()));
+                  } catch (err) {
+                    setError(String(err));
+                  }
+                })();
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={!area}
+            onClick={() => {
+              if (!area) return;
+              void (async () => {
+                try {
+                  const { save } = await import("@tauri-apps/plugin-dialog");
+                  const path = await save({
+                    title: t("area.exportTitle"),
+                    defaultPath: "selection.geojson",
+                    filters: [{ name: "GeoJSON", extensions: ["geojson"] }],
+                  });
+                  if (typeof path === "string") setExported(await api.exportArea(area, path));
+                } catch (err) {
+                  setError(String(err));
+                }
+              })();
+            }}
+          >
+            {t("area.export")}
+          </button>
+        </div>
+        {exported && (
+          <p className="muted small">
+            {t("area.exported")} <span className="mono">{exported}</span>
+          </p>
+        )}
+      </details>
 
       <div className="row">
         <button type="button" onClick={onBack}>{t("common.back")}</button>

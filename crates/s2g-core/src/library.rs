@@ -99,41 +99,21 @@ pub fn list(dir: &Path) -> Vec<SavedRecipe> {
             let bbox = recipe.area.bbox();
             Some(SavedRecipe {
                 id: path.file_stem()?.to_string_lossy().to_string(),
+                // Composed from the two accessors on AreaSelection, which is also
+                // what the area step's "currently selected" chip reads -- this match
+                // used to live here inline and be the only place that could describe a
+                // selection.
                 area_label: match &recipe.area {
-                    crate::recipe::AreaSelection::Place {
-                        name, radius_km, ..
-                    } => format!("{name} · {radius_km:.0} km"),
-                    crate::recipe::AreaSelection::BBox { .. } => format!(
-                        "{:.0} × {:.0} km",
-                        (bbox.max_e - bbox.min_e) / 1000.0,
-                        (bbox.max_n - bbox.min_n) / 1000.0
-                    ),
-                    crate::recipe::AreaSelection::Corridor {
-                        name, buffer_km, ..
-                    } => format!("{name} · ±{buffer_km:.1} km"),
-                    crate::recipe::AreaSelection::Polygon { points } => {
-                        format!("{} points · {:.0} km²", points.len(), bbox.area_km2())
+                    crate::recipe::AreaSelection::Circle { .. } => {
+                        format!("circle · {}", recipe.area.detail())
                     }
-                    crate::recipe::AreaSelection::Circle { radius_km, .. } => {
-                        format!("circle · {radius_km:.0} km")
+                    crate::recipe::AreaSelection::Polygon { .. } => {
+                        format!("{} points", recipe.area.detail())
                     }
-                    crate::recipe::AreaSelection::Composite { parts } => {
-                        format!("{} areas · {:.0} km²", parts.len(), bbox.area_km2())
+                    crate::recipe::AreaSelection::Composite { .. } => {
+                        format!("{} areas", recipe.area.detail())
                     }
-                    crate::recipe::AreaSelection::AdminUnits {
-                        names, buffer_km, ..
-                    } => {
-                        let listed = match names.len() {
-                            0 => "—".to_string(),
-                            1..=2 => names.join(", "),
-                            n => format!("{}, +{}", names[0], n - 1),
-                        };
-                        if *buffer_km > 0.0 {
-                            format!("{listed} · +{buffer_km:.1} km")
-                        } else {
-                            listed
-                        }
-                    }
+                    other => other.detail(),
                 },
                 area_km2: bbox.area_km2(),
                 name: recipe.name,

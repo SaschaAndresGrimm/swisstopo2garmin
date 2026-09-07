@@ -218,27 +218,65 @@ export function AreaMap({
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
+      // Four roles, four distinguishable appearances. They were all the same blue dot,
+      // so on a circle -- which has exactly two handles -- there was no way to tell
+      // which one moved it and which one resized it without dragging and finding out.
       m.addLayer({
         id: HANDLE_LAYER,
         type: "circle",
         source: HANDLE_SOURCE,
         paint: {
-          "circle-radius": ["case", ["==", ["get", "role"], "midpoint"], 4, 6],
+          // The move handle is the largest: it is the biggest gesture and the easiest
+          // target to want. Midpoints are smallest, because they are a suggestion.
+          "circle-radius": [
+            "match",
+            ["get", "role"],
+            "centre",
+            8,
+            "midpoint",
+            3.5,
+            6,
+          ],
           "circle-color": [
             "match",
             ["get", "role"],
+            // Hollow, so it reads as "not a corner yet".
             "midpoint",
             "#ffffff",
+            // Blue for the two that move the whole shape or its size, red for the
+            // vertices, which are the outline's own colour.
             "centre",
             "#1b3fa0",
             "radius",
-            "#1b3fa0",
+            "#ffffff",
             "#da291c",
           ],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": ["match", ["get", "role"], "radius", 3, 2],
+          "circle-stroke-color": [
+            "match",
+            ["get", "role"],
+            "radius",
+            "#1b3fa0",
+            "#ffffff",
+          ],
           "circle-opacity": ["case", ["==", ["get", "role"], "midpoint"], 0.9, 1],
         },
+      });
+
+      // A cross through the move handle, so a filled dot at the centre of a circle is
+      // unmistakably "drag me to move this" rather than a second, smaller vertex.
+      m.addLayer({
+        id: `${HANDLE_LAYER}-centre`,
+        type: "symbol",
+        source: HANDLE_SOURCE,
+        filter: ["==", ["get", "role"], "centre"],
+        layout: {
+          "text-field": "✛",
+          "text-size": 13,
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+        },
+        paint: { "text-color": "#ffffff" },
       });
     });
 
@@ -711,7 +749,11 @@ export function AreaMap({
             not, for the selections whose shape is derived from data. */}
         {!drawing && outline?.editable && (
           <span className="muted small">
-            {hovering ? t("map.editDragging") : t("map.editHint")}
+            {hovering
+              ? t("map.editDragging")
+              : outline.handles.some((h) => h.role === "radius")
+                ? t("map.editHintCircle")
+                : t("map.editHint")}
           </span>
         )}
         {!drawing && outline && !outline.editable && outline.notEditableBecause && (

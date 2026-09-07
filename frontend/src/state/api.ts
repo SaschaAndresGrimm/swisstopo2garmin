@@ -102,6 +102,10 @@ export interface AreaOutline {
   editable: boolean;
   /** Set when `editable` is false: what to do instead. */
   notEditableBecause: string | null;
+  /** Serde tag of the selection's kind, for keying a translation. */
+  kind: string;
+  /** Name, size or count. Numbers and names only, so it drops into a sentence. */
+  detail: string;
 }
 
 /** One drag, in LV95 — the coordinates the recipe holds. */

@@ -201,6 +201,67 @@ fn digest_points(points: &[[f64; 2]]) -> u64 {
 }
 
 impl AreaSelection {
+    /// A stable tag for this kind of selection, for anything that needs to name it.
+    ///
+    /// Matches the serde tag, so the frontend can key translations off it without a
+    /// second mapping to keep in step.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            AreaSelection::BBox { .. } => "bbox",
+            AreaSelection::Place { .. } => "place",
+            AreaSelection::Polygon { .. } => "polygon",
+            AreaSelection::Circle { .. } => "circle",
+            AreaSelection::Composite { .. } => "composite",
+            AreaSelection::AdminUnits { .. } => "adminUnits",
+            AreaSelection::Corridor { .. } => "corridor",
+        }
+    }
+
+    /// The distinguishing part of this selection: its name, its size, its count.
+    ///
+    /// Names, numbers and units only, with no words to translate — so a caller can put
+    /// it inside a localised sentence keyed on [`AreaSelection::kind`]. Extracted from
+    /// `library::list`, which had this match written inline and was the only place that
+    /// could describe a selection; the area step needed the same thing to say what is
+    /// currently selected.
+    pub fn detail(&self) -> String {
+        let b = self.bbox();
+        match self {
+            AreaSelection::Place {
+                name, radius_km, ..
+            } => format!("{name} · {radius_km:.0} km"),
+            AreaSelection::BBox { .. } => format!(
+                "{:.0} × {:.0} km",
+                (b.max_e - b.min_e) / 1000.0,
+                (b.max_n - b.min_n) / 1000.0
+            ),
+            AreaSelection::Corridor {
+                name, buffer_km, ..
+            } => format!("{name} · ±{buffer_km:.1} km"),
+            AreaSelection::Polygon { points } => {
+                format!("{} · {:.0} km²", points.len(), b.area_km2())
+            }
+            AreaSelection::Circle { radius_km, .. } => format!("{radius_km:.0} km"),
+            AreaSelection::Composite { parts } => {
+                format!("{} · {:.0} km²", parts.len(), b.area_km2())
+            }
+            AreaSelection::AdminUnits {
+                names, buffer_km, ..
+            } => {
+                let listed = match names.len() {
+                    0 => "—".to_string(),
+                    1..=2 => names.join(", "),
+                    n => format!("{}, +{}", names[0], n - 1),
+                };
+                if *buffer_km > 0.0 {
+                    format!("{listed} · +{buffer_km:.1} km")
+                } else {
+                    listed
+                }
+            }
+        }
+    }
+
     /// The shape features must intersect, when the selection is not a rectangle.
     ///
     /// Takes the cache root because an administrative selection stores unit numbers
