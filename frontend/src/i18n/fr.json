@@ -337,5 +337,14 @@
   "track.length": "Longueur",
   "track.name": "Itinéraire",
   "track.partlyOutside": "Une partie de cet itinéraire est hors de la couverture swisstopo ; seule la partie suisse sera cartographiée.",
-  "track.points": "Points conservés"
+  "track.points": "Points conservés",
+  "content.raster": "Carte nationale en image",
+  "content.rasterHint": "Superpose la carte nationale imprimée sous forme d’image, pour que l’appareil montre le dessin des rochers et la typographie de la feuille papier. Fichier séparé dans Garmin/CustomMaps, il ne fait pas partie de la carte.",
+  "content.rasterPlan": "{tiles} tuiles ({cols} × {rows}) à {res} m par pixel, environ {size} et {seconds} s de téléchargement.",
+  "content.rasterWarning": "Pas encore vérifié sur un appareil. L’appareil n’affiche que 100 tuiles au total, toutes cartes personnelles confondues, soit environ 12 × 12 km à pleine netteté.",
+  "build.raster": "Carte nationale en image : {tiles} tuiles à {res} m par pixel, {size}.",
+  "install.rasterTarget": "Image copiée vers",
+  "install.rasterFolder": "Dossier de l’image",
+  "install.rasterUnavailable": "Aucune limite de cartes personnelles n’est connue pour cet appareil, l’image ne sera donc pas installée. La carte elle-même le sera.",
+  "install.rasterFailed": "La carte a été installée mais pas la carte nationale en image : {message}"
 }

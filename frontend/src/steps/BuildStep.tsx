@@ -225,6 +225,18 @@ export function BuildStep({
             </div>
           </dl>
           <p className="mono small">{result.gmapsupp}</p>
+          {/* The overlay is a second file, so it is reported as one rather than folded
+              into the figures above -- its bytes do not live in the .img. */}
+          {result.raster && (
+            <p className="muted small">
+              {t("build.raster", {
+                tiles: result.raster.tiles,
+                res: result.raster.mPerPx.toFixed(1),
+                size: formatBytes(result.raster.bytes),
+              })}{" "}
+              <span className="mono">{result.raster.kmz}</span>
+            </p>
+          )}
           {/* Named, because it is what lets a map on a device be traced back to the
               releases and tools that made it. */}
           {result.manifest && (

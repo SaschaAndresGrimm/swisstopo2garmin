@@ -69,6 +69,8 @@ export interface Recipe {
   slopeClasses: boolean;
   routing: boolean;
   addresses: boolean;
+  /** Also build a raster overlay of the paper map (FR-R1). A separate KMZ file. */
+  raster: boolean;
   labelLanguage: LabelLanguage;
   excludedLayers: string[];
 }
@@ -224,6 +226,12 @@ export const api = {
   startBuild: (recipe: Recipe) => invoke<string>("start_build", { recipe }),
   planInstall: (gmapsupp: string, mount: string, deviceId: string, mapName: string) =>
     invoke<import("./bindings").InstallPlan>("plan_install", { gmapsupp, mount, deviceId, mapName }),
+  previewRaster: (area: AreaSelection, deviceId: string) =>
+    invoke<import("./bindings").RasterPreview>("preview_raster", { area, deviceId }),
+  planRasterInstall: (kmz: string, mount: string, deviceId: string, mapName: string) =>
+    invoke<import("./bindings").InstallPlan>("plan_raster_install", { kmz, mount, deviceId, mapName }),
+  exportRaster: (kmz: string, dir: string, mapName: string) =>
+    invoke<string>("export_raster", { kmz, dir, mapName }),
   installMap: (plan: import("./bindings").InstallPlan, backup: boolean) =>
     invoke<string>("install_map", { plan, backup }),
   cacheStatus: () => invoke<CacheStatus>("cache_status"),

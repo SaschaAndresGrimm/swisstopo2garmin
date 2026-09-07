@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "../state/api";
+import { api, formatBytes } from "../state/api";
+import type { RasterPreview } from "../state/bindings";
 import { LayerPanel } from "../components/LayerPanel";
 import type {
   AreaSelection,
@@ -36,6 +37,8 @@ export function ContentStep({
   onRouting,
   addresses,
   onAddresses,
+  raster,
+  onRaster,
   onSlopeClasses,
   labelLanguage,
   onLabelLanguage,
@@ -61,6 +64,8 @@ export function ContentStep({
   onRouting: (v: boolean) => void;
   addresses: boolean;
   onAddresses: (v: boolean) => void;
+  raster: boolean;
+  onRaster: (v: boolean) => void;
   onSlopeClasses: (on: boolean) => void;
   labelLanguage: LabelLanguage;
   onLabelLanguage: (l: LabelLanguage) => void;
@@ -75,10 +80,29 @@ export function ContentStep({
 }) {
   const [presets, setPresets] = useState<PresetInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [rasterInfo, setRasterInfo] = useState<RasterPreview | null>(null);
 
   useEffect(() => {
     api.listPresets().then(setPresets).catch((e) => setError(String(e)));
   }, []);
+
+  // What an overlay would cost is worth knowing *before* a download of one tile per
+  // second, so the plan is previewed whenever the area changes -- and it is what tells
+  // the user their area is too large to raster at a useful resolution.
+  useEffect(() => {
+    if (!area) {
+      setRasterInfo(null);
+      return;
+    }
+    let live = true;
+    api
+      .previewRaster(area, deviceId)
+      .then((p) => live && setRasterInfo(p))
+      .catch(() => live && setRasterInfo(null));
+    return () => {
+      live = false;
+    };
+  }, [area, deviceId]);
 
   // Routing is a content choice, so the estimate on this screen has to include it --
   // it is 12 % of a typical map and the whole point of showing a budget is that it
@@ -240,6 +264,46 @@ export function ContentStep({
           <span>{t("content.addresses")}</span>
         </label>
         <p className="muted small">{t("content.addressesHint")}</p>
+      </div>
+
+      {/* Raster overlay of the paper map. Shown disabled *with the reason* when the
+          device profile states no Custom Map limits, following the same rule as a
+          preset whose data is missing: a user must be able to see that the feature
+          exists and what it needs. */}
+      <div className="field">
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={raster && (rasterInfo?.available ?? false)}
+            disabled={!rasterInfo?.available}
+            onChange={(e) => onRaster(e.target.checked)}
+          />
+          <span>{t("content.raster")}</span>
+        </label>
+        <p className="muted small">{t("content.rasterHint")}</p>
+        {rasterInfo && !rasterInfo.available && (
+          <p className="muted small">{rasterInfo.unavailableBecause}</p>
+        )}
+        {raster && rasterInfo?.available && (
+          <>
+            <p className="muted small">
+              {t("content.rasterPlan", {
+                tiles: rasterInfo.tiles,
+                cols: rasterInfo.cols,
+                rows: rasterInfo.rows,
+                res: rasterInfo.mPerPx.toFixed(1),
+                size: formatBytes(rasterInfo.approxBytes),
+                seconds: Math.round(rasterInfo.approxSeconds),
+              })}
+            </p>
+            {/* The planner's own notes, which say why the resolution is what it is --
+                including when it is too coarse to be worth having. */}
+            {rasterInfo.notes.map((n) => (
+              <p className="muted small" key={n}>{n}</p>
+            ))}
+            <p className="muted small">{t("content.rasterWarning")}</p>
+          </>
+        )}
       </div>
 
       <LayerPanel t={t} preset={preset} excluded={excluded} onExcluded={onExcluded} />

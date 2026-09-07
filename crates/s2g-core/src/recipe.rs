@@ -569,6 +569,17 @@ pub struct Recipe {
     /// points in a town.
     #[serde(default)]
     pub addresses: bool,
+    /// Also build a raster overlay of the swisstopo paper map (SPEC.md §8.5, FR-R1).
+    ///
+    /// A separate KMZ file rather than part of the `.img`, installed to
+    /// `Garmin/CustomMaps`. Off by default, and it does not affect the vector map at
+    /// all — so like `routing` and `addresses` it stays out of [`Recipe::cache_key`]
+    /// and out of the region key: turning it on must not invalidate a cached clip.
+    ///
+    /// Needs a device profile that states its Custom Map limits
+    /// ([`crate::devices::DeviceProfile::raster_limits`]). Unverified on hardware.
+    #[serde(default)]
+    pub raster: bool,
     /// Layer ids explicitly switched off in the layer panel (FR-51).
     #[serde(default)]
     pub excluded_layers: Vec<String>,
@@ -588,6 +599,7 @@ impl Recipe {
             slope_classes: false,
             routing: false,
             addresses: false,
+            raster: false,
             label_language: crate::names::LabelLanguage::Local,
             excluded_layers: Vec::new(),
         }

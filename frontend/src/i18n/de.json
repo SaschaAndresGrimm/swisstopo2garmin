@@ -337,5 +337,14 @@
   "track.length": "Länge",
   "track.name": "Route",
   "track.partlyOutside": "Ein Teil dieser Route liegt ausserhalb der swisstopo-Abdeckung; nur der Schweizer Teil wird abgebildet.",
-  "track.points": "Behaltene Punkte"
+  "track.points": "Behaltene Punkte",
+  "content.raster": "Landeskarte als Bild",
+  "content.rasterHint": "Legt die gedruckte Landeskarte als Bild über die Karte, sodass das Gerät Felszeichnung und Schrift wie auf dem Papierblatt zeigt. Eine separate Datei in Garmin/CustomMaps, nicht Teil der Karte.",
+  "content.rasterPlan": "{tiles} Kacheln ({cols} × {rows}) mit {res} m pro Pixel, rund {size} und {seconds} s Ladezeit.",
+  "content.rasterWarning": "Noch nicht auf einem Gerät geprüft. Das Gerät zeigt insgesamt nur 100 Kacheln über alle eigenen Karten — das reicht für etwa 12 × 12 km in voller Schärfe.",
+  "build.raster": "Landeskarte als Bild: {tiles} Kacheln mit {res} m pro Pixel, {size}.",
+  "install.rasterTarget": "Bildkarte nach",
+  "install.rasterFolder": "Ordner für die Bildkarte",
+  "install.rasterUnavailable": "Für dieses Gerät sind keine Grenzwerte für eigene Karten bekannt, daher wird die Bildkarte nicht installiert. Die Karte selbst schon.",
+  "install.rasterFailed": "Die Karte wurde installiert, die Landeskarte als Bild jedoch nicht: {message}"
 }

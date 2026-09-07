@@ -952,6 +952,79 @@ pub async fn find_places(name: String) -> IpcResult<Vec<PlaceMatch>> {
         .collect())
 }
 
+/// What a raster overlay would cost, before committing to the download (FR-R5).
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct RasterPreview {
+    /// False when the device profile states no Custom Map limits. The UI shows the
+    /// option disabled with `unavailableBecause` rather than hiding it.
+    pub available: bool,
+    pub unavailable_because: Option<String>,
+    pub tiles: usize,
+    pub cols: u32,
+    pub rows: u32,
+    /// Resolution the planner settled on, which may be coarser than the source's.
+    pub m_per_px: f64,
+    #[ts(type = "number")]
+    pub approx_bytes: u64,
+    /// Measured at ~0.8 s per tile against the live service; network-dependent, so it
+    /// is an order of magnitude rather than a promise.
+    pub approx_seconds: f64,
+    /// Why the resolution is what it is, including when it is too coarse to be useful.
+    pub notes: Vec<String>,
+}
+
+/// Plan a raster overlay without fetching anything.
+#[tauri::command]
+pub fn preview_raster(
+    area: s2g_core::recipe::AreaSelection,
+    device_id: String,
+) -> IpcResult<RasterPreview> {
+    let profiles = profiles()?;
+    let profile = profiles
+        .iter()
+        .find(|p| p.id == device_id)
+        .ok_or_else(|| format!("unknown device profile {device_id:?}"))?;
+
+    let unavailable = |why: String| RasterPreview {
+        available: false,
+        unavailable_because: Some(why),
+        tiles: 0,
+        cols: 0,
+        rows: 0,
+        m_per_px: 0.0,
+        approx_bytes: 0,
+        approx_seconds: 0.0,
+        notes: Vec::new(),
+    };
+
+    let Some(limits) = profile.raster_limits() else {
+        return Ok(unavailable(format!(
+            "No Custom Map limits are known for {}, so this app will not build an \
+             overlay for it.",
+            profile.display_name
+        )));
+    };
+
+    let plan =
+        match s2g_core::raster::plan(&area.bbox(), &limits, s2g_core::raster::NATIVE_M_PER_PX) {
+            Ok(p) => p,
+            Err(e) => return Ok(unavailable(e.to_string())),
+        };
+    Ok(RasterPreview {
+        available: true,
+        unavailable_because: None,
+        tiles: plan.tile_count(),
+        cols: plan.cols,
+        rows: plan.rows,
+        m_per_px: plan.m_per_px,
+        approx_bytes: plan.approx_bytes(),
+        approx_seconds: plan.tile_count() as f64 * 0.8,
+        notes: plan.notes.clone(),
+    })
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
 #[serde(rename_all = "camelCase")]
@@ -1789,9 +1862,24 @@ pub struct BuildFinished {
     pub warnings: Vec<String>,
     /// The manifest written beside the map (FR-71), when it could be written.
     pub manifest: Option<String>,
+    /// The raster overlay, when one was asked for and built (FR-R1). A separate
+    /// file installed to a separate folder, so the install step needs both paths.
+    pub raster: Option<RasterFinished>,
     /// How long the build actually took. Shown on completion, and what makes the next
     /// build's estimate credible.
     pub seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct RasterFinished {
+    pub kmz: String,
+    #[ts(type = "number")]
+    pub bytes: u64,
+    pub tiles: usize,
+    /// Ground resolution achieved, which the planner may have coarsened to fit.
+    pub m_per_px: f64,
 }
 
 /// Start a build. Progress arrives as `build:progress`, then `build:done` or
@@ -1895,6 +1983,12 @@ pub async fn start_build(
                         contour_lines: report.contour_lines,
                         has_dem: report.has_dem,
                         manifest: report.manifest.map(|p| p.display().to_string()),
+                        raster: report.raster.map(|r| RasterFinished {
+                            kmz: r.kmz.display().to_string(),
+                            bytes: r.bytes,
+                            tiles: r.tiles,
+                            m_per_px: r.m_per_px,
+                        }),
                         seconds: report.stage_seconds.iter().map(|(_, v)| *v).sum(),
                         warnings: report.warnings,
                     },
@@ -2023,6 +2117,54 @@ pub fn plan_install(
     })
 }
 
+/// Describe installing a raster overlay, which goes to a different folder (FR-R1).
+///
+/// A separate command rather than a flag on [`plan_install`] because the two differ in
+/// every field that matters: a different source file, a different target directory, and
+/// a device that may take the map but not the overlay.
+#[tauri::command]
+pub fn plan_raster_install(
+    kmz: String,
+    mount: String,
+    device_id: String,
+    map_name: String,
+) -> IpcResult<InstallPlan> {
+    let profiles = profiles()?;
+    let profile = profiles
+        .iter()
+        .find(|p| p.id == device_id)
+        .ok_or_else(|| format!("unknown device profile {device_id:?}"))?;
+    if profile.raster_limits().is_none() {
+        return Err(format!(
+            "{} has no known Custom Map limits, so a raster overlay cannot be installed \
+             on it",
+            profile.display_name
+        ));
+    }
+
+    let src = PathBuf::from(&kmz);
+    let bytes = std::fs::metadata(&src)
+        .map(|m| m.len())
+        .map_err(|e| e.to_string())?;
+    let filename = s2g_core::raster::kmz_filename(&map_name);
+    if devices::is_double_extension(&filename) {
+        return Err(format!("refusing to write {filename}: double extension"));
+    }
+    let dir = PathBuf::from(&mount).join(s2g_core::raster::CUSTOM_MAPS_DIR);
+    let target = dir.join(&filename);
+    // The overlay's own directory may not exist yet, so free space is asked of the
+    // volume's Garmin folder, which does.
+    let free = s2g_core::cache::available_bytes(&PathBuf::from(&mount).join("Garmin"));
+    Ok(InstallPlan {
+        source: kmz,
+        target: target.display().to_string(),
+        overwrites: target.exists(),
+        bytes,
+        free_bytes: free,
+        fits: free.map(|f| f > bytes).unwrap_or(true),
+    })
+}
+
 /// Where a map goes on a given device, in words (SPEC.md FR-83).
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "../../frontend/src/state/bindings.ts")]
@@ -2033,6 +2175,10 @@ pub struct InstallInstructions {
     pub filename: String,
     /// True when the device can hold several map sets, so the file name matters.
     pub multiple_maps: bool,
+    /// Where a raster overlay goes, when this device can take one. A separate folder
+    /// from the map itself, so a user copying by hand needs to be told both.
+    pub raster_folder: Option<String>,
+    pub raster_filename: Option<String>,
 }
 
 /// Textual install instructions for a device profile.
@@ -2048,10 +2194,13 @@ pub fn install_instructions(device_id: String, map_name: String) -> IpcResult<In
         .ok_or_else(|| format!("unknown device profile {device_id:?}"))?;
     // Whether an SD card is an option is a device fact no profile records, so it is
     // not claimed here (working agreement rule 3).
+    let takes_raster = profile.raster_limits().is_some();
     Ok(InstallInstructions {
         folders: profile.map_file.install_paths.clone(),
         filename: profile.output_filename(&map_name),
         multiple_maps: profile.map_file.supports_multiple_mapsets,
+        raster_folder: takes_raster.then(|| format!("/{}/", s2g_core::raster::CUSTOM_MAPS_DIR)),
+        raster_filename: takes_raster.then(|| s2g_core::raster::kmz_filename(&map_name)),
     })
 }
 
@@ -2094,6 +2243,27 @@ pub async fn export_map(
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
 
+    Ok(dst.display().to_string())
+}
+
+/// Copy a raster overlay to a folder the user chose (FR-R1, FR-83).
+#[tauri::command]
+pub async fn export_raster(kmz: String, dir: String, map_name: String) -> IpcResult<String> {
+    let filename = s2g_core::raster::kmz_filename(&map_name);
+    let dst = PathBuf::from(&dir).join(&filename);
+    let src = PathBuf::from(&kmz);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let tmp = dst.with_extension("kmz.part");
+    tokio::task::spawn_blocking({
+        let (src, tmp, dst) = (src.clone(), tmp.clone(), dst.clone());
+        move || -> std::io::Result<()> {
+            std::fs::copy(&src, &tmp)?;
+            std::fs::rename(&tmp, &dst)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     Ok(dst.display().to_string())
 }
 

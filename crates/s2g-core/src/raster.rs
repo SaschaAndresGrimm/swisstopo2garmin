@@ -1,4 +1,4 @@
-//! Garmin Custom Maps: a raster overlay of the swisstopo paper map (SPEC.md FR-CART9).
+//! Garmin Custom Maps: a raster overlay of the swisstopo paper map (SPEC.md §8.5, FR-R1..FR-R6).
 //!
 //! The vector map the rest of this crate builds is what a Garmin renders natively, and
 //! it is the right thing for routing and for a watch screen. What it cannot do is *look
@@ -9,7 +9,7 @@
 //! A Custom Map can, because it is the paper map: JPEG tiles cut from
 //! `ch.swisstopo.pixelkarte-farbe` and georeferenced in a KMZ.
 //!
-//! # Why the grid is planned in degrees and not in LV95
+//! # Why the grid is planned in degrees and not in LV95 (FR-R3)
 //!
 //! A KMZ `GroundOverlay` is georeferenced by a `LatLonBox` — four numbers, north, south,
 //! east and west, describing an axis-aligned box in WGS84. LV95 is an oblique Mercator
@@ -50,8 +50,33 @@ pub const DEFAULT_LAYER: &str = "ch.swisstopo.pixelkarte-farbe";
 
 pub const WMS_ENDPOINT: &str = "https://wms.geo.admin.ch/";
 
-/// Attribution carried inside the KMZ (SPEC.md FR-L1).
+/// Attribution carried inside the KMZ, not only in the app (FR-R6, FR-L1).
 pub const ATTRIBUTION: &str = "© swisstopo";
+
+/// Where a Custom Map goes on the device — a different directory from the `.img`, which
+/// is why installing an overlay is a second copy and not a variation on the first.
+///
+/// Not invented: both shipped profiles' `GarminDevice.xml` advertise this directory,
+/// which is how the project learned Edge devices have raster support at all
+/// (`devices/edge-840.json`).
+pub const CUSTOM_MAPS_DIR: &str = "Garmin/CustomMaps";
+
+/// Filesystem-safe name for a map's KMZ.
+///
+/// The device lists a Custom Map by the `<name>` inside the KML, not by its filename,
+/// so this only has to be safe on a device's FAT volume.
+pub fn kmz_filename(map_name: &str) -> String {
+    let slug: String = map_name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        "map.kmz".to_string()
+    } else {
+        format!("{slug}.kmz")
+    }
+}
 
 /// Native resolution of `pixelkarte-farbe` at 1:25 000, the scale the layer is drawn for.
 /// Asking for finer than the source only enlarges pixels.
@@ -200,7 +225,7 @@ impl RasterPlan {
 ///
 /// `wanted_m_per_px` is a ceiling on quality, not a promise: if the area is too large to
 /// cover at that resolution within `max_tiles`, the resolution is coarsened until it
-/// fits, and a note says so. That is the honest failure mode — the alternative, silently
+/// fits, and a note says so (FR-R5). That is the honest failure mode — the alternative, silently
 /// covering part of the area, would hand the user a map with a hole in it.
 pub fn plan(bbox: &BBox, limits: &RasterLimits, wanted_m_per_px: f64) -> Result<RasterPlan> {
     plan_layer(bbox, limits, wanted_m_per_px, DEFAULT_LAYER)
@@ -1085,5 +1110,25 @@ mod tests {
             "{:?}",
             report.warnings
         );
+    }
+
+    #[test]
+    fn a_kmz_filename_is_safe_on_a_device_filesystem() {
+        assert_eq!(kmz_filename("Grindelwald hiking"), "Grindelwald-hiking.kmz");
+        assert_eq!(kmz_filename("Val d'Hérens"), "Val-d-H-rens.kmz");
+        // Leading and trailing runs are trimmed rather than left as dashes, and a name
+        // with nothing usable in it still yields a valid filename.
+        assert_eq!(kmz_filename("  Zermatt  "), "Zermatt.kmz");
+        assert_eq!(kmz_filename("///"), "map.kmz");
+        assert_eq!(kmz_filename(""), "map.kmz");
+        for name in ["Grindelwald hiking", "Val d'Hérens", "///", ""] {
+            let f = kmz_filename(name);
+            assert!(f.is_ascii() && f.ends_with(".kmz"), "{f}");
+            assert!(
+                !f.contains('/') && !f.contains('\\') && !f.contains(':'),
+                "{f} is not safe as a path component"
+            );
+            assert_eq!(f.matches('.').count(), 1, "{f} has a double extension");
+        }
     }
 }

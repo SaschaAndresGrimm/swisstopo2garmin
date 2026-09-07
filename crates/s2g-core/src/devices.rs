@@ -95,6 +95,15 @@ pub struct Rendering {
     /// The device advertises a `Garmin/BirdsEye` directory.
     #[serde(default)]
     pub supports_birds_eye_dir: bool,
+    /// Custom Map (KMZ) tiles the device will show, counted across *all* KMZ files on
+    /// it rather than per file. `None` means unknown, which is not the same claim as a
+    /// number: a profile that does not know its limit must not assert one
+    /// (working agreement rule 3).
+    #[serde(default)]
+    pub max_custom_map_tiles: Option<usize>,
+    /// Pixels per Custom Map tile before the device re-samples it.
+    #[serde(default)]
+    pub max_custom_map_pixels_per_tile: Option<u64>,
     #[serde(default)]
     pub displays_street_names: bool,
     pub screen_class: ScreenClass,
@@ -171,6 +180,23 @@ impl DeviceProfile {
     /// Hard ceiling for a single file, after the safety margin.
     pub fn effective_max_img_bytes(&self) -> u64 {
         (self.map_file.max_img_bytes as f64 * self.confidence.level.safety_factor()) as u64
+    }
+
+    /// What a raster overlay may use on this device, or `None` if it cannot take one.
+    ///
+    /// Both halves must be present. A device that advertises `Garmin/CustomMaps` but
+    /// whose tile limit is unknown returns `None` rather than a default, because the
+    /// cost of guessing high is a map the device silently truncates — the user sees
+    /// missing tiles with nothing to explain them.
+    pub fn raster_limits(&self) -> Option<crate::raster::RasterLimits> {
+        if !self.rendering.supports_custom_maps_dir {
+            return None;
+        }
+        Some(crate::raster::RasterLimits {
+            max_tiles: self.rendering.max_custom_map_tiles?,
+            max_pixels_per_tile: self.rendering.max_custom_map_pixels_per_tile?,
+            max_bytes_per_tile: crate::raster::DEFAULT_MAX_BYTES_PER_TILE,
+        })
     }
 
     pub fn is_wrist(&self) -> bool {

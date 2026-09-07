@@ -69,9 +69,12 @@ pub fn run() {
             ipc::area_outline,
             ipc::edit_area,
             ipc::start_build,
+            ipc::preview_raster,
             ipc::plan_install,
+            ipc::plan_raster_install,
             ipc::install_map,
             ipc::export_map,
+            ipc::export_raster,
             ipc::install_instructions,
             ipc::about,
         ])

@@ -225,3 +225,46 @@ fn settings_without_overrides_still_load() {
     assert!(s.device_overrides.is_empty());
     assert_eq!(s.data_root.unwrap().to_string_lossy(), "/Volumes/Maps");
 }
+
+/// A raster overlay is only offered when the profile actually states both limits.
+/// Working agreement rule 3: a profile that does not know a limit must not assert one,
+/// and the cost of guessing high here is a device that silently drops tiles.
+#[test]
+fn raster_limits_are_stated_or_absent_never_guessed() {
+    let profiles = s2g_core::devices::load_profiles(std::path::Path::new("../../devices")).unwrap();
+    assert!(!profiles.is_empty());
+    for p in &profiles {
+        match p.raster_limits() {
+            Some(l) => {
+                assert!(
+                    p.rendering.supports_custom_maps_dir,
+                    "{}: offers raster without a CustomMaps directory",
+                    p.id
+                );
+                assert!(l.max_tiles > 0 && l.max_pixels_per_tile > 0, "{}", p.id);
+                // Rule 3: an unpublished number needs a source list to stand on.
+                assert!(
+                    !p.confidence.sources.is_empty(),
+                    "{}: states raster limits with no source",
+                    p.id
+                );
+                assert!(
+                    p.confidence.notes.contains("Custom Map raster limits"),
+                    "{}: raster limits are not accounted for in the notes",
+                    p.id
+                );
+            }
+            None => assert!(
+                p.rendering.max_custom_map_tiles.is_none()
+                    || p.rendering.max_custom_map_pixels_per_tile.is_none()
+                    || !p.rendering.supports_custom_maps_dir,
+                "{}: has both limits but reports none",
+                p.id
+            ),
+        }
+    }
+    assert!(
+        profiles.iter().any(|p| p.raster_limits().is_some()),
+        "no profile can take a raster overlay, so the feature is unreachable"
+    );
+}

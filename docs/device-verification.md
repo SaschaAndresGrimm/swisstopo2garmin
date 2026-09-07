@@ -243,6 +243,43 @@ If nothing is searchable at all, the likely cause is that `addr:street` and the 
 `mkgmap:street` did not match — which is invisible in the map and would mean the 150 m
 association never happened.
 
+### C.9 Raster overlay (paper map)
+
+**This is the section the whole feature rests on.** Everything else about the overlay is
+verified — the KMZ is structurally valid, the georeferencing is checked against known
+coordinates, the tile budget is respected — but *whether a device draws it at all* is
+unknown, and SPEC.md §1.4 spent the project believing it would not. Both profiles
+advertise a `Garmin/CustomMaps` directory; that is evidence, not proof.
+
+Build a small map with **Paper-map overlay** ticked ([docs/raster.md](raster.md)) — a
+2 km radius is 16 tiles and downloads in about 15 s — install it, and check in order:
+
+1. **Does the device list it?** Look for a custom map entry in the map manager. If the
+   device does not acknowledge the file, nothing below matters and the answer to §8.1's
+   open question is "no". Record that; it is a real result and it retires the feature.
+2. **Does it draw?** Pan to the area and zoom in. Custom Maps are reported to render
+   only in a narrow zoom band, so sweep the whole range before concluding it is blank.
+3. **Is it in the right place?** This is the one that would be invisible in testing and
+   dangerous in use. Compare a distinctive feature — a road junction, a building corner
+   — against the vector map underneath. A systematic offset means the `LatLonBox`
+   georeferencing is wrong; the likely cause would be the axis-order or projection
+   assumptions in FR-R3, and the offset's direction says which.
+4. **Do the tiles line up?** Look along the seams between tiles for gaps or overlaps.
+5. **Is it legible?** 1.25 m/px is the source's native resolution. If the device
+   re-samples it to mush, record the tile size at which it stops doing so — that is a
+   `measured` value for `maxCustomMapPixelsPerTile`.
+6. **How many tiles before it stops?** The 100-tile figure is community-sourced and
+   applies across all custom maps on the device. Install overlays until one fails to
+   appear, and record the count. This is the single most valuable number to measure,
+   because it sets the largest area the feature can cover.
+7. **Does it slow the device down?** Pan and zoom with the overlay on and off. An
+   overlay that makes the map unusable is worse than no overlay.
+
+Whatever the outcome, update `maxCustomMapTiles` and `maxCustomMapPixelsPerTile` in the
+profile and set `confidence.level` accordingly — including setting them to `null` if the
+device turns out not to support overlays at all, which is what FR-R4 requires so that
+the app then offers no overlay rather than a broken one.
+
 ---
 
 ## D. Recording results
@@ -320,3 +357,8 @@ six files it refers to are built and waiting in `out/device-test/`.
 
 VAL-4 — the whole-Switzerland multi-map-set output on a real device — has not been
 attempted at all.
+
+The raster overlay (C.9) is the largest single unknown in the project. It is fully built
+and its output is verified as a *file*, but the question it exists to answer — do these
+devices render Custom Maps? — has never been put to a device. Until it is, the feature
+should be described as built and unproven, and it stays off by default.

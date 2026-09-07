@@ -47,9 +47,13 @@ One application. Pick your device, pick your area, press Build, get a file that 
   scoping decision: deriving a clean routing graph from swissTLM3D topology is the single
   largest risk in the project and is deferred to v2. Devices can still follow a loaded
   course and display off-course warnings against a non-routable map.
-- Raster maps (BirdsEye `.jnx`, Custom Maps `.kmz`). Garmin removed BirdsEye support on
-  fēnix 7 / epix, and `.kmz` Custom Maps are not supported on Edge or fēnix. Vector `.img`
-  is the only format that works across the whole target device range.
+- BirdsEye raster maps (`.jnx`). Garmin removed BirdsEye support on fēnix 7 / epix.
+- Custom Map raster overlays (`.kmz`) were also out of scope for v1, on the belief that
+  Edge and fēnix do not support them. **That belief was wrong about the device and right
+  about the risk:** both shipped profiles advertise a `Garmin/CustomMaps` directory
+  (§8.1), so overlays are now *built* — see §8.5, FR-R1…FR-R6 — but whether a device
+  renders one is still unverified. Vector `.img` remains the only format proven to work
+  across the whole target device range, and is the only one a map's usefulness depends on.
 - Address search / geocoding.
 - Countries other than Switzerland and Liechtenstein (the swissTLM3D coverage area).
 - Mobile apps, web service, or hosted build farm.
@@ -690,6 +694,12 @@ and fēnix devices support neither BirdsEye `.jnx` nor Custom Map `.kmz` (§1.4)
 directory existing does not prove KMZ overlays render or are usable at the required
 zoom levels, but it should be tested rather than assumed away.
 
+**It has now been built rather than assumed away** (§8.5). What that settled and what it
+did not: the app produces a structurally valid KMZ, and the tile budget turns out to
+allow the paper map at its own native resolution over an area the size of a day's
+walking. Whether an Edge 840 or a fēnix 5 Plus *draws* it is still unknown, and cannot
+be known without the hardware (§13.5 C.9).
+
 So the requirement is operationalised as: **match swisstopo's palette exactly, match its
 symbol language as closely as the TYP model allows, and use every device capability that
 moves toward the raster look** — above all DEM relief shading (FR-CART8).
@@ -788,6 +798,43 @@ moves toward the raster look** — above all DEM relief shading (FR-CART8).
 - **FR-CART7** A visual regression harness: render a fixed set of reference extents to
   images and diff against committed golden images, so cartography changes are reviewable
   (§13.4).
+
+### 8.5 Raster overlay — the paper map itself
+
+The requirement in §8.1 is fidelity to the printed Landeskarte, and §8.3 operationalises
+it as "as close as the TYP model allows". A Custom Map overlay sidesteps the model
+entirely: it *is* the paper map, as JPEG tiles georeferenced in a KMZ that the device
+draws over the vector map.
+
+This is an addition to the vector map and never a replacement for it. The overlay cannot
+be searched, cannot be routed along, and renders only in a limited zoom band; the vector
+map is better in every respect except literal appearance. So it is off by default, and a
+failure to build one must not fail a build that has already produced a working map.
+
+- **FR-R1** The overlay is a **separate `.kmz` file** installed to `Garmin/CustomMaps`,
+  not part of the `.img`. Both paths must be shown before either is written.
+- **FR-R2** Tiles come from `ch.swisstopo.pixelkarte-farbe` via the WMS at
+  `wms.geo.admin.ch`, the same service as the in-app map picker (§3.4), so the map the
+  user chose an area on is the map they get.
+- **FR-R3** The tile grid is planned **in WGS84 degrees**, not LV95. A KMZ
+  `GroundOverlay` is georeferenced by an axis-aligned `LatLonBox`, and LV95 is an oblique
+  Mercator projection whose rectangles are not lat/lon rectangles — planning in LV95
+  would misplace the imagery, by more at the edges of the country than the middle.
+- **FR-R4** Every device limit the overlay respects is recorded in the device profile
+  with a confidence level like any other (§5.4). The figures used are **community**, not
+  vendor: 100 tiles across all custom maps on the device and 1 megapixel per tile.
+  Garmin publishes neither. A profile that does not state both must be offered no
+  overlay rather than a guessed one.
+- **FR-R5** The planner must **coarsen resolution to fit the tile budget and say that it
+  did**, and must say when the result carries less detail than the vector map underneath.
+  Silently covering part of the area, or handing over a blurry map without comment, are
+  both worse than a refusal.
+- **FR-R6** The overlay carries `© swisstopo` inside the KMZ, not only in the app
+  (FR-L1).
+
+Measured rather than assumed (`docs/raster.md`): 100 tiles at 1 megapixel cover about
+**12 × 12 km at the source's native 1.25 m/px** — a day's walking at full sharpness — and
+a full overlay is roughly 55 MB, so the tile count binds and the byte size does not.
 
 ### 8.4 Prior art to draw on
 
@@ -1074,7 +1121,7 @@ across releases to catch regressions.
 | v2 | Address & POI search | swissNAMES3D-driven searchable index on device |
 | **v1** | **Ski touring (skimo) preset** | **Implemented.** SAC ski routes with the skiable / carrying / caution distinction, snowshoe and winter hiking trails, and swissTLM3D lifts and cableways. |
 | v2 | Cycle routes | `ch.astra.veloland` and `ch.astra.mountainbikeland`, plus `ch.astra.wanderland` for official hiking route numbers. Needs a shapefile reader: these publish no GeoPackage, and swissTLM3D contains no cycle data at all (docs/m0-findings.md §4.19). |
-| v2 | Raster overlay experiment | Both the Edge 840 and fēnix 5 Plus advertise `Garmin/CustomMaps`. Deferred past v1 by decision: Custom Maps are capped near 100 tiles of 1 MP, render only in a narrow zoom band, and support neither search nor routing, so the vector map is better in every respect except literal appearance. |
+| **v1** | **Raster overlay (paper map)** | **Implemented, unverified on hardware** (§8.5, FR-R1…FR-R6). The experiment was run: the caps are real — 100 tiles of 1 MP, community-sourced — but they allow the paper map at its native 1.25 m/px over 12 × 12 km, which is a day's walking. Still renders only in a narrow zoom band and supports neither search nor routing, so it is an addition to the vector map and off by default. Whether a device draws it needs §13.5 C.9. |
 | v3 | Ski touring, extended | Slope-angle classification derived from swissALTI3D, avalanche terrain shading |
 | v3 | Hillshade | Shaded-relief-derived features within Garmin's vector constraints |
 | v3 | CLI | Headless build from a recipe file, for scripting and CI |

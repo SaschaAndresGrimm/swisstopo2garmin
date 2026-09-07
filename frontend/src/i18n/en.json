@@ -337,5 +337,14 @@
   "track.length": "Length",
   "track.name": "Route",
   "track.partlyOutside": "Part of this route lies outside the swisstopo coverage area; only the Swiss part will be mapped.",
-  "track.points": "Points kept"
+  "track.points": "Points kept",
+  "content.raster": "Paper-map overlay",
+  "content.rasterHint": "Adds the swisstopo paper map itself as a picture laid over the map, so the device shows the rock drawing and the typography you know from the printed sheet. A separate file in Garmin/CustomMaps, not part of the map.",
+  "content.rasterPlan": "{tiles} tiles ({cols} × {rows}) at {res} m per pixel, about {size} and {seconds} s to download.",
+  "content.rasterWarning": "Not yet verified on a device. The overlay is limited to 100 tiles across all custom maps on the device, which covers about 12 × 12 km at full sharpness.",
+  "build.raster": "Paper-map overlay: {tiles} tiles at {res} m per pixel, {size}.",
+  "install.rasterTarget": "Overlay goes to",
+  "install.rasterFolder": "Overlay folder",
+  "install.rasterUnavailable": "This device has no known custom-map limits, so the overlay will not be installed. The map itself will be.",
+  "install.rasterFailed": "The map was installed but the paper-map overlay was not: {message}"
 }

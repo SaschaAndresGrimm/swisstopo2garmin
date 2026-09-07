@@ -105,7 +105,12 @@ another drive before the first download.
 - **Address search is built but unverified**, and off by default. It needs a separate
   137 MB download — swissTLM3D has street names and no house numbers, so the house numbers
   come from the official address register ([docs/addresses.md](docs/addresses.md)).
-- **No raster/paper-map view**, deferred past v1.
+- **The paper-map overlay is built but has never been drawn by a device.** You can add
+  the swisstopo paper map as a picture laid over the map, and it is **off by default**
+  for a stronger reason than the other two: it is unknown whether Edge and fēnix devices
+  render custom maps at all. They advertise the folder for them, which is why this was
+  worth building, but that is evidence and not proof. Within the 100-tile limit it covers
+  about 12 × 12 km at the printed map's own resolution ([docs/raster.md](docs/raster.md)).
 - **Not verified on hardware since Milestone 6.** Maps render correctly on an Edge 840
   (firmware 3133) and a fēnix 5 Plus (firmware 1930), but the winter colours, slope
   classes, hut symbols, transit stops and night palette have never been on a device.
@@ -241,6 +246,8 @@ From [CLAUDE.md](CLAUDE.md), and they are load-bearing:
   costs, and the one assumption that was checked
 - **[docs/addresses.md](docs/addresses.md)** — where house numbers come from, and how
   they reach the device's search index
+- **[docs/raster.md](docs/raster.md)** — the paper-map overlay: what the tile limits
+  actually allow, and the two ways the map service fails silently
 - **[docs/performance.md](docs/performance.md)** — what is measured, and what is not
 - **[docs/release.md](docs/release.md)** — how a release is built, signed and documented
 - **[docs/accessibility.md](docs/accessibility.md)**,

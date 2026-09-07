@@ -113,6 +113,11 @@ export type BuildFinished = { taskId: string, gmapsupp: string, bytes: number, t
  */
 manifest: string | null, 
 /**
+ * The raster overlay, when one was asked for and built (FR-R1). A separate
+ * file installed to a separate folder, so the install step needs both paths.
+ */
+raster: RasterFinished | null, 
+/**
  * How long the build actually took. Shown on completion, and what makes the next
  * build's estimate credible.
  */
@@ -200,7 +205,12 @@ folders: Array<string>, filename: string,
 /**
  * True when the device can hold several map sets, so the file name matters.
  */
-multipleMaps: boolean, };
+multipleMaps: boolean, 
+/**
+ * Where a raster overlay goes, when this device can take one. A separate folder
+ * from the map itself, so a user copying by hand needs to be told both.
+ */
+rasterFolder: string | null, rasterFilename: string | null, };
 
 export type InstallPlan = { source: string, target: string, 
 /**
@@ -255,6 +265,35 @@ dataReady: boolean,
  * What is missing, for the disabled-with-a-reason UI (FR-51).
  */
 missing: Array<string>, };
+
+export type RasterFinished = { kmz: string, bytes: number, tiles: number, 
+/**
+ * Ground resolution achieved, which the planner may have coarsened to fit.
+ */
+mPerPx: number, };
+
+/**
+ * What a raster overlay would cost, before committing to the download (FR-R5).
+ */
+export type RasterPreview = { 
+/**
+ * False when the device profile states no Custom Map limits. The UI shows the
+ * option disabled with `unavailableBecause` rather than hiding it.
+ */
+available: boolean, unavailableBecause: string | null, tiles: number, cols: number, rows: number, 
+/**
+ * Resolution the planner settled on, which may be coarser than the source's.
+ */
+mPerPx: number, approxBytes: number, 
+/**
+ * Measured at ~0.8 s per tile against the live service; network-dependent, so it
+ * is an order of magnitude rather than a promise.
+ */
+approxSeconds: number, 
+/**
+ * Why the resolution is what it is, including when it is too coarse to be useful.
+ */
+notes: Array<string>, };
 
 export type ReleaseInfo = { collection: string, item: string, datetime: string | null, asset: string, href: string, 
 /**

@@ -184,6 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         slope_classes: arg("--slope").is_some() || std::env::args().any(|a| a == "--slope"),
         routing: std::env::args().any(|a| a == "--route"),
         addresses: std::env::args().any(|a| a == "--addresses"),
+        raster: std::env::args().any(|a| a == "--raster"),
         excluded_layers: excluded,
         // `--name` overrides the default, because the map's name is what the device's
         // map manager lists and a test set of six maps of one place needs six names.
@@ -257,6 +258,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "relief       : {}",
         if report.has_dem { "yes" } else { "no" }
     );
+    match &report.raster {
+        Some(r) => println!(
+            "raster       : {} ({} tiles at {:.2} m/px, {} B)",
+            r.kmz.display(),
+            r.tiles,
+            r.m_per_px,
+            r.bytes
+        ),
+        None => println!("raster       : no"),
+    }
     println!("family id    : {}", report.family_id);
     for w in &report.warnings {
         println!("warning      : {w}");

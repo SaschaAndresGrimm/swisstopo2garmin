@@ -337,5 +337,14 @@
   "track.length": "Lunghezza",
   "track.name": "Itinerario",
   "track.partlyOutside": "Parte di questo itinerario è fuori dalla copertura swisstopo; sarà mappata solo la parte svizzera.",
-  "track.points": "Punti mantenuti"
+  "track.points": "Punti mantenuti",
+  "content.raster": "Carta nazionale come immagine",
+  "content.rasterHint": "Sovrappone la carta nazionale stampata come immagine, così il dispositivo mostra il disegno delle rocce e i caratteri del foglio di carta. File separato in Garmin/CustomMaps, non fa parte della mappa.",
+  "content.rasterPlan": "{tiles} tasselli ({cols} × {rows}) a {res} m per pixel, circa {size} e {seconds} s di download.",
+  "content.rasterWarning": "Non ancora verificato su un dispositivo. Il dispositivo mostra in tutto solo 100 tasselli fra tutte le carte personali, cioè circa 12 × 12 km alla massima nitidezza.",
+  "build.raster": "Carta nazionale come immagine: {tiles} tasselli a {res} m per pixel, {size}.",
+  "install.rasterTarget": "Immagine copiata in",
+  "install.rasterFolder": "Cartella dell’immagine",
+  "install.rasterUnavailable": "Per questo dispositivo non sono noti limiti per le carte personali, quindi l’immagine non verrà installata. La mappa sì.",
+  "install.rasterFailed": "La mappa è stata installata ma non la carta nazionale come immagine: {message}"
 }

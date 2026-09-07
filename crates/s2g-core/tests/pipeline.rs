@@ -122,9 +122,12 @@ fn a_recipe_round_trips_through_json() {
 fn stages_are_ordered_and_labelled() {
     use s2g_core::pipeline::Stage;
     let all = Stage::all();
-    assert_eq!(all.len(), 7);
+    assert_eq!(all.len(), 8);
     assert_eq!(all[0], Stage::Extract);
-    assert_eq!(*all.last().unwrap(), Stage::Verify);
+    // Raster is last because it runs after verification: the .img is the deliverable,
+    // and a failed overlay must not fail a build that already produced a correct map.
+    assert_eq!(*all.last().unwrap(), Stage::Raster);
+    assert_eq!(all[all.len() - 2], Stage::Verify);
     for s in all {
         assert!(!s.label().is_empty());
     }

@@ -36,6 +36,9 @@ pub enum Stage {
     Split,
     Compile,
     Verify,
+    /// Only runs when the recipe asks for a raster overlay; a skipped stage is normal
+    /// here, as it already is for `Relief`.
+    Raster,
 }
 
 impl Stage {
@@ -48,6 +51,7 @@ impl Stage {
             Stage::Split,
             Stage::Compile,
             Stage::Verify,
+            Stage::Raster,
         ]
     }
     pub fn label(&self) -> &'static str {
@@ -59,6 +63,7 @@ impl Stage {
             Stage::Split => "Splitting into map tiles",
             Stage::Compile => "Compiling the Garmin map",
             Stage::Verify => "Verifying the result",
+            Stage::Raster => "Fetching the paper map overlay",
         }
     }
 }
@@ -101,6 +106,9 @@ pub struct BuildReport {
     pub manifest: Option<PathBuf>,
     /// Deterministic identity, so the same recipe keeps its place on the device.
     pub family_id: u16,
+    /// The raster overlay, when the recipe asked for one and it succeeded (FR-R1).
+    /// A separate file from the `.img`, installed to a different directory.
+    pub raster: Option<crate::raster::RasterReport>,
     /// Seconds spent in each stage, in the order they ran. Feeds the time estimate
     /// shown during the next build (FR-71).
     pub stage_seconds: Vec<(Stage, f64)>,
@@ -897,6 +905,66 @@ pub async fn build(
         return Err(Error::Zip(device.problems.join("; ")));
     }
 
+    // ---- raster overlay (FR-R1, FR-R5) -----------------------------------
+    // A separate KMZ, not part of the .img. Runs after verification because the vector
+    // map is the deliverable: a raster failure downgrades to a warning rather than
+    // failing a build that has already produced a correct map. The user gets told what
+    // they did not get, which is the honest outcome (working agreement rule 8).
+    let mut raster_report = None;
+    if recipe.raster {
+        match profile.raster_limits() {
+            None => warnings.push(format!(
+                "{} has no known Custom Map limits, so the paper-map overlay was skipped",
+                profile.display_name
+            )),
+            Some(limits) => {
+                on_stage(StageUpdate {
+                    stage: Stage::Raster,
+                    fraction: Some(0.0),
+                    detail: "planning tiles".into(),
+                });
+                let kmz = img_dir.join(crate::raster::kmz_filename(&recipe.name));
+                match crate::raster::plan(&bbox, &limits, crate::raster::NATIVE_M_PER_PX) {
+                    Err(e) => warnings.push(format!("could not plan the paper-map overlay: {e}")),
+                    Ok(plan) => {
+                        // The planner's notes are the user's business: they say why the
+                        // resolution is what it is, including when it is too coarse to
+                        // be worth having.
+                        warnings.extend(plan.notes.iter().cloned());
+                        let total = plan.tile_count();
+                        let res = crate::raster::build_kmz(
+                            ctx.http,
+                            &plan,
+                            &recipe.name,
+                            &kmz,
+                            cancel,
+                            |done, _| {
+                                on_stage(StageUpdate {
+                                    stage: Stage::Raster,
+                                    fraction: Some(done as f64 / total.max(1) as f64),
+                                    detail: format!("tile {done} of {total}"),
+                                });
+                            },
+                        )
+                        .await;
+                        match res {
+                            // A cancel is the user's decision and must stop the build,
+                            // not be filed as a warning about the overlay.
+                            Err(Error::Cancelled) => return Err(Error::Cancelled),
+                            Err(e) => {
+                                warnings.push(format!("could not build the paper-map overlay: {e}"))
+                            }
+                            Ok(r) => {
+                                warnings.extend(r.warnings.iter().cloned());
+                                raster_report = Some(r);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // The last stage is still open; close it so verify is not always reported as zero.
     if let Some((stage, at)) = current.lock().expect("stage clock poisoned").take() {
         timings
@@ -982,6 +1050,7 @@ pub async fn build(
 
     Ok(BuildReport {
         manifest: manifest_path,
+        raster: raster_report,
         gmapsupp: out.gmapsupp,
         bytes: out.bytes,
         tile_count: out.tile_count,

@@ -33,6 +33,12 @@ export function InstallStep({
   const [devices, setDevices] = useState<ConnectedDevice[]>([]);
   const [usb, setUsb] = useState<UsbDeviceInfo[]>([]);
   const [plan, setPlan] = useState<InstallPlan | null>(null);
+  // The overlay is a second file in a second folder, so it is a second plan. Both are
+  // shown before either is written -- one confirmation covering two writes the user can
+  // see is the module's rule; a hidden second write would not be.
+  const [rasterPlan, setRasterPlan] = useState<InstallPlan | null>(null);
+  const [rasterInstalled, setRasterInstalled] = useState<string | null>(null);
+  const [rasterError, setRasterError] = useState<string | null>(null);
   const [backup, setBackup] = useState(true);
   const [installed, setInstalled] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
@@ -47,6 +53,7 @@ export function InstallStep({
       setDevices(found);
       setUsb(onBus);
       setPlan(null);
+      setRasterPlan(null);
     } catch (e) {
       setError(String(e));
     }
@@ -68,6 +75,15 @@ export function InstallStep({
       const dir = await open({ directory: true, multiple: false, title: t("install.exportTitle") });
       if (typeof dir !== "string") return;
       setExported(await api.exportMap(build.gmapsupp, dir, deviceId, mapName));
+      // Exported to the same folder the user picked; on a device that is the Garmin
+      // folder, and the overlay's own subfolder is named in the instructions below.
+      if (build.raster) {
+        try {
+          await api.exportRaster(build.raster.kmz, dir, mapName);
+        } catch (e) {
+          setRasterError(String(e));
+        }
+      }
     } catch (e) {
       setError(String(e));
     }
@@ -77,6 +93,18 @@ export function InstallStep({
     setError(null);
     try {
       setPlan(await api.planInstall(build.gmapsupp, mount, deviceId, mapName));
+      // A device that takes the map but not the overlay is a real case, so a failure
+      // here leaves the map's plan standing and is reported on its own.
+      if (build.raster) {
+        try {
+          setRasterPlan(
+            await api.planRasterInstall(build.raster.kmz, mount, deviceId, mapName),
+          );
+        } catch (e) {
+          setRasterPlan(null);
+          setRasterError(String(e));
+        }
+      }
     } catch (e) {
       setError(String(e));
     }
@@ -88,6 +116,15 @@ export function InstallStep({
     setError(null);
     try {
       setInstalled(await api.installMap(plan, backup));
+      // The map is on the device now. A failed overlay must not read as a failed
+      // install, so it is reported separately rather than thrown.
+      if (rasterPlan) {
+        try {
+          setRasterInstalled(await api.installMap(rasterPlan, backup));
+        } catch (e) {
+          setRasterError(String(e));
+        }
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -152,6 +189,12 @@ export function InstallStep({
               <dt>{t("install.target")}</dt>
               <dd className="mono small">{plan.target}</dd>
             </div>
+            {rasterPlan && (
+              <div>
+                <dt>{t("install.rasterTarget")}</dt>
+                <dd className="mono small">{rasterPlan.target}</dd>
+              </div>
+            )}
             <div>
               <dt>{t("install.free")}</dt>
               <dd className={plan.fits ? "" : "error"}>
@@ -159,6 +202,9 @@ export function InstallStep({
               </dd>
             </div>
           </dl>
+          {build.raster && !rasterPlan && (
+            <p className="small">{t("install.rasterUnavailable")}</p>
+          )}
           {plan.overwrites && (
             <>
               <p className="error small">{t("install.willReplace")}</p>
@@ -193,9 +239,12 @@ export function InstallStep({
         <div className="notice">
           <strong>{t("install.done")}</strong>
           <p className="mono small">{installed}</p>
+          {rasterInstalled && <p className="mono small">{rasterInstalled}</p>}
           <p className="small">{t("install.eject")}</p>
         </div>
       )}
+
+      {rasterError && <p className="error small">{t("install.rasterFailed", { message: rasterError })}</p>}
 
       {/* The escape hatch, offered always rather than only when detection fails. */}
       <div className="notice">
@@ -211,6 +260,15 @@ export function InstallStep({
               <dt>{t("install.filename")}</dt>
               <dd className="mono small">{howTo.filename}</dd>
             </div>
+            {build.raster && howTo.rasterFolder && (
+              <div>
+                <dt>{t("install.rasterFolder")}</dt>
+                <dd className="mono small">
+                  {howTo.rasterFolder}
+                  {howTo.rasterFilename}
+                </dd>
+              </div>
+            )}
             <div>
               <dt>{t("install.multiple")}</dt>
               <dd>{howTo.multipleMaps ? t("common.yes") : t("common.no")}</dd>
