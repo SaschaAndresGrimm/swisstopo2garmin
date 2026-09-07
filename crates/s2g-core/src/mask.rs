@@ -229,6 +229,13 @@ pub struct PolygonMask {
     /// Per-cell verdict for edge-free cells: 0 unknown, 1 inside, 2 outside. Atomic so
     /// the mask stays `Sync`, which the build future requires.
     verdict: Vec<std::sync::atomic::AtomicU8>,
+    /// Ray casts actually performed, i.e. cache misses.
+    ///
+    /// The point of the cache is to avoid these, so counting them is how to assert it
+    /// works. The test used to time two passes and require the second to be twice as
+    /// fast, which is a coin toss on a shared CI runner -- and it failed on one. One
+    /// relaxed increment, on the miss path, which is the expensive path anyway.
+    ray_casts: std::sync::atomic::AtomicU64,
 }
 
 impl PolygonMask {
@@ -298,6 +305,7 @@ impl PolygonMask {
             grid,
             edges,
             verdict,
+            ray_casts: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -318,6 +326,7 @@ impl PolygonMask {
             }
         }
 
+        self.ray_casts.fetch_add(1, Ordering::Relaxed);
         let answer = self
             .grid
             .at(cx, cy)
@@ -333,6 +342,15 @@ impl PolygonMask {
 
     pub fn bbox(&self) -> BBox {
         self.bbox
+    }
+
+    /// How many point-in-polygon tests this mask has actually run.
+    ///
+    /// Every call to `contains` that the cache answers costs a load and nothing else, so
+    /// this is the mask's real work. Exposed for the cache test, and useful when a build
+    /// is slower than the area suggests it should be.
+    pub fn ray_casts(&self) -> u64 {
+        self.ray_casts.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -754,7 +772,12 @@ mod cache_tests {
         assert!(checked > 900, "only {checked} points checked");
     }
 
-    /// The second pass over the same points must be much faster than the first.
+    /// The second pass over the same points must do almost no work.
+    ///
+    /// Asserted by counting ray casts rather than by timing two passes. The timing
+    /// version required the warm pass to be twice as fast, which is a coin toss on a
+    /// shared runner -- it passed on three CI platforms and failed on the fourth. What
+    /// the cache promises is *avoided work*, and that is exactly countable.
     #[test]
     fn caching_actually_saves_work_on_a_dense_polygon() {
         // A circle approximated by many segments, like a real boundary.
@@ -770,12 +793,14 @@ mod cache_tests {
         let mask = PolygonMask::new(vec![vec![ring]]);
 
         let probe = |mask: &PolygonMask| {
-            let started = std::time::Instant::now();
+            let before = mask.ray_casts();
             let mut inside = 0;
+            let mut points = 0;
             let mut n = 1_201_000.0;
             while n < 1_219_000.0 {
                 let mut e = 2_601_000.0;
                 while e < 2_619_000.0 {
+                    points += 1;
                     if mask.contains(Coord::new(e, n)) {
                         inside += 1;
                     }
@@ -783,20 +808,41 @@ mod cache_tests {
                 }
                 n += 250.0;
             }
-            (inside, started.elapsed())
+            (inside, points, mask.ray_casts() - before)
         };
 
-        let (first_inside, cold) = probe(&mask);
-        let (second_inside, warm) = probe(&mask);
+        let (first_inside, points, cold_casts) = probe(&mask);
+        let (second_inside, _, warm_casts) = probe(&mask);
+        let (third_inside, _, third_casts) = probe(&mask);
 
         assert_eq!(first_inside, second_inside, "the answer must not change");
+        assert_eq!(second_inside, third_inside);
         assert!(
             first_inside > 1_000,
             "expected many points inside the circle"
         );
+
+        // The cold pass has to do real work, or the comparison below means nothing.
         assert!(
-            warm < cold / 2,
-            "cache saved nothing: cold {cold:?}, warm {warm:?}"
+            cold_casts > points / 4,
+            "the cold pass cast only {cold_casts} rays over {points} points, so this \
+             mask was already warm and the test is measuring nothing"
+        );
+
+        // Cells a ring segment crosses are not uniform, so their verdict can never be
+        // cached and every pass re-casts them. On this 4,000-segment circle that is
+        // about a third of the probed cells: measured 1,716 casts cold and 560 warm.
+        assert!(
+            warm_casts * 2 < cold_casts,
+            "cache saved almost nothing: {cold_casts} casts cold, {warm_casts} warm"
+        );
+
+        // The exact invariant, and the reason this replaced a timing comparison: once
+        // warm, the cost is *converged* -- the third pass casts precisely the same rays
+        // as the second, because what is left is exactly the uncacheable set.
+        assert_eq!(
+            warm_casts, third_casts,
+            "a warm mask should have converged: {warm_casts} then {third_casts}"
         );
     }
 }
