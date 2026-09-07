@@ -249,6 +249,8 @@
   "map.base.tlm": "Carte swissTLM",
   "map.draw": "Dessiner un rectangle",
   "map.drawing": "Faites glisser sur la carte…",
+  "map.editDragging": "Faites glisser pour modifier. Relâchez pour appliquer.",
+  "map.editHint": "Faites glisser un coin pour redimensionner, le centre pour déplacer, un petit point pour ajouter un coin.",
   "map.polygonHint": "Cliquez chaque sommet, double-clic pour terminer",
   "map.tool.circle": "Cercle",
   "map.tool.polygon": "Polygone",

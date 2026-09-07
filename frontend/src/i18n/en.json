@@ -249,6 +249,8 @@
   "map.base.tlm": "swissTLM map",
   "map.draw": "Draw a rectangle",
   "map.drawing": "Drag on the map…",
+  "map.editDragging": "Drag to reshape. Release to apply.",
+  "map.editHint": "Drag a corner to reshape, the middle to move it, or a small point to add a corner.",
   "map.polygonHint": "Click each corner, double-click to finish",
   "map.tool.circle": "Circle",
   "map.tool.polygon": "Polygon",

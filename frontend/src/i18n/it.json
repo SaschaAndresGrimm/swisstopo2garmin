@@ -249,6 +249,8 @@
   "map.base.tlm": "Carta swissTLM",
   "map.draw": "Disegna un rettangolo",
   "map.drawing": "Trascina sulla mappa…",
+  "map.editDragging": "Trascina per modificare. Rilascia per applicare.",
+  "map.editHint": "Trascina un angolo per modificare, il centro per spostare, un punto piccolo per aggiungere un angolo.",
   "map.polygonHint": "Clicca ogni vertice, doppio clic per terminare",
   "map.tool.circle": "Cerchio",
   "map.tool.polygon": "Poligono",

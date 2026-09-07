@@ -66,6 +66,8 @@ pub fn run() {
             ipc::area_to_geojson,
             ipc::area_from_geojson,
             ipc::export_area,
+            ipc::area_outline,
+            ipc::edit_area,
             ipc::start_build,
             ipc::plan_install,
             ipc::install_map,

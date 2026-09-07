@@ -1945,6 +1945,37 @@ pub struct InstallPlan {
     pub fits: bool,
 }
 
+/// The outline and drag handles for a selection, in WGS84 (FR-31).
+///
+/// Not a `ts-rs` type: it carries `s2g_core::area_edit` types, and the frontend's map
+/// already declares the matching shapes beside its other hand-written ones.
+///
+/// This exists because the map used to draw *every* selection as its bounding rectangle,
+/// so a polygon or circle was replaced by a box the user had not drawn the moment it was
+/// finished.
+#[tauri::command]
+pub fn area_outline(
+    area: s2g_core::recipe::AreaSelection,
+) -> IpcResult<s2g_core::area_edit::Outline> {
+    Ok(s2g_core::area_edit::outline(&area))
+}
+
+/// Apply one drag to a selection and return the result (FR-31).
+///
+/// The geometry lives in `s2g_core::area_edit`, where corner ordering and drag anchors
+/// are tested. The map's job is to notice which handle was grabbed and where it was
+/// dropped; it does not know which corner is opposite which.
+///
+/// Round-tripping through here on every commit also keeps the projection in one place
+/// (FR-P1): the map works in WGS84, the recipe in LV95, and only Rust converts.
+#[tauri::command]
+pub fn edit_area(
+    area: s2g_core::recipe::AreaSelection,
+    edit: s2g_core::area_edit::AreaEdit,
+) -> IpcResult<s2g_core::recipe::AreaSelection> {
+    s2g_core::area_edit::apply(&area, edit).map_err(|e| e.to_string())
+}
+
 /// Describe what installing would do, without doing it (FR-80, FR-81).
 #[tauri::command]
 pub fn plan_install(

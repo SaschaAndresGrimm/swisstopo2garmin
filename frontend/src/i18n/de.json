@@ -249,6 +249,8 @@
   "map.base.tlm": "swissTLM-Karte",
   "map.draw": "Rechteck zeichnen",
   "map.drawing": "Auf der Karte ziehen…",
+  "map.editDragging": "Ziehen zum Anpassen. Loslassen übernimmt.",
+  "map.editHint": "Ecke ziehen zum Anpassen, Mitte ziehen zum Verschieben, kleinen Punkt ziehen für eine neue Ecke.",
   "map.polygonHint": "Ecken anklicken, Doppelklick zum Abschliessen",
   "map.tool.circle": "Kreis",
   "map.tool.polygon": "Polygon",
