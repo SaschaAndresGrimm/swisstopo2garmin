@@ -9,6 +9,11 @@ the app copies it onto the watch or bike computer for you.
 
 Map data © swisstopo. The program is free software under GPL-3.0-or-later.
 
+> **Feedback and collaboration are wanted.** Two devices stand behind this project, so if
+> you own a Garmin that is not an Edge 840 or a fēnix 5 Plus, measurements from it are the
+> most useful thing you can send — see
+> [Help wanted](#help-wanted--especially-if-you-have-a-different-garmin).
+
 ---
 
 # For users
@@ -122,6 +127,54 @@ another drive before the first download.
 
 If something fails, the app says what failed, why and what to do about it — and says
 plainly when it does not recognise a failure rather than inventing a cause.
+
+## Help wanted — especially if you have a different Garmin
+
+This is a small project with **two real devices behind it**: an Edge 840 and a fēnix 5
+Plus. Everything else falls back to a generic profile whose numbers are honest guesses,
+and guesses are exactly where this breaks.
+
+| Profile | Devices | Where its numbers come from |
+|---|---|---|
+| `edge-840` | Edge 840, 840 Solar | `community` — forum reports, one hardware smoke test |
+| `fenix-5-plus` | fēnix 5 Plus, 5X Plus, 5S Plus | `community` |
+| `generic-edge` | every other Edge | **`assumed`** — a conservative guess |
+| `generic-fenix` | every other watch (fēnix, epix, Forerunner, MARQ) | **`assumed`** |
+
+If your device is not one of the four, the app still works — it just builds against a
+deliberately cautious budget, so you get a smaller map than your device could hold.
+
+**The most useful thing you can send is a measurement.** Four numbers turn a guess into a
+fact:
+
+- the largest single `.img` your device will actually load,
+- how many map tiles it accepts in one map set,
+- how much space you can give to maps before it complains,
+- and what your device calls itself — the model string and part number from
+  `Garmin/GarminDevice.xml` on the mounted device.
+
+[docs/device-verification.md](docs/device-verification.md) is the procedure, written so
+you can follow it without reading the code. **Partial answers are worth sending.** One
+confirmed maximum file size for a device nobody here owns is more valuable than a
+complete report for the Edge 840.
+
+Three features are built and have **never been on a device at all** — routing, address
+search and the paper-map overlay (see above). Testing any of them is genuinely useful,
+and so is a report that one of them does not work: §C.9 of the verification doc exists to
+find out whether these devices render custom map overlays, and "no, mine does not list
+it" is a real, publishable result.
+
+Also wanted: anything the app got wrong about Switzerland. Wrong colours against your
+printed Landeskarte, a trail drawn at the wrong class, a place name in the wrong language,
+a hut that is missing. The cartography is measured from swisstopo's own products
+([docs/palette.md](docs/palette.md)) and there is still plenty it does not model.
+
+**Where to send it:** open an issue, or a pull request if you would rather. Contributions
+of code are very welcome — [Contributing](#contributing) below and
+[CLAUDE.md](CLAUDE.md) describe the few rules that matter, and they exist to keep the
+project honest rather than to gatekeep. The most important one is the one this section is
+about: **a device limit must never be invented.** Every number carries a confidence level,
+and `assumed` is a perfectly acceptable answer — a fabricated citation is not.
 
 ## Using the maps you make
 
@@ -246,6 +299,8 @@ From [CLAUDE.md](CLAUDE.md), and they are load-bearing:
   costs, and the one assumption that was checked
 - **[docs/addresses.md](docs/addresses.md)** — where house numbers come from, and how
   they reach the device's search index
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed in each release, and what is still
+  unverified in it
 - **[docs/raster.md](docs/raster.md)** — the paper-map overlay: what the tile limits
   actually allow, and the two ways the map service fails silently
 - **[docs/performance.md](docs/performance.md)** — what is measured, and what is not
@@ -256,10 +311,20 @@ From [CLAUDE.md](CLAUDE.md), and they are load-bearing:
 
 ## Contributing
 
-Device measurements are especially welcome: most limits in `devices/*.json` are still
-`community` or `assumed`, and [docs/device-verification.md](docs/device-verification.md)
-is the procedure for turning one into `measured`. Cartography changes should come with
-before/after renders — [docs/cartography.md](docs/cartography.md) says how.
+Collaboration is welcome, and so is a bug report from someone who has no intention of
+writing code.
+
+**Device measurements are the single most useful contribution.** Most limits in
+`devices/*.json` are still `community` or `assumed`, only two devices have a profile of
+their own, and [docs/device-verification.md](docs/device-verification.md) is the procedure
+for turning a guess into a `measured` value. A new `devices/*.json` for a model nobody
+here owns is a genuinely valuable pull request — it needs the four limits, a `confidence`
+level, a source list, and the model strings from `GarminDevice.xml`. See
+[Help wanted](#help-wanted--especially-if-you-have-a-different-garmin) for what to
+measure.
+
+Cartography changes should come with before/after renders —
+[docs/cartography.md](docs/cartography.md) says how.
 
 `NOTICE` lists every third-party component and its licence, including the bundled Java
 tools and runtime.
