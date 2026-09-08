@@ -203,8 +203,59 @@ splitter 654 compiled 2025-04-13T22:39:53+01:00
 ```
 
 `codesign` reports `adhoc, linker-signed`, which is what unsigned looks like. That is the
-end-to-end evidence that the distributable is self-contained; the Windows and Linux
-bundles have not been built or opened by anybody.
+end-to-end evidence that the distributable is self-contained.
+
+### What the first real release run found, 2026-09-08 (v0.2.0)
+
+There were no tags before `v0.2.0`, so this workflow had **never executed**. Every
+statement above about it working was inference from a local build, and three of the four
+platforms failed on the first attempt. All three causes were the same shape: something
+that is absent locally is *present but empty* in CI, or something the local build never
+had to do.
+
+**macOS, both architectures — signing.** `env: APPLE_SIGNING_IDENTITY: ${{ secrets.X }}`
+puts the variable into the environment as an **empty string** when the secret does not
+exist, and Tauri decides whether to sign on the variable's *presence*, not its value. So a
+project with no certificate asked `codesign` to sign with the identity `""`:
+
+```
+error: The specified item could not be found in the keychain.
+failed to bundle project: failed codesign application
+```
+
+The comment in the workflow asserted the opposite — "with none set it builds unsigned
+rather than failing" — and cited the CLI binary's strings. The strings were read
+correctly; the inference from them was wrong. This is also exactly why the local build
+above succeeded: locally the variable did not exist at all. The Apple variables are now
+exported through `GITHUB_ENV` only when non-empty, which is the only way to leave an
+environment variable genuinely unset.
+
+**Linux — the bundled JRE defeats linuxdeploy.** Reported by Tauri as nothing more than
+`failed to run linuxdeploy`. Two guesses were wrong before `--verbose` produced the actual
+message:
+
+```
+Deploying dependencies for ELF file .../vendor/jre/lib/librmi.so
+ERROR: Could not find dependency: libjvm.so
+ERROR: Failed to deploy dependencies for existing files
+```
+
+linuxdeploy resolves the dependencies of every ELF file in the AppDir, and this bundle
+ships a whole JRE. The JRE's libraries link against `libjvm.so`, which sits in
+`jre/lib/server` and is found at runtime through an rpath rather than the loader's search
+path. `LD_LIBRARY_PATH` pointed at the JRE's own directories inside the AppDir fixes it.
+
+The wrong guesses are worth recording so they are not made again: **missing FUSE was not
+the cause** (`libfuse2` installed and `APPIMAGE_EXTRACT_AND_RUN=1` set, and it still
+failed), and **neither was stripping** (`NO_STRIP=true` is kept regardless, since there is
+no reason for linuxdeploy to strip Adoptium's shared objects).
+
+Two process notes. `--verbose` is now permanent on the bundle step: a bundler that hides
+its child process's error costs an hour per guess. And a platform-specific bundling bug is
+best chased on a throwaway branch with the matrix cut to that one platform — eight minutes
+a cycle instead of waiting on the 26-minute macOS x64 leg.
+
+Windows built correctly on the first attempt and every attempt since.
 
 ## Signing: wired, and inert until the secrets exist
 
@@ -322,7 +373,9 @@ sh tools/publish_samples.sh v0.1.0
 4. `npm --prefix frontend run check:i18n`, `python3 spikes/s0/checkstyle.py`.
 5. `python3 tools/sbom.py --check`, then generate `sbom.json`.
 6. Tag, or run the Release workflow by hand. It builds all four platforms and opens a
-   draft release.
+   draft release. **Watch it.** Its first real execution failed on three of four
+   platforms; see "What the first real release run found" above. A platform-specific
+   failure is best chased on a throwaway branch with the matrix cut to that platform.
 7. **Install one bundle and check About → Licences shows real versions** rather than "not
    installed". That one line is the cheapest end-to-end proof that the packaged app found
    its own toolchain.
