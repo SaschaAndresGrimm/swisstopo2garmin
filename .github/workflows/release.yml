@@ -315,7 +315,7 @@ jobs:
           ### Installing
 
           Download the file for your platform, verify it against `SHA256SUMS`, and see
-          [docs/getting-started.md](docs/getting-started.md) for the first run.
+          [docs/getting-started.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/getting-started.md) for the first run.
 
           **These installers are not code-signed.** macOS will refuse to open the app
           ("the developer cannot be verified") until you right-click it and choose Open;
@@ -341,7 +341,7 @@ jobs:
           answers are worth sending: one confirmed maximum file size for a device nobody
           here owns beats a complete report for the Edge 840. See
           [Help wanted](https://github.com/SaschaAndresGrimm/swisstopo2garmin#help-wanted--especially-if-you-have-a-different-garmin)
-          and [docs/device-verification.md](docs/device-verification.md).
+          and [docs/device-verification.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/device-verification.md).
 
           Routing, address search and the paper-map overlay have never been on a device at
           all. Testing any of them helps -- including a report that one does *not* work.
