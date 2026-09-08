@@ -101,17 +101,57 @@ Three details worth knowing if you edit it, or if you build a bundle by hand.
 
 ### The icons
 
-`src-tauri/icons/` holds only what the four desktop bundles need: `icon.ico` for the
-Windows resource file, `icon.icns` for the macOS bundle, and PNGs for Linux. `tauri icon`
-also generates Android and iOS sets, which are deleted — this ships to four desktop
-platforms and unused assets in a repository get mistaken for intent.
+The artwork is **generated, not hand-painted**, by `tools/make_icon.py`, so it is
+reproducible and its colours come from the one place this project keeps colours:
+`docs/palette.md`, where every value is measured off a swisstopo raster product. To
+change or regenerate it:
 
-Two things about them are worth knowing. Windows **fails to build at all** without
-`icon.ico` — that is what the release pipeline's first Windows run reported, after five
-years of nobody building for Windows. And the source is 256×256 where `tauri icon` wants
-1024×1024, so anything larger than 256 is upscaled: the `.icns` will look soft at large
-sizes on macOS. Cosmetic, and worth replacing the source with a real 1024px artwork
-before a release anybody sees.
+```bash
+python3 tools/make_icon.py --variant slate --out src-tauri/icons/icon.png
+cargo tauri icon src-tauri/icons/icon.png
+rm -rf src-tauri/icons/android src-tauri/icons/ios \
+       src-tauri/icons/Square*Logo.png src-tauri/icons/StoreLogo.png
+python3 tools/make_icon.py --variant slate --out src-tauri/icons/icon.png   # see below
+```
+
+The last line is not a typo. `tauri icon` **overwrites its own input** with a 512×512
+copy, so without it the 1024×1024 master silently degrades every time the assets are
+regenerated — and the next run would then build the `.icns` from 512.
+
+`--variant` picks the ground: `slate` is what ships, `sky` is the same landform on the
+Landeskarte's measured water blue, and `paper` is the most cartographically faithful.
+`paper` was rejected on evidence rather than taste: rendered at 16 and 32 px against a
+light desktop it is a pale smudge, because an icon that is mostly white paper has
+nothing to be found by. `--all --preview DIR` writes every variant at 16…512 px on both
+a light and a dark ground, which is what that was judged on.
+
+`src-tauri/icons/` keeps only what the four desktop bundles need: `icon.ico` for the
+Windows resource file, `icon.icns` for the macOS bundle, and PNGs for Linux. `tauri icon`
+also emits Android, iOS and Windows Store sets, which are deleted — this ships to four
+desktop platforms and unused assets in a repository get mistaken for intent.
+
+Two other things are worth knowing. Windows **fails to build at all** without `icon.ico`
+— that is what the release pipeline's first Windows run reported, after five years of
+nobody building for Windows. And the previous source was 256×256 where `tauri icon`
+wants 1024×1024, so every slice above 256 was upscaled and the `.icns` was soft at large
+sizes on macOS. That is now fixed: the master is a true 1024×1024 and the `.icns` carries
+a real `ic10` (1024 px) slice.
+
+#### Why the icon is not a Swiss cross
+
+The icon this replaced was a **red cross on a white ground**. That is not the Swiss flag
+— the flag is a white cross on red, the inverse — it is the emblem of the **Red Cross**,
+protected by the Geneva Conventions and, in Switzerland specifically, by the
+*Bundesgesetz über den Schutz des Zeichens und des Namens des Roten Kreuzes*. Shipping
+it would have been a real problem, not a stylistic one.
+
+The Swiss coat of arms is separately restricted to official use under the
+*Wappenschutzgesetz*, and the flag itself may not be used in a way suggesting official
+endorsement. So no cross of any colour. The Swissness comes instead from the
+cartography — the Landeskarte's measured tints, its red hiking route, its north-west
+relief lighting and a reference to its rock hachure — which is also what the app
+actually produces. Nothing imitates swisstopo's own mark, and nothing implies
+endorsement (SPEC.md FR-L3).
 
 ### Verified locally, 2026-09-07
 
