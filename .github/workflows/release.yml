@@ -78,7 +78,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf libgtk-3-dev
+            librsvg2-dev patchelf libgtk-3-dev libfuse2
 
       - name: Install frontend dependencies
         run: npm ci
@@ -139,16 +139,56 @@ jobs:
       # searching for tauri.conf.json below the working directory, so `npm run` inside
       # frontend cannot work -- it would search frontend/ and find nothing. The binary
       # comes from frontend/node_modules, where package-lock.json pins its version.
+      # The Apple variables are exported here rather than in the build step's `env:`,
+      # and the difference is not cosmetic. `env: FOO: ${{ secrets.MISSING }}` puts FOO
+      # in the environment as an *empty string*, and Tauri decides whether to sign on
+      # whether the variable is present, not on whether it has a value — so an absent
+      # certificate asked `codesign` to sign with the identity "", and the first real
+      # run of this workflow died on
+      #
+      #     error: The specified item could not be found in the keychain.
+      #     failed to bundle project: failed codesign application
+      #
+      # on both macOS targets. Exporting through GITHUB_ENV only when the secret is
+      # non-empty leaves the variable genuinely unset, which is what makes an unsigned
+      # build possible. This is also why the local macOS build in docs/release.md
+      # succeeded while CI could not: locally the variable simply did not exist.
+      - name: Prepare the Apple signing environment
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID_IN: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD_IN: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID_IN: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$IDENTITY" ]; then
+            echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+            echo "macos code signing: enabled"
+          else
+            echo "macos code signing: not configured (building unsigned)"
+          fi
+          # Notarisation needs all three; a partial set would fail late and confusingly.
+          if [ -n "$APPLE_ID_IN" ] && [ -n "$APPLE_PASSWORD_IN" ] && [ -n "$APPLE_TEAM_ID_IN" ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID_IN"
+              echo "APPLE_PASSWORD=$APPLE_PASSWORD_IN"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_IN"
+            } >> "$GITHUB_ENV"
+            echo "macos notarisation: enabled"
+          else
+            echo "macos notarisation: not configured"
+          fi
+
       - name: Build the bundle
         shell: bash
         env:
-          # Verified against the CLI binary's own strings, not assumed: Tauri signs when
-          # APPLE_SIGNING_IDENTITY is set and notarises when the other three are too.
-          # With none set it builds unsigned rather than failing.
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # linuxdeploy and its plugins are themselves AppImages, and mounting one needs
+          # FUSE 2, which the Ubuntu runners no longer ship. This tells them to unpack
+          # and run instead of mounting, which is what makes the AppImage target work on
+          # a runner without libfuse2 -- the other failure on this workflow's first real
+          # run, reported only as `failed to run linuxdeploy`.
+          APPIMAGE_EXTRACT_AND_RUN: 1
         run: npx --prefix frontend tauri build --config "$SIGN_CONFIG"
 
       # The check that matters, and the one that would have caught the three defects the
@@ -237,25 +277,61 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('untagged-{0}', github.sha) }}
         run: |
-          NOTES=$(cat <<'EOF'
-          Built by `.github/workflows/release.yml`. Verify against `SHA256SUMS`.
+          # The section of CHANGELOG.md for this version, so the release page says what
+          # changed and what is not trustworthy in it -- not merely how it was built.
+          # Silently empty for an untagged dispatch build, which has no changelog entry.
+          VERSION="${TAG#v}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## " v " " || $0 == "## " v { inside = 1; next }
+            inside && /^## / { exit }
+            inside { print }
+          ' CHANGELOG.md > changes.md
+          {
+            if [ -s changes.md ]; then
+              cat changes.md
+              printf '\n---\n\n'
+            fi
+            cat <<'EOF'
+          ### Installing
+
+          Download the file for your platform, verify it against `SHA256SUMS`, and see
+          [docs/getting-started.md](docs/getting-started.md) for the first run.
 
           **These installers are not code-signed.** macOS will refuse to open the app
           ("the developer cannot be verified") until you right-click it and choose Open;
           Windows SmartScreen will warn. `docs/release.md` explains why and what would
           change it.
 
-          Each bundle is self-contained — it carries the map compiler, the splitter, a
+          Each bundle is self-contained -- it carries the map compiler, the splitter, a
           private Java runtime, the cartography and the device profiles. It does **not**
-          carry the geodata: the app downloads swissTLM3D (10 GB unpacked) on first run.
-          See `docs/getting-started.md`.
+          carry the geodata: the app downloads swissTLM3D (10 GB unpacked) on first run,
+          so budget about 12 GB of free disk.
 
           `sbom.json` is a CycloneDX 1.5 inventory of everything shipped, including the
           bundled Java tools and the swisstopo datasets.
+
+          ### Feedback and collaboration are wanted
+
+          Two devices stand behind this project -- an Edge 840 and a fenix 5 Plus -- and
+          every other Garmin falls back to a generic profile whose limits are guesses, so
+          most users get a smaller map than their device could hold.
+
+          **If your device is not one of those two, measurements from it are the most
+          useful thing you can send.** Four numbers turn a guess into a fact, and partial
+          answers are worth sending: one confirmed maximum file size for a device nobody
+          here owns beats a complete report for the Edge 840. See
+          [Help wanted](https://github.com/SaschaAndresGrimm/swisstopo2garmin#help-wanted--especially-if-you-have-a-different-garmin)
+          and [docs/device-verification.md](docs/device-verification.md).
+
+          Routing, address search and the paper-map overlay have never been on a device at
+          all. Testing any of them helps -- including a report that one does *not* work.
+
+          Issues and pull requests are both welcome. Map data (c) swisstopo; the program is
+          free software under GPL-3.0-or-later.
           EOF
-          )
+          } > notes.md
           gh release create "$TAG" release/* \
             --draft \
             --title "swisstopo2garmin $TAG" \
-            --notes "$NOTES" \
+            --notes-file notes.md \
             || gh release upload "$TAG" release/* --clobber
