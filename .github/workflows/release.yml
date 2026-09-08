@@ -194,6 +194,19 @@ jobs:
           # the release profile is already optimised and the JRE ships as Adoptium built
           # it.
           NO_STRIP: "true"
+          # linuxdeploy resolves the dependencies of every ELF file it finds in the
+          # AppDir, and that includes the bundled JRE. The JRE's own libraries link
+          # against libjvm.so, which lives in jre/lib/server and is found at runtime
+          # through an rpath rather than the loader's search path, so linuxdeploy gave up:
+          #
+          #     ERROR: Could not find dependency: libjvm.so
+          #     ERROR: Failed to deploy dependencies for existing files
+          #
+          # Pointing LD_LIBRARY_PATH at the JRE's own directories inside the AppDir lets
+          # it resolve them. The paths need not exist when the variable is set -- the
+          # bundler creates them, and the lookup happens later. Harmless on the other
+          # platforms, which never run linuxdeploy.
+          LD_LIBRARY_PATH: ${{ github.workspace }}/target/release/bundle/appimage/swisstopo2garmin.AppDir/usr/lib/swisstopo2garmin/vendor/jre/lib/server:${{ github.workspace }}/target/release/bundle/appimage/swisstopo2garmin.AppDir/usr/lib/swisstopo2garmin/vendor/jre/lib
         # Verbose because the above is the second guess at a failure whose actual error
         # Tauri does not print. If the AppImage breaks again, the log has to say why.
         run: npx --prefix frontend tauri build --verbose --config "$SIGN_CONFIG"
