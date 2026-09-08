@@ -25,6 +25,13 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# One release build at a time, and never cancelled: a half-cancelled release leaves a
+# draft with some platforms' artefacts and not others, which looks like a finished
+# release. Re-running a tag deliberately is still possible via workflow_dispatch.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   bundle:
     name: ${{ matrix.label }}

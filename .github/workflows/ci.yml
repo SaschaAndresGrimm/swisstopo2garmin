@@ -1,25 +1,73 @@
 name: CI
 
+# Markdown-only pushes are skipped: no job here reads a `.md` file. The doc generators
+# under `spikes/` and `tools/` write them and are not part of any check, so a prose
+# commit cannot break a build. `docs/tlm3d-schema.json` is deliberately *not* ignored —
+# that one is a data file the code is held against (working agreement rule 2).
 on:
   push:
     branches: [main]
+    paths-ignore: ['**/*.md']
   pull_request:
+    paths-ignore: ['**/*.md']
+  # The weekly run is what keeps macOS covered; see the `targets` job below.
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+# A superseded pull-request run is cancelled, because only the latest push to a branch
+# is worth paying for. Pushes to `main` are deliberately *not* cancelled: the working
+# agreement is that every commit on main compiles and passes tests (rule 4), and
+# cancelling would leave commits with no verdict.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
+  # Which platforms this run tests.
+  #
+  # macOS runners bill at ten times the Linux rate, and measured against a real green
+  # run the two of them were 60 of the 84 billable minutes a single push cost — 71 % of
+  # the bill for two of the nine jobs. That is what exhausted the account's Actions
+  # budget on 2026-09-07, and it bought less than it looks:
+  #
+  #   * `macos-14` is arm64, which is what this project is developed on. It re-tested
+  #     what the author's own machine had already run, at ten times the price. It is no
+  #     longer in CI at all; `release.yml` still builds and ships an arm64 bundle, so
+  #     the artefact is still produced and still verified on a tag.
+  #   * `macos-15-intel` is x86_64 macOS, which nothing else covers. It is worth paying
+  #     for, but not on every push — so it runs weekly and on demand.
+  #
+  # A computed matrix rather than a second copy of the job: the steps below vendor a JRE
+  # and mkgmap and have grown particular, and two divergent copies of that is a worse
+  # problem than one indirection.
+  targets:
+    name: platforms
+    runs-on: ubuntu-latest
+    outputs:
+      os: ${{ steps.pick.outputs.os }}
+    steps:
+      - id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || \
+             [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo 'os=["ubuntu-latest","windows-latest","macos-15-intel"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'os=["ubuntu-latest","windows-latest"]' >> "$GITHUB_OUTPUT"
+          fi
+
   rust:
     name: rust (${{ matrix.os }})
+    needs: targets
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # SPEC.md NFR-7 ships both macOS architectures, so both are tested.
-        # `macos-14` is arm64 and `macos-15-intel` is x64 — the `macos-13` this used to
-        # name has been retired by GitHub, which `actionlint` caught.
-        os: [macos-14, macos-15-intel, ubuntu-latest, windows-latest]
+        os: ${{ fromJSON(needs.targets.outputs.os) }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

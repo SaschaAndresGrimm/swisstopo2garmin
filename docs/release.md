@@ -99,6 +99,43 @@ Three details worth knowing if you edit it, or if you build a bundle by hand.
   CI=true npx --prefix frontend tauri build --bundles dmg
   ```
 
+### What CI costs, and what it therefore tests
+
+On 2026-09-07 the account's Actions budget ran out and every job on the next two pushes
+failed before starting, with `recent account payments have failed or your spending limit
+needs to be increased`. Nothing was wrong with the code; the runs simply never began.
+The lesson is that this matters and is worth writing down.
+
+Measured against the last green run, one push cost **84 billable minutes**:
+
+| job | wall time | rate | billable |
+|---|---|---|---|
+| rust (macos-15-intel) | 199 s | ×10 | 40 min |
+| rust (macos-14) | 90 s | ×10 | 20 min |
+| rust (windows-latest) | 380 s | ×2 | 14 min |
+| rust (ubuntu-latest) | 196 s | ×1 | 4 min |
+| the five small Linux jobs | — | ×1 | 6 min |
+
+Two of the nine jobs were 71 % of the bill, and one of those two bought almost nothing:
+`macos-14` is arm64, which is the platform this project is developed on, so it re-ran at
+ten times the price what the author's own machine had already run. `macos-15-intel` is
+different — x86_64 macOS is covered by nothing else.
+
+So per-push CI is **Linux and Windows**, x86_64 macOS runs **weekly and on
+`workflow_dispatch`**, and arm64 macOS is not in CI at all — `release.yml` still builds
+and verifies both macOS bundles on a tag, which is where the artefact actually matters.
+That is about 24 billable minutes a push instead of 84.
+
+Two smaller economies came with it. A superseded pull-request run is now cancelled,
+while pushes to `main` are deliberately not — the working agreement is that every commit
+on main passes (rule 4), and cancelling would leave commits with no verdict. And
+markdown-only pushes skip CI, because no job reads a `.md` file; `docs/tlm3d-schema.json`
+is pointedly excluded from that, since the code is held against it (rule 2).
+
+Windows keeps its per-push slot despite costing ×2. It is the platform that has actually
+broken — it could not build at all for want of `icon.ico` — and FR-74 makes it a
+priority.
+
 ### The icons
 
 The artwork is **generated, not hand-painted**, by `tools/make_icon.py`, so it is
