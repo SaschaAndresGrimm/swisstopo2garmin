@@ -924,7 +924,16 @@ pub async fn build(
                     detail: "planning tiles".into(),
                 });
                 let kmz = img_dir.join(crate::raster::kmz_filename(&recipe.name));
-                match crate::raster::plan(&bbox, &limits, crate::raster::NATIVE_M_PER_PX) {
+                // The mask, not just the bounding box: for a corridor or an
+                // administrative unit the box is mostly ground the user never looks at,
+                // and tiles are the scarce resource here.
+                match crate::raster::plan_masked(
+                    &bbox,
+                    &limits,
+                    crate::raster::NATIVE_M_PER_PX,
+                    crate::raster::DEFAULT_LAYER,
+                    area_mask.as_deref(),
+                ) {
                     Err(e) => warnings.push(format!("could not plan the paper-map overlay: {e}")),
                     Ok(plan) => {
                         // The planner's notes are the user's business: they say why the

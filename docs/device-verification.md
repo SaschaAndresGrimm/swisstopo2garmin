@@ -274,6 +274,16 @@ Build a small map with **Paper-map overlay** ticked ([docs/raster.md](raster.md)
    because it sets the largest area the feature can cover.
 7. **Does it slow the device down?** Pan and zoom with the overlay on and off. An
    overlay that makes the map unusable is worse than no overlay.
+8. **Does a *disabled* custom map still count toward the limit?** This is the one that
+   decides whether the feature scales beyond a single area, so it is worth doing even if
+   the others are skipped. The 100-tile cap is reported to apply across *all* custom maps
+   on the device — but if a map switched off in the map manager stops counting, a user can
+   carry a KMZ per region or per trip and enable the one they need, which is the only
+   route to anything like national coverage (docs/raster.md explains why more tiles is
+   the only thing that would help). Method: install one overlay that uses most of the
+   budget, confirm it draws, add a second that would exceed the total, and see whether
+   disabling the first makes the second appear. Record the answer in the log below either
+   way — a "no" is as useful as a "yes", because it closes the question.
 
 Whatever the outcome, update `maxCustomMapTiles` and `maxCustomMapPixelsPerTile` in the
 profile and set `confidence.level` accordingly — including setting them to `null` if the
@@ -362,3 +372,10 @@ The raster overlay (C.9) is the largest single unknown in the project. It is ful
 and its output is verified as a *file*, but the question it exists to answer — do these
 devices render Custom Maps? — has never been put to a device. Until it is, the feature
 should be described as built and unproven, and it stays off by default.
+
+Two of C.9's questions are worth more than the rest. **C.9.6**, how many tiles the device
+actually accepts, sets the largest area the feature can ever cover. **C.9.8**, whether a
+*disabled* custom map still counts toward that total, decides whether the feature scales
+past one area at a time — if it does not count, a user can carry a KMZ per region and
+switch between them, and that is the only route to anything resembling national coverage.
+Neither can be answered without hardware.

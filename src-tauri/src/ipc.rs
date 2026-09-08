@@ -1007,11 +1007,21 @@ pub fn preview_raster(
         )));
     };
 
-    let plan =
-        match s2g_core::raster::plan(&area.bbox(), &limits, s2g_core::raster::NATIVE_M_PER_PX) {
-            Ok(p) => p,
-            Err(e) => return Ok(unavailable(e.to_string())),
-        };
+    // The same mask the build will use, so the preview cannot promise a resolution the
+    // build then fails to deliver. A mask that cannot be built -- an administrative unit
+    // whose boundaries are not downloaded yet -- degrades to the bounding box rather
+    // than failing the preview: a pessimistic number beats no number.
+    let mask = area.mask(&Cache::default_root()).ok().flatten();
+    let plan = match s2g_core::raster::plan_masked(
+        &area.bbox(),
+        &limits,
+        s2g_core::raster::NATIVE_M_PER_PX,
+        s2g_core::raster::DEFAULT_LAYER,
+        mask.as_ref(),
+    ) {
+        Ok(p) => p,
+        Err(e) => return Ok(unavailable(e.to_string())),
+    };
     Ok(RasterPreview {
         available: true,
         unavailable_because: None,

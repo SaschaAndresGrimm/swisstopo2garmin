@@ -44,6 +44,68 @@ Beyond that the planner coarsens rather than crops (FR-R5), and says so:
 | 50 km | 100 | 9.9 m/px | coarsened; the user is told |
 | 120 km | 100 | 24.9 m/px | coarser than the vector map underneath; the user is told that too |
 
+### Coverage: why not the whole country, and why shape matters
+
+The tile budget is the whole story, and it is a *pixel* budget: 100 tiles times 1 MP is
+104.9 megapixels, total, across every custom map on the device. Two consequences follow.
+
+**Switzerland-wide is arithmetically possible and practically useless.** Run the planner
+on the country's full extent and it fits — at 29.3 m/px. At that sampling the paper map
+does not survive:
+
+| at ~29 m/px | |
+|---|---|
+| a contour line (0.1 mm at 1:25 000 = 2.5 m on the ground) | 1/11 of a pixel wide |
+| map text (~2 mm = 50 m tall) | 1.8 pixels |
+
+That is not a coarse Landeskarte, it is colour mush. The rock hachures and the typography
+— the reason the overlay exists at all — are gone well before 10 m/px, which is why the
+planner says so above `USELESS_M_PER_PX`. National coverage is what the vector map is
+for; it has no budget of this kind.
+
+**Multiple zoom levels do not help, because a pyramid divides the budget rather than
+adding to it.** Those 100 tiles are the device-wide total, so spending 30 on a coarse
+national layer and 70 on detail gives worse national coverage *and* less detail.
+Multi-resolution is a display optimisation, never a capacity one. (KML has the mechanism
+— `<Region><Lod><minLodPixels>` — and whether Garmin honours it is untested here; it
+would only control *when* a tile draws, so it does not change this arithmetic either
+way.)
+
+**What does help is spending the budget on the right shape.** The budget buys 164 km² of
+ground at native resolution. As a square that is 12.8 × 12.8 km. As a corridor it is
+164 km of route at 1 km wide, or 328 km at 500 m wide — and a route is what people
+actually walk.
+
+So the planner takes the selection *mask*, not just its bounding box, and skips tiles the
+shape does not reach (`plan_masked`). For a 99 km dog-leg route the bounding box is
+2 484 km² around a 198 km² corridor, so most of the budget used to go on ground nobody
+looks at. Measured:
+
+| selection | bbox grid | with the mask | |
+|---|---|---|---|
+| 99 km route, 0.5 km buffer | 5.36 m/px | **1.86 m/px** | 2.9× sharper |
+| 99 km route, 1 km buffer | 5.42 m/px | **2.14 m/px** | 2.5× |
+| 99 km route, 3 km buffer | 5.91 m/px | **3.18 m/px** | 1.9× |
+| a compact triangular polygon | 4.00 m/px | **3.24 m/px** | 1.2× |
+
+The masked plans use *more* tiles than the unmasked ones (95–100 against 85), which is
+the point: the whole budget now goes on ground the user selected. The gain is largest for
+the thinnest selections and near nil for a box or a radius, where the mask and its
+bounding box are the same thing.
+
+A tile is tested by probing it on a 9 × 9 grid rather than at its corners. A corridor
+narrower than a tile crosses it with every corner outside, and a dropped tile is a hole
+in the middle of the map. This is safe rather than lucky: coarsening is driven by the
+*masked* count, so a thin selection never needs many tiles and so never coarsens far —
+tiles stay comparable in size to the selection that shaped them.
+
+Unlike [`elevation::Cell::covering_mask`], the raster grid is **not** dilated by a tile.
+That dilation exists because contours are interpolated across tile edges and a missing
+neighbour leaves a seam; raster tiles are independent images with no such coupling.
+Dilating would roughly double the tiles a corridor needs, and tiles are the scarce
+resource. The margin around a route is the buffer the user chose, which is the honest
+place for that decision.
+
 ### Size is not the constraint
 
 Measured with `examples/probe_raster.rs` at 1.25 m/px over four 9 km² areas chosen to

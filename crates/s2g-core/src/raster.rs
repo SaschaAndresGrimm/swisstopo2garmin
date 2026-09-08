@@ -237,6 +237,53 @@ pub fn plan_layer(
     wanted_m_per_px: f64,
     layer: &str,
 ) -> Result<RasterPlan> {
+    plan_masked(bbox, limits, wanted_m_per_px, layer, None)
+}
+
+/// The largest nominal grid that will be probed against the mask.
+///
+/// A thin selection inside a national bounding box would otherwise be gridded at native
+/// resolution before anything told the planner to coarsen -- 47 000 tiles for
+/// Switzerland -- and probing that is wasted work when the answer is certainly "too
+/// many". Hitting the cap simply forces another coarsening pass.
+const MAX_GRID_TILES: u64 = 250_000;
+
+/// Probe steps per axis when testing a tile against the mask.
+///
+/// The four corners are not enough: a corridor narrower than a tile can cross it with
+/// every corner outside, and a dropped tile is a hole in the middle of the map. Nine
+/// probes per axis puts them an eighth of a tile apart -- 160 m at native resolution.
+///
+/// That is safe rather than lucky, and the reason is structural: coarsening is driven by
+/// the *masked* tile count, so a thin selection never needs many tiles and therefore
+/// never coarsens far. Tiles stay comparable in size to the selection that shaped them,
+/// which keeps the probe step fine relative to it. The narrowest selection the app can
+/// produce is a 0.5 km corridor buffer, i.e. 1 km wide, against a 160 m step.
+const PROBE_STEPS: u32 = 8;
+
+/// Plan a grid, keeping only the tiles the selection actually reaches (FR-R5).
+///
+/// Without a mask this covers the whole bounding box, which is right for a box or a
+/// radius. With one it is the difference between the overlay being useful for a route
+/// and not: a 99 km corridor with a 1 km buffer has a 2 484 km² bounding box and a
+/// 198 km² corridor inside it, so two thirds of the tile budget went on ground the user
+/// will never look at, and the resolution was coarsened to 5.4 m/px to pay for it.
+/// Skipping those tiles spends the same budget on the corridor at about 1.4 m/px.
+///
+/// Deliberately *not* dilated by a tile, which is where this differs from
+/// [`crate::elevation::Cell::covering_mask`]. That dilation exists because contours are
+/// interpolated across tile edges and a missing neighbour would leave a seam; raster
+/// tiles are independent images with no such coupling. Dilating would roughly double
+/// the tiles a corridor needs, and tiles are the scarce resource this function exists to
+/// conserve. The margin around a route is the buffer the user chose, which is the honest
+/// place for that decision.
+pub fn plan_masked(
+    bbox: &BBox,
+    limits: &RasterLimits,
+    wanted_m_per_px: f64,
+    layer: &str,
+    mask: Option<&crate::mask::Mask>,
+) -> Result<RasterPlan> {
     if limits.max_tiles == 0 {
         return Err(Error::NotFound(
             "this device profile allows no custom map tiles".into(),
@@ -273,23 +320,50 @@ pub fn plan_layer(
 
     let edge = limits.tile_edge_px();
 
-    // Coarsen until the grid fits the tile budget. Each pass overshoots slightly because
-    // of the two ceilings, so it is a loop rather than one division; it converges in a
-    // handful of passes and the bound stops a pathological input spinning.
+    // Coarsen until the tiles the selection reaches fit the budget. Each pass overshoots
+    // slightly because of the two ceilings, so it is a loop rather than one division; it
+    // converges in a handful of passes and the bound stops a pathological input
+    // spinning.
+    //
+    // What is counted is the *kept* tiles, not the grid: for a corridor those differ by
+    // a factor of three, and counting the grid would coarsen the resolution to pay for
+    // tiles that are then never fetched.
     let (mut cols, mut rows) = (0u32, 0u32);
+    let mut tiles: Vec<RasterTile> = Vec::new();
+    let mut grid_tiles = 0u64;
     let mut fitted = false;
     for _ in 0..64 {
         let w_px = (ground_w_m / m_per_px).ceil().max(1.0);
         let h_px = (ground_h_m / m_per_px).ceil().max(1.0);
         cols = (w_px / edge as f64).ceil() as u32;
         rows = (h_px / edge as f64).ceil() as u32;
-        let count = cols as u64 * rows as u64;
-        if count <= limits.max_tiles as u64 {
+        grid_tiles = cols as u64 * rows as u64;
+
+        // Too large to be worth probing, and certainly too many; coarsen and retry.
+        if grid_tiles > MAX_GRID_TILES {
+            m_per_px *= (grid_tiles as f64 / limits.max_tiles as f64)
+                .sqrt()
+                .max(1.000_001);
+            continue;
+        }
+
+        tiles = lay_out(
+            west,
+            south,
+            east,
+            north,
+            cols,
+            rows,
+            edge,
+            m_per_px,
+            m_per_deg_lon,
+            mask,
+        );
+        if tiles.len() as u64 <= limits.max_tiles as u64 {
             fitted = true;
             break;
         }
-        // Scale so the *pixel* count fits, then let the next pass re-tile.
-        m_per_px *= (count as f64 / limits.max_tiles as f64)
+        m_per_px *= (tiles.len() as f64 / limits.max_tiles as f64)
             .sqrt()
             .max(1.000_001);
     }
@@ -298,6 +372,11 @@ pub fn plan_layer(
             "could not fit this area into {} tiles",
             limits.max_tiles
         )));
+    }
+    if tiles.is_empty() {
+        return Err(Error::NotFound(
+            "no map tile falls inside the selected area".into(),
+        ));
     }
     if m_per_px > wanted_m_per_px.max(NATIVE_M_PER_PX) * 1.01 {
         notes.push(format!(
@@ -313,12 +392,52 @@ pub fn plan_layer(
         ));
     }
 
-    // Tiles are cut in degrees, uniform except for the last row and column, which are
-    // trimmed to the area's edge so the overlay covers the selection and no more.
+    // Worth saying, because it is the difference between a usable overlay and not: the
+    // user chose a shape, and the tiles outside it were not paid for.
+    let skipped = grid_tiles.saturating_sub(tiles.len() as u64);
+    if mask.is_some() && skipped > 0 {
+        notes.push(format!(
+            "{} of {} tiles fall outside the selected shape and are not fetched, which is \
+             what allows the rest to be this sharp.",
+            skipped, grid_tiles
+        ));
+    }
+
+    Ok(RasterPlan {
+        layer: layer.to_string(),
+        tiles,
+        cols,
+        rows,
+        m_per_px,
+        west,
+        south,
+        east,
+        north,
+        notes,
+    })
+}
+
+/// Build one candidate grid, keeping only the tiles the mask reaches.
+///
+/// Tiles are cut in degrees, uniform except for the last row and column, which are
+/// trimmed to the area's edge so the overlay covers the selection and no more.
+#[allow(clippy::too_many_arguments)]
+fn lay_out(
+    west: f64,
+    south: f64,
+    east: f64,
+    north: f64,
+    cols: u32,
+    rows: u32,
+    edge: u32,
+    m_per_px: f64,
+    m_per_deg_lon: f64,
+    mask: Option<&crate::mask::Mask>,
+) -> Vec<RasterTile> {
     let d_lat = edge as f64 * m_per_px / M_PER_DEG_LAT;
     let d_lon = edge as f64 * m_per_px / m_per_deg_lon;
 
-    let mut tiles = Vec::with_capacity(cols as usize * rows as usize);
+    let mut tiles = Vec::new();
     for row in 0..rows {
         // Row 0 is the northern edge, so that reading order matches the map.
         let t_north = north - row as f64 * d_lat;
@@ -335,6 +454,11 @@ pub fn plan_layer(
             if w_m < m_per_px || h_m < m_per_px {
                 continue;
             }
+            if let Some(mask) = mask {
+                if !touches(mask, t_west, t_south, t_east, t_north) {
+                    continue;
+                }
+            }
             let width = ((w_m / m_per_px).round() as u32).clamp(1, edge);
             let height = ((h_m / m_per_px).round() as u32).clamp(1, edge);
             tiles.push(RasterTile {
@@ -350,19 +474,30 @@ pub fn plan_layer(
             });
         }
     }
+    tiles
+}
 
-    Ok(RasterPlan {
-        layer: layer.to_string(),
-        tiles,
-        cols,
-        rows,
-        m_per_px,
-        west,
-        south,
-        east,
-        north,
-        notes,
-    })
+/// Whether a tile's ground footprint overlaps the selection.
+///
+/// The tile's corners are in degrees and the mask is in LV95, so the probe points are
+/// projected one by one rather than the rectangle being converted: LV95 is oblique
+/// Mercator, and a lat/lon rectangle is not a rectangle there (see the module docs).
+///
+/// [`crate::mask::Mask::intersects`] is not used because it tests a geometry's vertices,
+/// which for a tile means its corners -- and a corridor narrower than a tile crosses it
+/// with every corner outside. See [`PROBE_STEPS`].
+fn touches(mask: &crate::mask::Mask, west: f64, south: f64, east: f64, north: f64) -> bool {
+    for i in 0..=PROBE_STEPS {
+        let lon = west + (east - west) * i as f64 / PROBE_STEPS as f64;
+        for j in 0..=PROBE_STEPS {
+            let lat = south + (north - south) * j as f64 / PROBE_STEPS as f64;
+            let (e, n) = proj::wgs84_to_lv95(lon, lat);
+            if mask.contains(crate::geom::Coord::new(e, n)) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Bounding box in degrees of an LV95 box, using all four corners.
@@ -1130,5 +1265,178 @@ mod tests {
             );
             assert_eq!(f.matches('.').count(), 1, "{f} has a double extension");
         }
+    }
+
+    // -- masked planning (FR-R5) ----------------------------------------------
+
+    /// A dog-leg route across the Berner Oberland, the shape the overlay is really for.
+    fn corridor(buffer_m: f64) -> (crate::mask::Mask, f64) {
+        use crate::geom::Coord;
+        let route: Vec<Coord> = [
+            (2_600_000.0, 1_150_000.0),
+            (2_630_000.0, 1_165_000.0),
+            (2_660_000.0, 1_158_000.0),
+            (2_690_000.0, 1_175_000.0),
+        ]
+        .iter()
+        .map(|&(e, n)| Coord::new(e, n))
+        .collect();
+        let length: f64 = route
+            .windows(2)
+            .map(|w| ((w[1].e - w[0].e).powi(2) + (w[1].n - w[0].n).powi(2)).sqrt())
+            .sum();
+        (crate::mask::Mask::corridor(vec![route], buffer_m), length)
+    }
+
+    fn masked(bbox: &BBox, limits: &RasterLimits, mask: Option<&crate::mask::Mask>) -> RasterPlan {
+        plan_masked(bbox, limits, NATIVE_M_PER_PX, DEFAULT_LAYER, mask).expect("plan")
+    }
+
+    /// The property the whole change rests on: a tile that the selection does not reach
+    /// is never fetched. Getting this wrong wastes the device's scarcest resource.
+    #[test]
+    fn no_tile_outside_the_selection_is_planned() {
+        let (mask, _) = corridor(1_000.0);
+        let plan = masked(&mask.bbox(), &RasterLimits::default(), Some(&mask));
+        assert!(!plan.tiles.is_empty());
+        for t in &plan.tiles {
+            assert!(
+                touches(&mask, t.west, t.south, t.east, t.north),
+                "{} does not reach the selection",
+                t.name
+            );
+        }
+    }
+
+    /// The converse, and the reason this is worth doing: masking a corridor buys
+    /// resolution rather than merely fetching less. Measured on the 99 km route above --
+    /// the bounding box is 2 484 km² around a 198 km² corridor.
+    #[test]
+    fn masking_a_corridor_buys_resolution() {
+        let limits = RasterLimits::default();
+        let (mask, length_m) = corridor(1_000.0);
+        let bbox = mask.bbox();
+
+        let unmasked = masked(&bbox, &limits, None);
+        let with_mask = masked(&bbox, &limits, Some(&mask));
+
+        assert!(
+            with_mask.m_per_px < unmasked.m_per_px / 2.0,
+            "expected the corridor to be at least twice as sharp: {:.2} vs {:.2} m/px",
+            with_mask.m_per_px,
+            unmasked.m_per_px
+        );
+        // Both must respect the budget; the masked plan simply spends it better.
+        assert!(with_mask.tile_count() <= limits.max_tiles);
+        assert!(unmasked.tile_count() <= limits.max_tiles);
+        // And it says so, because the user is owed the reason it is sharp.
+        assert!(
+            with_mask
+                .notes
+                .iter()
+                .any(|n| n.contains("outside the selected shape")),
+            "{:?}",
+            with_mask.notes
+        );
+        // Sanity: the route is the length the measurement was taken at.
+        assert!((length_m / 1000.0 - 99.0).abs() < 2.0, "{length_m}");
+    }
+
+    /// A corridor is narrower than a tile, so the corners alone would drop tiles it
+    /// crosses. This is the case `Mask::intersects` cannot answer.
+    #[test]
+    fn a_corridor_narrower_than_a_tile_is_not_dropped() {
+        use crate::geom::Coord;
+        // A straight east-west route, 1 km wide, through the middle of its own box.
+        let route = vec![
+            Coord::new(2_600_000.0, 1_160_000.0),
+            Coord::new(2_620_000.0, 1_160_000.0),
+        ];
+        let mask = crate::mask::Mask::corridor(vec![route], 500.0);
+        let plan = masked(&mask.bbox(), &RasterLimits::default(), Some(&mask));
+
+        // Every column of the grid must be represented: the route spans the full width,
+        // so a gap would be a hole in the middle of the map.
+        let cols: std::collections::BTreeSet<u32> = plan.tiles.iter().map(|t| t.col).collect();
+        assert_eq!(
+            cols.len(),
+            plan.cols as usize,
+            "columns {:?} of {} present -- the route crosses all of them",
+            cols,
+            plan.cols
+        );
+        // Corner-only testing would have kept nothing here, which is the bug this
+        // guards: the corridor is 1 km wide and the tiles are wider.
+        let corner_only = plan
+            .tiles
+            .iter()
+            .filter(|t| {
+                [
+                    (t.west, t.south),
+                    (t.east, t.south),
+                    (t.west, t.north),
+                    (t.east, t.north),
+                ]
+                .iter()
+                .any(|&(lon, lat)| {
+                    let (e, n) = proj::wgs84_to_lv95(lon, lat);
+                    mask.contains(Coord::new(e, n))
+                })
+            })
+            .count();
+        assert!(
+            corner_only < plan.tile_count(),
+            "this fixture no longer exercises the corner-only failure"
+        );
+    }
+
+    /// A mask is optional, and without one nothing changes.
+    #[test]
+    fn an_unmasked_plan_is_unchanged_by_the_mask_support() {
+        let b = around(3_000.0);
+        let l = RasterLimits::default();
+        assert_eq!(plan(&b, &l, NATIVE_M_PER_PX).unwrap(), masked(&b, &l, None));
+    }
+
+    /// A selection the grid cannot reach at all is an error, not an empty KMZ. An
+    /// overlay with no overlays in it would install and show nothing.
+    #[test]
+    fn a_selection_no_tile_reaches_is_refused() {
+        use crate::geom::Coord;
+        // A mask far outside the box it is planned against.
+        let route = vec![
+            Coord::new(2_500_000.0, 1_100_000.0),
+            Coord::new(2_501_000.0, 1_101_000.0),
+        ];
+        let mask = crate::mask::Mask::corridor(vec![route], 500.0);
+        let elsewhere = BBox::from_center(2_700_000.0, 1_200_000.0, 5_000.0);
+        let e = plan_masked(
+            &elsewhere,
+            &RasterLimits::default(),
+            NATIVE_M_PER_PX,
+            DEFAULT_LAYER,
+            Some(&mask),
+        )
+        .expect_err("nothing to cover");
+        assert!(e.to_string().contains("no map tile"), "{e}");
+    }
+
+    /// A thin selection inside a national box must not grid the country at native
+    /// resolution before deciding to coarsen.
+    #[test]
+    fn a_thin_selection_in_a_huge_box_still_terminates() {
+        let (mask, _) = corridor(1_000.0);
+        let switzerland = BBox::new(2_485_000.0, 1_075_000.0, 2_834_000.0, 1_296_000.0);
+        let started = std::time::Instant::now();
+        let plan = masked(&switzerland, &RasterLimits::default(), Some(&mask));
+        assert!(plan.tile_count() <= 100);
+        assert!(!plan.tiles.is_empty());
+        // Not a benchmark -- a guard that MAX_GRID_TILES is doing its job. The
+        // unbounded version probes 47 000 tiles before it learns to coarsen.
+        assert!(
+            started.elapsed().as_secs() < 20,
+            "planning took {:?}",
+            started.elapsed()
+        );
     }
 }
