@@ -184,12 +184,19 @@ jobs:
         shell: bash
         env:
           # linuxdeploy and its plugins are themselves AppImages, and mounting one needs
-          # FUSE 2, which the Ubuntu runners no longer ship. This tells them to unpack
-          # and run instead of mounting, which is what makes the AppImage target work on
-          # a runner without libfuse2 -- the other failure on this workflow's first real
-          # run, reported only as `failed to run linuxdeploy`.
+          # FUSE 2. Unpacking instead of mounting removes that dependency entirely;
+          # libfuse2 is installed as well, so either route works.
           APPIMAGE_EXTRACT_AND_RUN: 1
-        run: npx --prefix frontend tauri build --config "$SIGN_CONFIG"
+          # linuxdeploy strips every ELF file it copies, and this bundle carries a whole
+          # JRE -- a few hundred shared objects, some of which it cannot strip. A strip
+          # failure aborts the run, and Tauri surfaces it only as `failed to run
+          # linuxdeploy` with the real message swallowed. Nothing here needs stripping:
+          # the release profile is already optimised and the JRE ships as Adoptium built
+          # it.
+          NO_STRIP: "true"
+        # Verbose because the above is the second guess at a failure whose actual error
+        # Tauri does not print. If the AppImage breaks again, the log has to say why.
+        run: npx --prefix frontend tauri build --verbose --config "$SIGN_CONFIG"
 
       # The check that matters, and the one that would have caught the three defects the
       # Milestone 7 audit found: a bundle that carries no resources, or that looks for the
