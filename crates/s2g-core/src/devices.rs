@@ -69,6 +69,14 @@ pub struct MapFile {
     pub max_img_bytes: u64,
     pub max_tiles_per_mapset: usize,
     pub install_paths: Vec<String>,
+    /// Whether the device can present itself as a USB drive at all.
+    ///
+    /// `Some(false)` means MTP is the only mode it offers, so telling the user to change
+    /// a USB-mode setting is telling them to look for a menu that does not exist — which
+    /// is what this app did to Edge 840 owners. `None` means unknown, and the advice has
+    /// to cover both cases.
+    #[serde(default)]
+    pub usb_mass_storage: Option<bool>,
     /// True when the file must be named literally `gmapsupp.img`.
     #[serde(default)]
     pub requires_exact_filename: bool,

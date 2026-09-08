@@ -354,4 +354,10 @@ profileId: string | null,
 /**
  * True when the same model is also mounted, in which case there is nothing to fix.
  */
-mounted: boolean, };
+mounted: boolean, 
+/**
+ * Whether this model can present itself as a USB drive at all, from its profile.
+ * `None` is unknown. `Some(false)` means telling the user to change a USB-mode
+ * setting would send them looking for a menu the device does not have.
+ */
+usbMassStorage: boolean | null, };

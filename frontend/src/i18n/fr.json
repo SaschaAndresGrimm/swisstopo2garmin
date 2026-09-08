@@ -190,8 +190,7 @@
   "device.limits.save": "Enregistrer",
   "device.limits.saved": "Enregistré.",
   "device.limits.title": "Limites que vous avez mesurées",
-  "device.mtpAlternative": "Sinon, créez la carte et copiez le fichier dans Garmin/ sur l’appareil avec un outil de transfert comme Android File Transfer ou OpenMTP. L’étape de création indique son emplacement.",
-  "device.mtpHint": "L’appareil est en mode MTP, que macOS ne peut pas monter. Sur l’appareil : Paramètres → Système → Mode USB → Garmin (stockage de masse), puis reconnectez. Sur une fēnix : Paramètres → Système → Mode USB → Garmin.",
+  "device.mtpHint": "L’appareil est en mode MTP, que macOS ne peut pas monter comme un disque. Beaucoup d’appareils Garmin peuvent changer : sur l’appareil, Paramètres → Système → Mode USB → Garmin, puis rebranchez. Les Edge récents n’ont pas ce réglage — pour ceux-là, copiez le fichier.",
   "device.notes": "À propos de ce profil",
   "device.relief": "Ombrage du relief",
   "device.rescan": "Rechercher à nouveau",
@@ -346,5 +345,7 @@
   "install.rasterTarget": "Image copiée vers",
   "install.rasterFolder": "Dossier de l’image",
   "install.rasterUnavailable": "Aucune limite de cartes personnelles n’est connue pour cet appareil, l’image ne sera donc pas installée. La carte elle-même le sera.",
-  "install.rasterFailed": "La carte a été installée mais pas la carte nationale en image : {message}"
+  "install.rasterFailed": "La carte a été installée mais pas la carte nationale en image : {message}",
+  "device.mtpOnly": "Ce modèle n’a aucun réglage de mode USB : MTP est son seul mode, il n’y a donc rien à changer sur l’appareil. macOS ne peut pas monter le MTP comme un disque.",
+  "device.mtpCopy": "Construisez la carte, puis copiez le fichier dans le dossier Garmin de l’appareil. Sous macOS, utilisez un outil comme OpenMTP ; sous Windows, l’Explorateur gère le MTP nativement. L’étape de construction indique où se trouve le fichier, et « Exporter vers un dossier » en place une copie où vous voulez."
 }

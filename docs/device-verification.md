@@ -292,6 +292,26 @@ the app then offers no overlay rather than a broken one.
 
 ---
 
+## C.10 How the device connects
+
+Not a limit but a device fact, and one the app gets wrong if it guesses. Record, for each
+device: whether it presents itself as a USB drive at all, and if so what setting controls
+it.
+
+The Edge 840 is the case that matters. It offers **no USB-mode setting** — MTP is its only
+mode — so on macOS, which has no MTP filesystem, it never appears under `/Volumes` and
+nothing can be written to it directly. The app used to tell every unmounted device's owner
+to change "Settings → System → USB Mode → Garmin", which on that device is a menu that
+does not exist. The profile now records `mapFile.usbMassStorage`, and `None` means unknown
+rather than either answer.
+
+For a new device, the answer is cheap to get: plug it in and see whether it mounts. If it
+does, it is `true`, and reading `Garmin/GarminDevice.xml` off the volume proves it. If it
+does not, look for the USB-mode setting before concluding `false`, and say in the notes
+which of the two you established.
+
+---
+
 ## D. Recording results
 
 Update the device's JSON profile with the measured values, set

@@ -190,8 +190,7 @@
   "device.limits.save": "Speichern",
   "device.limits.saved": "Gespeichert.",
   "device.limits.title": "Selbst gemessene Grenzwerte",
-  "device.mtpAlternative": "Alternativ die Karte erstellen und die Datei mit einem Übertragungsprogramm wie Android File Transfer oder OpenMTP nach Garmin/ auf dem Gerät kopieren. Der Erstellungsschritt zeigt den Speicherort.",
-  "device.mtpHint": "Das Gerät ist im MTP-Modus, den macOS nicht als Laufwerk einbinden kann. Am Gerät: Einstellungen → System → USB-Modus → Garmin (Massenspeicher), dann neu verbinden. Bei einer fēnix entsprechend: Einstellungen → System → USB-Modus → Garmin.",
+  "device.mtpHint": "Das Gerät ist im MTP-Modus, den macOS nicht als Laufwerk einbinden kann. Viele Garmin-Geräte lassen sich umstellen: auf dem Gerät Einstellungen → System → USB-Modus → Garmin, dann neu verbinden. Neuere Edge-Modelle haben diese Einstellung nicht — dort die Datei stattdessen kopieren.",
   "device.notes": "Über dieses Profil",
   "device.relief": "Reliefschattierung",
   "device.rescan": "Neu suchen",
@@ -346,5 +345,7 @@
   "install.rasterTarget": "Bildkarte nach",
   "install.rasterFolder": "Ordner für die Bildkarte",
   "install.rasterUnavailable": "Für dieses Gerät sind keine Grenzwerte für eigene Karten bekannt, daher wird die Bildkarte nicht installiert. Die Karte selbst schon.",
-  "install.rasterFailed": "Die Karte wurde installiert, die Landeskarte als Bild jedoch nicht: {message}"
+  "install.rasterFailed": "Die Karte wurde installiert, die Landeskarte als Bild jedoch nicht: {message}",
+  "device.mtpOnly": "Dieses Modell hat keine USB-Modus-Einstellung: MTP ist der einzige Modus, es gibt am Gerät also nichts umzustellen. macOS kann MTP nicht als Laufwerk einbinden.",
+  "device.mtpCopy": "Karte erstellen und die Datei dann in den Ordner Garmin auf dem Gerät kopieren. Unter macOS mit einem Werkzeug wie OpenMTP; der Windows-Explorer beherrscht MTP selbst. Der Build-Schritt zeigt, wo die Datei liegt, und „In Ordner exportieren“ legt eine Kopie an beliebiger Stelle ab."
 }

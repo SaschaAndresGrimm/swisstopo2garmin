@@ -190,8 +190,7 @@
   "device.limits.save": "Save",
   "device.limits.saved": "Saved.",
   "device.limits.title": "Limits measured yourself",
-  "device.mtpAlternative": "Alternatively, build the map and copy the file to Garmin/ on the device with a file transfer tool such as Android File Transfer or OpenMTP. The build step shows the file's location.",
-  "device.mtpHint": "The device is in MTP mode, which macOS cannot mount as a drive. On the device: Settings → System → USB Mode → Garmin (mass storage), then reconnect. On a fēnix, the equivalent is Settings → System → USB Mode → Garmin.",
+  "device.mtpHint": "The device is in MTP mode, which macOS cannot mount as a drive. Many Garmin devices can switch: on the device, look for Settings → System → USB Mode → Garmin, then reconnect. Recent Edge models have no such setting — for those, copy the file instead.",
   "device.notes": "About this profile",
   "device.relief": "Shaded relief",
   "device.rescan": "Scan again",
@@ -346,5 +345,7 @@
   "install.rasterTarget": "Overlay goes to",
   "install.rasterFolder": "Overlay folder",
   "install.rasterUnavailable": "This device has no known custom-map limits, so the overlay will not be installed. The map itself will be.",
-  "install.rasterFailed": "The map was installed but the paper-map overlay was not: {message}"
+  "install.rasterFailed": "The map was installed but the paper-map overlay was not: {message}",
+  "device.mtpOnly": "This model has no USB-mode setting: MTP is the only mode it offers, so there is nothing to change on the device. macOS cannot mount MTP as a drive.",
+  "device.mtpCopy": "Build the map, then copy the file into the Garmin folder on the device. On macOS use a tool such as OpenMTP; on Windows, File Explorer speaks MTP natively. The build step shows where the file is, and Export to folder puts a copy wherever you like."
 }

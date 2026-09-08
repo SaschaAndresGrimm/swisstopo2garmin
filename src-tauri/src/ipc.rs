@@ -681,6 +681,10 @@ pub struct UsbDeviceInfo {
     pub profile_id: Option<String>,
     /// True when the same model is also mounted, in which case there is nothing to fix.
     pub mounted: bool,
+    /// Whether this model can present itself as a USB drive at all, from its profile.
+    /// `None` is unknown. `Some(false)` means telling the user to change a USB-mode
+    /// setting would send them looking for a menu the device does not have.
+    pub usb_mass_storage: Option<bool>,
 }
 
 /// Garmin devices attached over USB, mounted or not (FR-DEV5).
@@ -701,9 +705,10 @@ pub fn usb_devices() -> IpcResult<Vec<UsbDeviceInfo>> {
                     .map(|x| x.eq_ignore_ascii_case(&d.model))
                     .unwrap_or(false)
             });
+            let profile = devices::match_profile(&profiles, &d.model, looks_wrist(&d.model));
             UsbDeviceInfo {
-                profile_id: devices::match_profile(&profiles, &d.model, looks_wrist(&d.model))
-                    .map(|p| p.id.clone()),
+                profile_id: profile.map(|p| p.id.clone()),
+                usb_mass_storage: profile.and_then(|p| p.map_file.usb_mass_storage),
                 mounted: is_mounted,
                 model: d.model,
                 serial: d.serial,

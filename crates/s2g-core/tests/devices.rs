@@ -268,3 +268,47 @@ fn raster_limits_are_stated_or_absent_never_guessed() {
         "no profile can take a raster overlay, so the feature is unreachable"
     );
 }
+
+/// The app must not tell a device's owner to change a setting it does not have.
+///
+/// The Edge 840 offers no USB-mode menu -- MTP is its only mode -- and the app spent its
+/// life advising "Settings → System → USB Mode → Garmin" to everyone. A profile that
+/// records `usbMassStorage: false` is what lets the UI say something true instead, so the
+/// value has to survive and has to be sourced like any other device fact (rule 3).
+#[test]
+fn a_profile_that_denies_mass_storage_says_where_that_came_from() {
+    let profiles = s2g_core::devices::load_profiles(std::path::Path::new("../../devices")).unwrap();
+    let edge = profiles
+        .iter()
+        .find(|p| p.id == "edge-840")
+        .expect("edge-840");
+    assert_eq!(
+        edge.map_file.usb_mass_storage,
+        Some(false),
+        "the Edge 840 is MTP-only; recording it as anything else resurrects the bad advice"
+    );
+    let fenix = profiles
+        .iter()
+        .find(|p| p.id == "fenix-5-plus")
+        .expect("fenix-5-plus");
+    assert_eq!(
+        fenix.map_file.usb_mass_storage,
+        Some(true),
+        "this project read its GarminDevice.xml off a mounted volume"
+    );
+    for p in &profiles {
+        if p.map_file.usb_mass_storage.is_some() {
+            assert!(
+                p.confidence.notes.contains("USB mode:"),
+                "{}: states a USB mode with nothing in the notes to stand on",
+                p.id
+            );
+        }
+    }
+    // A profile that does not know must say so by absence, not by guessing.
+    let generic = profiles
+        .iter()
+        .find(|p| p.id == "generic-edge")
+        .expect("generic-edge");
+    assert_eq!(generic.map_file.usb_mass_storage, None);
+}

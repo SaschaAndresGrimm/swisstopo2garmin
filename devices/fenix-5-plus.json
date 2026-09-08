@@ -22,6 +22,7 @@
     "installPaths": [
       "/Garmin/"
     ],
+    "usbMassStorage": true,
     "requiresExactFilename": true,
     "supportsMultipleMapsets": false
   },
@@ -45,6 +46,6 @@
       "https://forums.garmin.com/outdoor-recreation/outdoor-recreation/f/fenix-7-series/348498/why-are-the-kmz-custom-maps-still-limited-to-100-tiles-on-the-new-devices"
     ],
     "lastVerified": "2026-09-06",
-    "notes": "Verified on hardware (firmware 1930, part 006-B3110-00): the wrist cartography renders correctly and legibly, and coexists with the factory map. GarminDevice.xml advertises Garmin/CustomMaps and Garmin/BirdsEye. NOT measured: maxImgBytes, maxTilesPerMapset, and whether DEM shaded relief actually renders on this generation. The 20 MB limit often quoted for fenix devices is fenix 3-era and does not apply here. Custom Map raster limits are community figures, NOT measured here and NOT published by Garmin (whose own documentation was unreachable): 100 tiles across all KMZ files on the device and 1 megapixel per tile. The 500-tile allowance is reported only for Montana, Oregon 6x0 and GPSMAP 64, which this is not, so 100 is the safe figure. Unverified on hardware -- see docs/device-verification.md I."
+    "notes": "Verified on hardware (firmware 1930, part 006-B3110-00): the wrist cartography renders correctly and legibly, and coexists with the factory map. GarminDevice.xml advertises Garmin/CustomMaps and Garmin/BirdsEye. NOT measured: maxImgBytes, maxTilesPerMapset, and whether DEM shaded relief actually renders on this generation. The 20 MB limit often quoted for fenix devices is fenix 3-era and does not apply here. Custom Map raster limits are community figures, NOT measured here and NOT published by Garmin (whose own documentation was unreachable): 100 tiles across all KMZ files on the device and 1 megapixel per tile. The 500-tile allowance is reported only for Montana, Oregon 6x0 and GPSMAP 64, which this is not, so 100 is the safe figure. Unverified on hardware -- see docs/device-verification.md I. USB mode: mounts as a USB drive -- measured, in the sense that this project read its GarminDevice.xml off the mounted volume, which is not possible over MTP."
   }
 }

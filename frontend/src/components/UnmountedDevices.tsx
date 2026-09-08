@@ -8,8 +8,12 @@ import type { T } from "../i18n";
  * device never appears under /Volumes. Before this the app reported no device at all
  * while one was plainly plugged in — a silent failure with nothing to act on.
  *
- * Nothing can be written to an MTP device from here, but saying which device it is and
- * what to change turns a dead end into a two-tap fix on the device itself.
+ * Nothing can be written to an MTP device from here, so what matters is saying something
+ * true about what to do next. The hint used to be "Settings → System → USB Mode →
+ * Garmin" for every device, which is **wrong for the Edge 840**: recent Edge models have
+ * no USB-mode setting at all, and that advice sent their owners looking for a menu that
+ * does not exist. The profile now records whether a device can be a USB drive, so the
+ * text says the right thing per device and leads with the route that actually works.
  */
 export function UnmountedDevices({
   t,
@@ -43,8 +47,20 @@ export function UnmountedDevices({
           </li>
         ))}
       </ul>
-      <p className="small">{t("device.mtpHint")}</p>
-      <p className="muted small">{t("device.mtpAlternative")}</p>
+      {/* Ordered by what will actually work for this device. When mass storage is not
+          available there is no setting to change, so copying the file is not an
+          "alternative" -- it is the only route, and is stated first. */}
+      {unmounted.every((d) => d.usbMassStorage === false) ? (
+        <>
+          <p className="small">{t("device.mtpOnly")}</p>
+          <p className="small">{t("device.mtpCopy")}</p>
+        </>
+      ) : (
+        <>
+          <p className="small">{t("device.mtpHint")}</p>
+          <p className="muted small">{t("device.mtpCopy")}</p>
+        </>
+      )}
     </div>
   );
 }

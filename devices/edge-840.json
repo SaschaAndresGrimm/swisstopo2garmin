@@ -19,6 +19,7 @@
       "/Garmin/",
       "/Garmin/Maps/"
     ],
+    "usbMassStorage": false,
     "requiresExactFilename": false,
     "supportsMultipleMapsets": true
   },
@@ -40,10 +41,11 @@
       "https://www.dcrainmaker.com/2019/08/how-to-install-free-maps-on-your-garmin-edge.html",
       "https://community.openstreetmap.org/t/splitting-img-files-into-multiple-smaller-files/95508",
       "https://github.com/NINAnor/GarminCustomMaps",
-      "https://forums.garmin.com/outdoor-recreation/outdoor-recreation/f/fenix-7-series/348498/why-are-the-kmz-custom-maps-still-limited-to-100-tiles-on-the-new-devices"
+      "https://forums.garmin.com/outdoor-recreation/outdoor-recreation/f/fenix-7-series/348498/why-are-the-kmz-custom-maps-still-limited-to-100-tiles-on-the-new-devices",
+      "https://forums.garmin.com/sports-fitness/cycling/f/edge-840-series/398295/why-is-mtp-not-configurable-i-need-mass-storage-access"
     ],
     "lastVerified": "2026-09-06",
-    "notes": "Verified on hardware (firmware 3133, part 006-B4062-00): the map renders, mixed-case Swiss labels are correct, and DEM shaded relief DOES render -- though it is too dark/contrasty at 1 arc-second in alpine terrain. GarminDevice.xml advertises Garmin/CustomMaps and Garmin/BirdsEye directories, which contradicts the common claim that Edge devices cannot take raster maps; unproven, but worth investigating for raster fidelity. NOT measured: maxImgBytes, maxTilesPerMapset. See docs/device-verification.md B. Custom Map raster limits are community figures, NOT measured here and NOT published by Garmin (whose own documentation was unreachable): 100 tiles across all KMZ files on the device and 1 megapixel per tile. The 500-tile allowance is reported only for Montana, Oregon 6x0 and GPSMAP 64, which this is not, so 100 is the safe figure. Unverified on hardware -- see docs/device-verification.md I."
+    "notes": "Verified on hardware (firmware 3133, part 006-B4062-00): the map renders, mixed-case Swiss labels are correct, and DEM shaded relief DOES render -- though it is too dark/contrasty at 1 arc-second in alpine terrain. GarminDevice.xml advertises Garmin/CustomMaps and Garmin/BirdsEye directories, which contradicts the common claim that Edge devices cannot take raster maps; unproven, but worth investigating for raster fidelity. NOT measured: maxImgBytes, maxTilesPerMapset. See docs/device-verification.md B. Custom Map raster limits are community figures, NOT measured here and NOT published by Garmin (whose own documentation was unreachable): 100 tiles across all KMZ files on the device and 1 megapixel per tile. The 500-tile allowance is reported only for Montana, Oregon 6x0 and GPSMAP 64, which this is not, so 100 is the safe figure. Unverified on hardware -- see docs/device-verification.md I. USB mode: the Edge 840 offers NO setting to present itself as a USB drive -- MTP is its only mode, per Garmin's own Edge 840 forum, so the app must not suggest changing one. Community-sourced, not vendor-documented. Files reach it through MTP: File Explorer on Windows, which speaks MTP natively, or a tool such as OpenMTP on macOS, which has no MTP support of its own."
   },
   "partNumbers": [
     "006-B4062-00"
