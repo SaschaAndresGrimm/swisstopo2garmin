@@ -257,6 +257,36 @@ a cycle instead of waiting on the 26-minute macOS x64 leg.
 
 Windows built correctly on the first attempt and every attempt since.
 
+### v0.2.0 verified from the published artefact, 2026-09-08
+
+Checklist step 7, done against the file users actually get rather than a local build. The
+arm64 `.dmg` was downloaded from the release, its digest checked against the published
+`SHA256SUMS`, mounted, and:
+
+```
+CFBundleShortVersionString      0.2.0
+Resources/                      LICENSE NOTICE devices estimator icon.icns style typ vendor
+Resources/icon.icns             sha256 matches src-tauri/icons/icon.icns
+codesign                        flags=0x20002(adhoc,linker-signed), Signature=adhoc
+vendor/jre .../bin/java -jar mkgmap.jar --version    Mkgmap version 4924
+vendor/jre .../bin/java -jar splitter.jar --version  splitter 654
+```
+
+The last two lines are the point: the bundled Java ran the bundled tools from inside the
+mounted image, so the distributable found its own toolchain. `adhoc, linker-signed` is
+what unsigned looks like, and is expected until a certificate exists.
+
+All four platforms produced artefacts: `aarch64.dmg` 51.5 MB, `x64.dmg` 47.1 MB,
+`x64_en-US.msi` 52.1 MB, `amd64.AppImage` 123.3 MB, `amd64.deb` 56.4 MB, plus `sbom.json`
+and `SHA256SUMS`. The AppImage is much the largest because linuxdeploy bundles the WebKit
+stack that the other platforms take from the OS.
+
+**Still not done for this release:** checklist step 8 (a map built from the installed app
+and put on a device) and step 9 (sample maps attached to the release). The sample maps on
+disk were built before the version bump, so their manifests record `0.1.0`; they should be
+rebuilt with `tools/device_test_set.sh` before being attached to a 0.2.0 release rather
+than shipped with a version string that is now wrong.
+
 ## Signing: wired, and inert until the secrets exist
 
 Every signing step is guarded on **its secret being present**, so today the workflow
