@@ -21,7 +21,26 @@ Datasets used:
   swissALTI3D         ch.swisstopo.swissalti3d
   swissALTIRegio      ch.swisstopo.swissaltiregio
   swissTLMRegio       ch.swisstopo.swisstlmregio
-  National map raster ch.swisstopo.pixelkarte-farbe (palette reference only)
+  swissBOUNDARIES3D   ch.swisstopo.swissboundaries3d
+  swissNAMES3D        ch.swisstopo.swissnames3d
+  Address register    ch.swisstopo.amtliches-gebaeudeadressverzeichnis
+  Winter accommodation  ch.swisstopo.unterkuenfte-winter
+  Ski touring routes  ch.swisstopo-karto.skitouren
+  National map raster ch.swisstopo.pixelkarte-farbe
+  Hiking/cycling routes  ch.astra.wanderland, ch.astra.veloland,
+                         ch.astra.mountainbikeland, ch.astra.schneeschuhwanderwege,
+                         ch.astra.winterwanderwege (Federal Roads Office, ASTRA)
+
+The national map raster was previously listed here as "palette reference only". That
+stopped being true in 0.2.0: the paper-map overlay (SPEC.md section 8.5) fetches
+pixelkarte-farbe tiles and embeds them in a KMZ that the user installs on a device and
+may pass on. Those tiles are redistributed swisstopo imagery, so the KMZ carries the
+attribution inside itself, in doc.kml, as well as in the application.
+
+Test fixtures and reference renders committed to this repository
+(crates/s2g-core/tests/fixtures/, cartography/golden/) are small clips of, and renders
+derived from, the datasets above, redistributed under the same terms with the
+attribution in this file.
 
 --------------------------------------------------------------------------------
 Bundled third-party tools

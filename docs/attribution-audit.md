@@ -10,11 +10,20 @@ satisfied. Two findings are recorded at the end: one fixed, one open.
 | About screen | `frontend/src/steps/AboutScreen.tsx`, reachable from the header on every screen | `frontend/scripts/check-i18n.mjs` (the strings exist in all four languages) |
 | Build report | `manifest.attribution`, written beside every `.img` | `a_manifest_round_trips_through_disk` |
 | Map metadata | `MapIdentity::description` → mkgmap `--description`, so it is inside the file | `builds_a_verified_gmapsupp_from_the_fixture` |
+| Raster overlay | `raster::doc_kml` writes `© swisstopo` into the KMZ's own `doc.kml` (FR-R6) | `the_kml_has_one_ground_overlay_per_tile_and_carries_the_attribution` |
 
-The third row is the one that matters, and it is now actually checked: the test reads the
-compiled `gmapsupp.img` back as bytes and asserts the copyright string is present. A
-footer in the app does not satisfy FR-L1, because the file leaves the app — it goes onto a
-device and gets passed to other people, and the attribution has to travel with it.
+The last two rows are the ones that matter, and both are actually checked: the `.img` test
+reads the compiled `gmapsupp.img` back as bytes and asserts the copyright string is
+present. A footer in the app does not satisfy FR-L1, because the file leaves the app — it
+goes onto a device and gets passed to other people, and the attribution has to travel with
+it.
+
+The overlay row was added in 0.2.0 and is a stronger case than the vector map: a KMZ
+contains *redistributed swisstopo imagery* rather than a derived rendering, so its
+attribution is the difference between passing on a licensed file and an unlicensed one.
+`NOTICE` was corrected at the same time — it had listed `ch.swisstopo.pixelkarte-farbe` as
+"palette reference only", which stopped being true when the overlay began fetching tiles
+from it.
 
 The About screen reads the string from the backend, from the same call the pipeline uses
 (`MapIdentity::for_recipe`). A hand-written copy in the frontend could drift from what is
